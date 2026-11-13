@@ -148,7 +148,7 @@ def _company_out(company: ShowCompany, prices: PriceBook) -> ShowCompanyOut:
         plan_label=plan.label,
         plan_rate_cents=prices.rate(plan.key, today),
         effective_plan=effective,
-        effective_plan_label=effective_label(effective, lapse, grant),
+        effective_plan_label=effective_label(effective, lapse, grant, company.plan),
         grants=[GrantOut.model_validate(g) for g in company.grants],
         active_grant_id=grant.id if grant is not None else None,
         verified_at=company.verified_at,

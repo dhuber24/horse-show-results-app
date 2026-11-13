@@ -51,7 +51,16 @@ from schemas import (
     UsageShowOut,
     UsageSubscriptionOut,
 )
-from show_companies import GRANT_KINDS, PLANS, PRO_PLUS, covering_grant, covering_subscription, show_billing_plan, utc_today
+from show_companies import (
+    GRANT_KINDS,
+    PLANS,
+    PRO_PLUS,
+    UPGRADE,
+    covering_grant,
+    covering_subscription,
+    show_billing_plan,
+    utc_today,
+)
 from subscription_prices import PriceBook, load_prices
 
 
@@ -298,8 +307,10 @@ async def usage_statement(
 
     **A show is priced on its first day** (migration 179): at the price in force
     that day, so a later change never touches it, and at nothing when a comp or
-    trial covers that day, as a Pro+ year does. `company` must have
-    `plan_changes` and `subscriptions` loaded. Pass `prices` when reading many."""
+    trial covers that day, as a Pro+ year does. **An upgrade covering it changes
+    only the label** (migration 188): the show is still at its own plan's price.
+    `company` must have `plan_changes` and `subscriptions` loaded. Pass `prices`
+    when reading many."""
     prices = prices or await load_prices(db)
     company_id = company.id
     plan = PLANS.get(company.plan) or PLANS["free"]
@@ -330,7 +341,11 @@ async def usage_statement(
         rate = prices.rate(billed.key, show.start_date)
         billed_label = billed.label
         grant = None if billed.key == PRO_PLUS else covering_grant(company.grants, show.start_date)
-        if grant is not None:
+        if grant is not None and grant.kind == UPGRADE:
+            # Migration 188: Pro's features, and the company's own plan's price.
+            if PLANS[grant.plan].rank > billed.rank:
+                billed_label = f"{billed.label} ({GRANT_KINDS[grant.kind]} to {PLANS[grant.plan].label})"
+        elif grant is not None:
             billed = PLANS[grant.plan]
             rate = 0
             billed_label = f"{billed.label} ({GRANT_KINDS[grant.kind]})"

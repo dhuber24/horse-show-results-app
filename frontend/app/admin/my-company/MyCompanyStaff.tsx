@@ -60,8 +60,9 @@ export type MyPlan = {
   effective_plan_label: string;
   rate_cents: number;
   sets_up_shows: boolean;
-  /** Migration 179: on a comp or trial today, and its last day (none: no end). */
-  grant_kind?: 'comp' | 'trial' | null;
+  /** Migration 179: on a comp or trial today, and its last day (none: no end).
+   *  `upgrade` (migration 188): Pro's features on the plan it pays for. */
+  grant_kind?: 'comp' | 'trial' | 'upgrade' | null;
   grant_ends_on?: string | null;
   pro_plus: { starts_on: string; ends_on: string; renewal_due: boolean } | null;
   pro_plus_requested_at: string | null;
@@ -171,7 +172,15 @@ function PlanBlock({
             Plan: {plan.effective_plan_label}
           </h3>
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-            {plan.grant_kind ? (
+            {plan.grant_kind === 'upgrade' ? (
+              <>
+                GaitDesk has upgraded you to Pro&apos;s features at no extra charge. Your shows are still billed at{' '}
+                {plan.plan_label}&apos;s {formatRate(plan.rate_cents)} per exhibitor, after each show.
+                {plan.grant_ends_on
+                  ? ` It ends ${formatDay(plan.grant_ends_on)}. After that, ${plan.plan_label} without Pro's features.`
+                  : ' It has no end date.'}
+              </>
+            ) : plan.grant_kind ? (
               <>
                 GaitDesk has given you this plan, and a show that starts while it runs costs nothing per exhibitor.
                 {plan.grant_ends_on

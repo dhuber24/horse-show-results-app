@@ -8,6 +8,7 @@ import {
   type PlanInfo,
   type ShowCompany,
 } from '@/lib/show-companies';
+import { liftingUpgrade } from '@/lib/subscriptions';
 import PlanPicker, { usePlanChange } from './PlanPicker';
 import CompanyGrants from './CompanyGrants';
 import ProPlusYears from './ProPlusYears';
@@ -60,7 +61,10 @@ export default function CompanyPlan({
   const yearEnds = [...(company.subscriptions ?? [])].sort((a, b) => b.ends_on.localeCompare(a.ends_on))[0]?.ends_on;
   const given = (company.grants ?? []).find((g) => g.id === company.active_grant_id);
   // A paid Pro+ year beats a comp or trial (`effective_plan`).
-  const onGrant = given && !onProPlus ? given : null;
+  const onGrant = given && !onProPlus && given.kind !== 'upgrade' ? given : null;
+  // An upgrade leaves the company on the plan it pays for, which stays its
+  // current card; Pro's card says it has Pro's features too (migration 188).
+  const upgrade = liftingUpgrade(company) ?? null;
 
   function tag(plan: PlanInfo, isColumn: boolean): string | null {
     if (plan.key === PRO_PLUS) {
@@ -68,6 +72,7 @@ export default function CompanyPlan({
       return onProPlus ? `Through ${formatDay(yearEnds)}${renews ? ' · renews' : ''}` : null;
     }
     if (onGrant?.plan === plan.key) return onGrant.kind === 'trial' ? 'Free trial' : 'Complimentary';
+    if (upgrade?.plan === plan.key) return upgrade.ends_on ? `Free through ${formatDay(upgrade.ends_on)}` : 'Free upgrade';
     if (isColumn && pending) return 'Saving…';
     if (isColumn && onGrant) return 'After it ends';
     if (isColumn) return onProPlus ? 'After Pro+' : 'Current plan';
@@ -102,8 +107,10 @@ export default function CompanyPlan({
       <div>
         <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Plan</h2>
         <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-          {given && !onProPlus
-            ? `On ${company.effective_plan_label}${given.ends_on ? ` through ${formatDay(given.ends_on)}; ${company.plan_label} after that` : ', with no end date'}. Shows that start while it runs cost nothing per exhibitor. `
+          {upgrade
+            ? `${company.plan_label}, at ${formatRate(company.plan_rate_cents)} per exhibitor registered to each of its shows, with GaitDesk Pro's features free${upgrade.ends_on ? ` through ${formatDay(upgrade.ends_on)}` : ', with no end date'}. Its shows are billed at ${company.plan_label} throughout. `
+            : onGrant
+            ? `On ${company.effective_plan_label}${onGrant.ends_on ? ` through ${formatDay(onGrant.ends_on)}; ${company.plan_label} after that` : ', with no end date'}. Shows that start while it runs cost nothing per exhibitor. `
             : lapsedSince
             ? `Pro+ renewal unpaid since ${formatDay(lapsedSince)}: the company sets up no show, and its shows that hadn't finished by then are frozen until it renews or moves to Basic or Pro. `
             : onProPlus && renews

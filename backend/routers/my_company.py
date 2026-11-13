@@ -84,6 +84,7 @@ from show_companies import (
     covering_subscription,
     decline_join_request,
     effective_label,
+    lifting_grant,
     admin_emails,
     email_admins,
     verification_request_email,
@@ -175,6 +176,7 @@ class MyPlanOut(BaseModel):
     rate_cents: int
     sets_up_shows: bool
     # Migration 179: on a comp or trial today, and when it ends (none: no end).
+    # Or `upgrade` (migration 188): Pro's features on the plan it pays for.
     grant_kind: Optional[str] = None
     grant_ends_on: Optional[date] = None
     pro_plus: Optional[ProPlusYearOut] = None
@@ -240,8 +242,9 @@ def _plan_out(company: ShowCompany, prices: PriceBook) -> MyPlanOut:
     today = utc_today()
     effective = loaded_effective_plan(company, today)
     lapse = loaded_pro_plus_lapse(company, today)
-    grant = covering_grant(company.grants, today)
-    on_grant = grant is not None and effective == grant.plan
+    # A comp or trial, or an upgrade lifting the plan it pays for (migration 188).
+    grant = lifting_grant(company.plan, effective, covering_grant(company.grants, today))
+    on_grant = grant is not None
     base = PLANS.get(company.plan) or PLANS["free"]
     year = covering_subscription(company.subscriptions, today)
     pro_plus = None
@@ -257,7 +260,7 @@ def _plan_out(company: ShowCompany, prices: PriceBook) -> MyPlanOut:
         plan=base.key,
         plan_label=base.label,
         effective_plan=effective,
-        effective_plan_label=effective_label(effective, lapse, grant),
+        effective_plan_label=effective_label(effective, lapse, grant, company.plan),
         rate_cents=prices.rate(base.key, today),
         grant_kind=grant.kind if on_grant else None,
         grant_ends_on=grant.ends_on if on_grant else None,

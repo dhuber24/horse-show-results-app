@@ -4,12 +4,21 @@
  * out by the backend (`gaitdesk_invoices.company_money`, `subscription_prices`);
  * this only decides which ones need somebody's attention and how they read.
  */
-import { PRO_PLUS, formatDay, formatRate, type PlanKey, type ShowCompany } from './show-companies';
+import { PRO_PLUS, formatDay, formatRate, type CompanyGrant, type PlanKey, type ShowCompany } from './show-companies';
 import type { ProPlan } from './trainer-registry';
 
+/** How a trainer's Pro, or a company's plan, was given. */
 export type GrantKind = 'comp' | 'trial';
 
-export const GRANT_LABELS: Record<GrantKind, string> = { comp: 'Complimentary', trial: 'Free trial' };
+/** A company may also be upgraded (migration 188): Pro's features while it
+ *  still pays for its own plan. A trainer has nothing above Pro to upgrade to. */
+export type CompanyGrantKind = GrantKind | 'upgrade';
+
+export const GRANT_LABELS: Record<CompanyGrantKind, string> = {
+  comp: 'Complimentary',
+  trial: 'Free trial',
+  upgrade: 'Free upgrade',
+};
 
 /** Where a company's plan is changed, with its row open. The one place an admin changes one. */
 export const companySubscriptionHref = (companyId: string) => `/admin/subscriptions?company=${companyId}`;
@@ -111,6 +120,25 @@ export function activeGrant(company: ShowCompany) {
   return company.grants?.find((g) => g.id === company.active_grant_id);
 }
 
+/**
+ * The grant covering today when it is what puts the company on today's plan,
+ * as the backend's `lifting_grant` decides: a paid Pro+ year beats it, and an
+ * upgrade (migration 188) lifts only Basic -- on Free it waits for the company
+ * to choose Basic, and on Pro there is nothing to lift.
+ */
+export function liftingGrant(company: ShowCompany): CompanyGrant | undefined {
+  const grant = activeGrant(company);
+  if (!grant || company.effective_plan !== grant.plan) return undefined;
+  if (grant.kind === 'upgrade' && company.plan === grant.plan) return undefined;
+  return grant;
+}
+
+/** An upgrade lifting the company's plan today, or undefined. */
+export function liftingUpgrade(company: ShowCompany): CompanyGrant | undefined {
+  const grant = liftingGrant(company);
+  return grant?.kind === 'upgrade' ? grant : undefined;
+}
+
 /** What needs somebody on a company's row: `urgent` needs doing, the rest is coming up. */
 export function companyChips(company: ShowCompany, money: CompanyMoney | undefined): Chip[] {
   const chips: Chip[] = [];
@@ -138,7 +166,7 @@ export function companyChips(company: ShowCompany, money: CompanyMoney | undefin
     chips.push({ label: 'Asked to be verified', urgent: true });
   }
   if (money?.renewal_due) chips.push({ label: 'Pro+ renewal due', urgent: false });
-  if (money?.grant_ending_soon) chips.push({ label: 'Comp or trial ending this week', urgent: false });
+  if (money?.grant_ending_soon) chips.push({ label: 'Comp, trial or upgrade ending this week', urgent: false });
   if (!company.verified_at && !company.verification_requested_at) chips.push({ label: 'Not verified', urgent: false });
   return chips;
 }
@@ -180,8 +208,12 @@ export function companyMoneyLine(money: CompanyMoney | undefined): string {
 
 /** Its plan's standing, in a few words: until when, and what follows. */
 export function companyPlanLine(company: ShowCompany): string | null {
-  const grant = activeGrant(company);
-  if (grant && company.effective_plan === grant.plan) {
+  const grant = liftingGrant(company);
+  if (grant?.kind === 'upgrade') {
+    const until = grant.ends_on ? `through ${formatDay(grant.ends_on)}` : 'with no end date';
+    return `Pro free ${until}, billed as ${company.plan_label}`;
+  }
+  if (grant) {
     return grant.ends_on
       ? `Through ${formatDay(grant.ends_on)}, then ${company.plan_label}`
       : 'No end date';
@@ -196,11 +228,20 @@ export function companyPlanLine(company: ShowCompany): string | null {
 /**
  * The button lit on a company's plan control: what it is on today. While a Pro+
  * renewal is unpaid that is Pro+, the plan it holds, though it has none of its
- * features until it pays (`PlanPicker` shows that as a warning).
+ * features until it pays (`PlanPicker` shows that as a warning). During a free
+ * upgrade it is the plan the company pays for, since that is what it is billed:
+ * the row's line says it has Pro's features as well.
  */
 export function planOnToday(company: ShowCompany): PlanKey {
   if (company.pro_plus_lapsed_since) return PRO_PLUS;
+  if (liftingUpgrade(company)) return company.plan;
   return company.effective_plan ?? company.plan;
+}
+
+/** The plan a company is listed under on Manage Subscriptions: what it is on
+ *  today, or during an upgrade the plan it pays for, as its lit button is. */
+export function listedPlan(company: ShowCompany): PlanKey | undefined {
+  return liftingUpgrade(company) ? company.plan : company.effective_plan;
 }
 
 /** Pressing it would change nothing: it is what the company already chose, and
@@ -227,12 +268,19 @@ export function planChoiceTitle(company: ShowCompany, key: PlanKey, label: strin
       ? `${name} moves to ${full} when its Pro+ year runs out`
       : `Follow ${name}'s Pro+ year with ${full}${company.renews_pro_plus ? ' instead of renewing Pro+' : ''}`;
   }
-  if (activeGrant(company)) {
+  const given = activeGrant(company);
+  if (given && given.kind !== 'upgrade') {
     return planChoiceIsNoChange(company, key)
       ? `${name} is on ${full} when its comp or trial ends`
       : `Follow ${name}'s comp or trial with ${full}`;
   }
-  return planChoiceIsNoChange(company, key) ? `${name} is on ${full}` : `Move ${name} to ${full}`;
+  // An upgrade leaves the plan the company pays for to the company: a press
+  // moves it now, and the upgrade goes on lifting Basic (migration 188).
+  if (planChoiceIsNoChange(company, key)) {
+    return liftingUpgrade(company) ? `${name} pays for ${full}, and has Pro's features free` : `${name} is on ${full}`;
+  }
+  if (given && key === 'basic') return `Move ${name} to ${full}: its free upgrade gives it Pro's features`;
+  return `Move ${name} to ${full}`;
 }
 
 export function trainerChips(trainer: TrainerSubscription): Chip[] {

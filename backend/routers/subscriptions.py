@@ -8,7 +8,9 @@ because nothing owned them:
 
   * **The list**: every company's money at a glance, read off the same usage
     statement and invoices its own page reads, and every trainer's plan.
-  * **Comps and trials**: a plan or Pro given for free, for a time or for good.
+  * **Comps, trials and upgrades**: a plan or Pro given for free, for a time or
+    for good -- or, for a company, Pro's features while it still pays for its
+    own plan (an upgrade, migration 188).
   * **The prices**: a dated history (`subscription_prices.py`). A price can't
     start in the past, and a raise on a show company's plan takes the 30 days'
     notice the Terms promise, by email and on My Company.
@@ -233,7 +235,8 @@ async def give_company_plan(
     x_user_id: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Give a company Basic or Pro for free, and tell its show managers."""
+    """Give a company Basic or Pro for free, or upgrade it to Pro's features
+    while it still pays for its own plan, and tell its show managers."""
     company = await _load(db, company_id)
     grant = grant_plan(
         company,
@@ -263,11 +266,12 @@ async def end_company_plan(
     x_user_id: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """End a comp or trial now. Shows that started while it ran stay covered."""
+    """End a comp, trial or upgrade now. Shows that started while it ran stay
+    covered -- for an upgrade that is only their label: they were never free."""
     company = await _load(db, company_id)
     grant = next((g for g in company.grants if g.id == grant_id), None)
     if grant is None:
-        raise HTTPException(404, "That comp or trial isn't on this company.")
+        raise HTTPException(404, "That comp, trial or upgrade isn't on this company.")
     logger.info(
         "Plan given ended: company=%s plan=%s kind=%s %s to %s by user=%s",
         company_id, grant.plan, grant.kind, grant.starts_on, grant.ends_on, x_user_id,

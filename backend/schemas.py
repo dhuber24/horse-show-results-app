@@ -3792,10 +3792,11 @@ class CompanySubscriptionOut(BaseModel):
 
 
 class CompanyGrantIn(BaseModel):
-    """Give a company a plan for free. Left blank it starts today; a comp with no
-    `ends_on` has no end, and a trial must have one."""
+    """Give a company a plan for free. Left blank it starts today; a comp or an
+    upgrade with no `ends_on` has no end, and a trial must have one. An upgrade
+    (migration 188) is to Pro, and the company still pays for its own plan."""
     plan: Literal["basic", "pro"]
-    kind: Literal["comp", "trial"]
+    kind: Literal["comp", "trial", "upgrade"]
     starts_on: Optional[date] = None
     ends_on: Optional[date] = None
     note: Optional[str] = Field(default=None, max_length=500)

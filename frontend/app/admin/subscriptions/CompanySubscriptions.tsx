@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { foldedOwnCompanies, type PlanInfo, type ShowCompany } from '@/lib/show-companies';
-import { companyChips, companyMoneyLine, companyPlanLine, type CompanyMoney } from '@/lib/subscriptions';
+import { companyChips, companyMoneyLine, companyPlanLine, listedPlan, type CompanyMoney } from '@/lib/subscriptions';
 import CompanyPlan from './CompanyPlan';
 import CompanyVerification, { VerifyButton } from './CompanyVerification';
 import PlanPicker from './PlanPicker';
@@ -64,7 +64,7 @@ export default function CompanySubscriptions({
             ? c.verified_how === 'existing'
             : f === 'given'
               ? isGiven(c)
-              : c.effective_plan === f;
+              : listedPlan(c) === f;
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -94,7 +94,7 @@ export default function CompanySubscriptions({
 
   const counts = (['all', 'attention', 'unverified', 'existing', 'given', 'free', 'basic', 'pro', 'pro_plus'] as Filter[]).map((key) => ({
     key,
-    label: { all: 'All', attention: 'Needs attention', unverified: 'Not verified', existing: 'Grandfathered in', given: 'Comped or on trial', free: 'Free', basic: 'Basic', pro: 'Pro', pro_plus: 'Pro+' }[key],
+    label: { all: 'All', attention: 'Needs attention', unverified: 'Not verified', existing: 'Grandfathered in', given: 'Comp, trial or upgrade', free: 'Free', basic: 'Basic', pro: 'Pro', pro_plus: 'Pro+' }[key],
     count: listed.filter((c) => matches(c, key)).length,
   }));
 

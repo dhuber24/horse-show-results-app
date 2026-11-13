@@ -44,13 +44,14 @@ export interface PlanInfo {
   upcoming_on?: string | null;
 }
 
-/** A plan given to a company for free (migration 179). */
+/** A plan given to a company for free (migration 179): a comp or a trial, or
+ *  an upgrade to Pro's features while it pays for its own plan (migration 188). */
 export interface CompanyGrant {
   id: string;
   plan: string;
-  kind: string;
+  kind: 'comp' | 'trial' | 'upgrade';
   starts_on: string;
-  /** Null: a comp with no end. */
+  /** Null: a comp or an upgrade with no end. */
   ends_on: string | null;
   note: string | null;
 }
@@ -238,7 +239,7 @@ export interface ShowCompany {
   effective_plan?: PlanKey;
   effective_plan_label?: string;
   subscriptions?: Subscription[];
-  /** Migration 179: comps and trials, and the one covering today. */
+  /** Migration 179: comps, trials and (188) upgrades, and the one covering today. */
   grants?: CompanyGrant[];
   active_grant_id?: string | null;
   /** Migration 180: whether it has shown who it is, and how. */

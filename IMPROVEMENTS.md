@@ -2,6 +2,22 @@
 
 ## November 2026
 
+### A show company can be given a free upgrade
+
+- **A GaitDesk admin can upgrade a company to Pro's features while it keeps paying
+  for its own plan.** A company on Basic is still billed Basic's rate per exhibitor
+  and has every Pro screen: financial reports, the show bill import, the exports,
+  the Live Boards, online payments and card photos. A comp or trial makes a show
+  free; an upgrade leaves its price alone.
+- **It is given where comps and trials are**, under a company's plan on Manage
+  Subscriptions, for a set time or with no end, and ended the same way. The
+  company's show managers are emailed, and reminded a week before it ends.
+- **The bill says why**: an upgraded show reads *GaitDesk Basic (free upgrade to
+  GaitDesk Pro)* on the usage statement. My Company says the company has Pro's
+  features at no extra charge and what it is still billed.
+- **It lifts only a plan that sets up shows.** On Free it waits until the company
+  chooses Basic, and it never unfreezes an unpaid Pro+ renewal.
+
 ### Every show has a discussion board
 
 - **Anybody at a show can post, an account or not**: questions, callouts, show

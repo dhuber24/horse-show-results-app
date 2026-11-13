@@ -287,11 +287,29 @@ RENEWAL_NOTICE_DAYS = 30
 # How long before a comp or a trial ends whoever has it is reminded (migration 179).
 GRANT_NOTICE_DAYS = 7
 
-GRANT_KINDS = {"comp": "complimentary", "trial": "free trial"}
+GRANT_KINDS = {"comp": "complimentary", "trial": "free trial", "upgrade": "free upgrade"}
+
+# Migration 188: Pro's features while the company still pays for its own plan.
+# The other two kinds make a show free; this one leaves its price alone.
+UPGRADE = "upgrade"
 
 # The plans a company can be given. Not Pro+: Pro at no charge already has
 # everything Pro+ has, and a free Pro+ year is still a price of 0 on a year.
 GRANTABLE_PLANS = ("basic", "pro")
+
+# An upgrade is to Pro: Basic adds no feature to anything, and Pro+ has Pro's
+# features -- what it adds is a way of paying, which an upgrade leaves alone.
+UPGRADE_PLANS = (PRO,)
+
+
+def grant_name(kind: str, plan: str) -> str:
+    """A grant in words, after "a": "free trial of GaitDesk Pro"."""
+    label = plan_label(plan)
+    if kind == UPGRADE:
+        return f"free upgrade to {label}"
+    if kind == "trial":
+        return f"free trial of {label}"
+    return f"complimentary {label}"
 
 # What a company may ask GaitDesk for from a locked door: a feature, or Pro+.
 REQUESTABLE = frozenset(FEATURES) | {PRO_PLUS}
@@ -349,6 +367,17 @@ def covering_grant(grants: Iterable, on: date):
     )
 
 
+def lifting_grant(plan: str | None, effective: str, grant):
+    """The covering grant when it is what puts the company on today's plan, or
+    None: a paid Pro+ year beats it, and an upgrade lifts only a plan below its
+    own that sets up shows (`effective_plan`). What a label or a line names."""
+    if grant is None or effective != grant.plan:
+        return None
+    if grant.kind == UPGRADE and not upgrade_lifts(plan, grant):
+        return None
+    return grant
+
+
 def pro_plus_lapse(renews: bool, subscriptions: Iterable, on: date, grants: Iterable = ()) -> date | None:
     """The day an unpaid Pro+ renewal froze the company, or None (migration 175).
 
@@ -359,8 +388,13 @@ def pro_plus_lapse(renews: bool, subscriptions: Iterable, on: date, grants: Iter
     finished by that day is frozen (`frozen_since`). A company whose only year
     is still to start is not lapsed; it has not had one yet. **A comp or trial
     lifts it for as long as it runs** (migration 179): GaitDesk gave the company
-    a plan, and a plan is what a frozen company is short of."""
-    if not renews or covering_subscription(subscriptions, on) is not None or covering_grant(grants, on) is not None:
+    a plan, and a plan is what a frozen company is short of. **An upgrade does
+    not** (migration 188): it lifts a plan the company pays for, and a frozen
+    one pays for none."""
+    if not renews or covering_subscription(subscriptions, on) is not None:
+        return None
+    grant = covering_grant(grants, on)
+    if grant is not None and grant.kind != UPGRADE:
         return None
     ended = [s.ends_on for s in subscriptions if s.ends_on < on]
     return max(ended) + timedelta(days=1) if ended else None
@@ -383,15 +417,23 @@ def effective_plan(
     the plan of a **comp or trial** that covers it (migration 179); **Free while
     a Pro+ renewal is unpaid** (`pro_plus_lapse`) -- no show set up, no feature
     -- and otherwise its per-exhibitor plan, which is what a company that chose
-    one returns to when its year runs out."""
+    one returns to when its year runs out.
+
+    **An upgrade** (migration 188) lifts that last one to its plan's features,
+    and only a plan that sets up shows: on Free the company has chosen no price,
+    so an upgrade setting up its shows would bill it for one it never agreed to.
+    Its shows are priced at its own plan all the same (`usage_statement`)."""
     if covering_subscription(subscriptions, on) is not None:
         return PRO_PLUS
     grant = covering_grant(grants, on)
-    if grant is not None:
+    if grant is not None and grant.kind != UPGRADE:
         return grant.plan
-    if pro_plus_lapse(renews, subscriptions, on) is not None:
+    if pro_plus_lapse(renews, subscriptions, on, grants) is not None:
         return FREE
-    return plan if plan in PLANS else FREE
+    base = plan if plan in PLANS else FREE
+    if grant is not None and upgrade_lifts(base, grant):
+        return grant.plan
+    return base
 
 
 def sets_up_shows(plan: str | None) -> bool:
@@ -997,6 +1039,7 @@ async def plan_states(
             select(
                 ShowCompanyGrant.company_id,
                 ShowCompanyGrant.plan,
+                ShowCompanyGrant.kind,
                 ShowCompanyGrant.starts_on,
                 ShowCompanyGrant.ends_on,
             ).where(ShowCompanyGrant.company_id.in_(ids))
@@ -1044,11 +1087,15 @@ def loaded_pro_plus_lapse(company: ShowCompany, on: date | None = None) -> date 
 LAPSED_LABEL = "GaitDesk Pro+ (renewal unpaid)"
 
 
-def effective_label(effective: str, lapse: date | None, grant=None) -> str:
-    """`grant` is the comp or trial covering today, if any. A paid Pro+ year beats
-    a grant, so the label only mentions it when the company is on its plan."""
+def effective_label(effective: str, lapse: date | None, grant=None, plan: str | None = None) -> str:
+    """`grant` is the comp, trial or upgrade covering today, if any, and `plan`
+    the company's own. The label mentions it only when it is what put the
+    company on today's plan (`lifting_grant`): a paid Pro+ year beats it, and an
+    upgrade on Free or on Pro changes nothing."""
     if lapse is not None:
         return LAPSED_LABEL
+    if grant is not None and grant.kind == UPGRADE:
+        grant = lifting_grant(plan, effective, grant)
     if grant is not None and effective == grant.plan:
         return f"{plan_label(effective)} ({GRANT_KINDS[grant.kind]})"
     return plan_label(effective)
@@ -1391,7 +1438,9 @@ async def show_freeze(db: AsyncSession, show_id: UUID) -> str | None:
     ).all()
     grants = (
         await db.execute(
-            select(ShowCompanyGrant.starts_on, ShowCompanyGrant.ends_on).where(ShowCompanyGrant.company_id == row.id)
+            select(ShowCompanyGrant.kind, ShowCompanyGrant.starts_on, ShowCompanyGrant.ends_on).where(
+                ShowCompanyGrant.company_id == row.id
+            )
         )
     ).all()
     since = frozen_since(True, terms, row.end_date, utc_today(), grants)
@@ -1464,11 +1513,17 @@ def grant_plan(
     company's choice, and what it chose is what follows the grant. It may start
     in the past, so a show already run can be comped; an invoice already issued
     keeps its lines. Answers the upgrade requests it satisfies, as moving a
-    company onto the plan does. `company.upgrade_requests` must be loaded."""
+    company onto the plan does. `company.upgrade_requests` must be loaded.
+
+    **An upgrade** (migration 188) is to Pro, and the company goes on paying
+    for its own plan; on Free it waits for the company to choose Basic, so it
+    answers no request there."""
     if plan not in GRANTABLE_PLANS:
         raise HTTPException(422, "A comp or trial is on GaitDesk Basic or Pro.")
     if kind not in GRANT_KINDS:
-        raise HTTPException(422, "Choose a comp or a trial.")
+        raise HTTPException(422, "Choose a comp, a trial or an upgrade.")
+    if kind == UPGRADE and plan not in UPGRADE_PLANS:
+        raise HTTPException(422, "An upgrade is to GaitDesk Pro.")
     if kind == "trial" and ends_on is None:
         raise HTTPException(422, "A trial needs an end date.")
     if ends_on is not None and ends_on < starts_on:
@@ -1477,8 +1532,7 @@ def grant_plan(
         if (ends_on is None or other.starts_on <= ends_on) and (other.ends_on is None or starts_on <= other.ends_on):
             raise HTTPException(
                 409,
-                f"{company.name} already has a {GRANT_KINDS[other.kind]} {plan_label(other.plan)} over those dates. "
-                "End it first.",
+                f"{company.name} already has a {grant_name(other.kind, other.plan)} over those dates. End it first.",
             )
     grant = ShowCompanyGrant(
         company_id=company.id,
@@ -1491,7 +1545,8 @@ def grant_plan(
     )
     company.grants.append(grant)
     today = utc_today()
-    if starts_on <= today and (ends_on is None or today <= ends_on):
+    lifts = kind != UPGRADE or upgrade_lifts(company.plan, grant)
+    if lifts and starts_on <= today and (ends_on is None or today <= ends_on):
         for request in [r for r in company.upgrade_requests if r.feature in plan_features(plan)]:
             company.upgrade_requests.remove(request)
     return grant
@@ -1524,8 +1579,60 @@ def _after_grant(company_name: str, ends_on: date, follows: str, prices: PriceBo
     )
 
 
+def upgrade_lifts(follows: str | None, grant) -> bool:
+    """Whether an upgrade lifts the plan a company chose -- Basic to Pro -- and
+    so whether its ending changes anything (`effective_plan`)."""
+    return sets_up_shows(follows) and PLANS[grant.plan].rank > PLANS[follows].rank
+
+
+def _after_upgrade(company_name: str, grant, prices: PriceBook) -> str:
+    """What happens the day after an upgrade ends, for a company it lifts: back to
+    what its plan includes. What it pays never changed."""
+    after = grant.ends_on + timedelta(days=1)
+    label = plan_label(grant.plan)
+    return (
+        f"After {_day(grant.ends_on)}, {label}'s features turn off and {company_name} has what "
+        f"{plan_label(BASIC)} includes, unless you choose {label} on My Company, at "
+        f"{_dollars(prices.rate(grant.plan, after))} per exhibitor."
+    )
+
+
+def _upgrade_email(company_name: str, grant, follows: str, prices: PriceBook) -> tuple[str, str]:
+    """A free upgrade (migration 188): the company has Pro's features and pays for
+    its own plan -- or, on Free, will once it chooses Basic."""
+    label = plan_label(grant.plan)
+    basic = f"{plan_label(BASIC)}'s {_dollars(prices.rate(BASIC, max(grant.starts_on, utc_today())))} per exhibitor"
+    lines = [
+        f"GaitDesk has upgraded {company_name} to {label} at no extra charge, from {_day(grant.starts_on)}"
+        + (f" through {_day(grant.ends_on)}." if grant.ends_on else ", with no end date."),
+        "",
+    ]
+    if follows == BASIC:
+        lines.append(
+            f"You have everything {label} includes, and your shows are still billed at {basic}, "
+            "after each show as usual."
+        )
+    elif not sets_up_shows(follows):
+        lines.append(
+            f"It applies once you choose {plan_label(BASIC)} on My Company: you'll have everything {label} "
+            f"includes, and your shows are billed at {basic}, after each show."
+        )
+    else:
+        lines.append(
+            f"{company_name} already pays for {label}, so nothing changes now. If you move to "
+            f"{plan_label(BASIC)} while it runs, you keep {label}'s features at {basic}."
+        )
+    if grant.ends_on and follows == BASIC:
+        lines += ["", _after_upgrade(company_name, grant, prices)]
+    lines += ["", "What it includes:"] + [f"  - {line}" for line in PLANS[grant.plan].includes]
+    lines += ["", f"Your plan, any time: {public_app_url()}/admin/my-company"]
+    return f"{company_name} is upgraded to {label} at no extra charge", "\n".join(lines) + "\n"
+
+
 def grant_email(company_name: str, grant: ShowCompanyGrant, follows: str, *, prices: PriceBook) -> tuple[str, str]:
     """What a company's show managers are sent when GaitDesk gives it a plan."""
+    if grant.kind == UPGRADE:
+        return _upgrade_email(company_name, grant, follows, prices)
     label = plan_label(grant.plan)
     what = GRANT_KINDS[grant.kind]
     lines = [
@@ -1543,16 +1650,22 @@ def grant_email(company_name: str, grant: ShowCompanyGrant, follows: str, *, pri
 
 
 def grant_reminder_email(company_name: str, grant, follows: str, *, prices: PriceBook) -> tuple[str, str]:
-    """The one reminder a week before a comp or trial ends."""
+    """The one reminder a week before a comp, trial or upgrade ends. An upgrade's
+    is only sent while it lifts the company's plan (`send_grant_reminders`)."""
     label = plan_label(grant.plan)
-    what = GRANT_KINDS[grant.kind]
+    what = f"{GRANT_KINDS[grant.kind]} {'to' if grant.kind == UPGRADE else 'of'} {label}"
+    after = (
+        _after_upgrade(company_name, grant, prices)
+        if grant.kind == UPGRADE
+        else _after_grant(company_name, grant.ends_on, follows, prices)
+    )
     body = (
-        f"{company_name}'s {what} of {label} ends on {_day(grant.ends_on)}.\n\n"
-        f"{_after_grant(company_name, grant.ends_on, follows, prices)}\n\n"
+        f"{company_name}'s {what} ends on {_day(grant.ends_on)}.\n\n"
+        f"{after}\n\n"
         "Nothing is lost -- your shows, entries and results stay as they are.\n\n"
         f"Your plan, any time: {public_app_url()}/admin/my-company\n"
     )
-    return f"{company_name}'s {what} of {label} ends {_day(grant.ends_on)}", body
+    return f"{company_name}'s {what} ends {_day(grant.ends_on)}", body
 
 
 def keep_pro_plus(company: ShowCompany, changed_by: UUID | None, db: AsyncSession) -> bool:
@@ -2054,6 +2167,9 @@ async def send_grant_reminders(db: AsyncSession, today: date | None = None) -> i
         company = await db.get(ShowCompany, grant.company_id)
         recipients = await company_manager_emails(db, grant.company_id)
         if company is None or not recipients:
+            continue
+        # An upgrade on Free or on Pro gives nothing, so its end changes nothing.
+        if grant.kind == UPGRADE and not upgrade_lifts(company.plan, grant):
             continue
         subject, body = grant_reminder_email(company.name, grant, company.plan, prices=prices)
         await email_admins(recipients, subject, body)

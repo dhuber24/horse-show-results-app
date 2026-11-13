@@ -10,6 +10,8 @@ import {
   companyMoneyLine,
   companyPlanLine,
   companySubscriptionHref,
+  listedPlan,
+  liftingGrant,
   parseDollars,
   planChoiceIsNoChange,
   planChoiceTitle,
@@ -235,6 +237,45 @@ describe('the plan buttons', () => {
   it('say how a frozen company gets out', () => {
     expect(planChoiceTitle(lapsed, 'basic', 'Basic')).toContain('unfreeze');
     expect(planChoiceTitle(lapsed, 'pro_plus', 'Pro+')).toContain('renewal');
+  });
+});
+
+describe('a free upgrade (migration 188)', () => {
+  const upgrade = { id: 'g1', plan: 'pro', kind: 'upgrade', starts_on: '2026-11-01', ends_on: '2026-12-01', note: null };
+  const given = { grants: [upgrade], active_grant_id: 'g1' } as unknown as Partial<ShowCompany>;
+  const onBasic = company({ ...given, plan: 'basic', plan_label: 'GaitDesk Basic', effective_plan: 'pro' });
+  const onFree = company({ ...given, plan: 'free', effective_plan: 'free' });
+  const onPro = company({ ...given, plan: 'pro', plan_label: 'GaitDesk Pro', effective_plan: 'pro' });
+
+  it('lifts Basic, and nothing on Free or on Pro', () => {
+    expect(liftingGrant(onBasic)).toBe(upgrade);
+    expect(liftingGrant(onFree)).toBeUndefined();
+    expect(liftingGrant(onPro)).toBeUndefined();
+  });
+
+  it('lights the plan the company pays for, and lists it there', () => {
+    expect(planOnToday(onBasic)).toBe('basic');
+    expect(listedPlan(onBasic)).toBe('basic');
+    expect(planOnToday(onPro)).toBe('pro');
+  });
+
+  it('says it has Pro free and what it is billed as', () => {
+    expect(companyPlanLine(onBasic)).toBe('Pro free through Dec 1, 2026, billed as GaitDesk Basic');
+    const noEnd = company({
+      grants: [{ ...upgrade, ends_on: null }],
+      active_grant_id: 'g1',
+      plan: 'basic',
+      plan_label: 'GaitDesk Basic',
+      effective_plan: 'pro',
+    } as unknown as Partial<ShowCompany>);
+    expect(companyPlanLine(noEnd)).toBe('Pro free with no end date, billed as GaitDesk Basic');
+    expect(companyPlanLine(onPro)).toBeNull();
+  });
+
+  it('moves the plan the company pays for now, not after the upgrade', () => {
+    expect(planChoiceTitle(onBasic, 'basic', 'Basic')).toBe("Paint Club pays for GaitDesk Basic, and has Pro's features free");
+    expect(planChoiceTitle(onBasic, 'pro', 'Pro')).toBe('Move Paint Club to GaitDesk Pro');
+    expect(planChoiceTitle(onFree, 'basic', 'Basic')).toBe("Move Paint Club to GaitDesk Basic: its free upgrade gives it Pro's features");
   });
 });
 

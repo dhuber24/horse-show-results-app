@@ -3,12 +3,27 @@
 import { useState } from 'react';
 import GrantTermPicker from '@/components/GrantTermPicker';
 import { errorMessage } from '@/lib/api-error';
-import { formatDay, type ShowCompany } from '@/lib/show-companies';
-import { GRANT_LABELS, type GrantKind } from '@/lib/subscriptions';
+import { formatDay, formatRate, type CompanyGrant, type ShowCompany } from '@/lib/show-companies';
+import { GRANT_LABELS, type CompanyGrantKind } from '@/lib/subscriptions';
 
 const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
 
 const PLAN_LABELS: Record<string, string> = { basic: 'GaitDesk Basic', pro: 'GaitDesk Pro' };
+
+/** A grant in a few words, for its line in the list. */
+function grantLine(grant: CompanyGrant): string {
+  const plan = PLAN_LABELS[grant.plan] ?? grant.plan;
+  return grant.kind === 'upgrade' ? `Free upgrade to ${plan}` : `${plan}, ${GRANT_LABELS[grant.kind].toLowerCase()}`;
+}
+
+/** What an upgrade does for this company, by the plan it pays for. */
+function upgradeNote(company: ShowCompany): string {
+  if (company.plan === 'basic') {
+    return `${company.name} pays for GaitDesk Basic, at ${formatRate(company.plan_rate_cents)} per exhibitor, and goes on paying it.`;
+  }
+  if (company.plan === 'free') return `${company.name} is on GaitDesk Free, so it applies once the company chooses Basic.`;
+  return `${company.name} already pays for GaitDesk Pro, so this changes nothing unless it moves to Basic.`;
+}
 
 /**
  * Giving a company a plan for free (migration 179): a comp, which may have no
@@ -16,6 +31,10 @@ const PLAN_LABELS: Record<string, string> = { basic: 'GaitDesk Basic', pro: 'Gai
  * show starting then costs nothing per exhibitor; when it ends the company is on
  * the plan it chose, which this leaves alone. Pro at no charge has everything
  * Pro+ has, so there is no Pro+ here.
+ *
+ * Or **an upgrade** (migration 188): Pro's features while the company still
+ * pays for its own plan, so a company on Basic is billed Basic and has every Pro
+ * screen. It is always to Pro, and may have no end, as a comp may.
  */
 export default function CompanyGrants({
   company,
@@ -27,7 +46,7 @@ export default function CompanyGrants({
   onError: (message: string | null) => void;
 }) {
   const [formOpen, setFormOpen] = useState(false);
-  const [kind, setKind] = useState<GrantKind>('trial');
+  const [kind, setKind] = useState<CompanyGrantKind>('trial');
   const [plan, setPlan] = useState<'basic' | 'pro'>('pro');
   const [startsOn, setStartsOn] = useState('');
   const [endsOn, setEndsOn] = useState<string | null>('');
@@ -57,7 +76,13 @@ export default function CompanyGrants({
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan, kind, starts_on: startsOn || null, ends_on: endsOn, note: note.trim() || null }),
+        body: JSON.stringify({
+          plan: kind === 'upgrade' ? 'pro' : plan,
+          kind,
+          starts_on: startsOn || null,
+          ends_on: endsOn,
+          note: note.trim() || null,
+        }),
       },
       'The plan could not be given.',
     );
@@ -76,7 +101,7 @@ export default function CompanyGrants({
   return (
     <div className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Comps and free trials</h3>
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Comps, free trials and upgrades</h3>
         <button
           type="button"
           aria-expanded={formOpen}
@@ -84,7 +109,7 @@ export default function CompanyGrants({
           className="text-sm font-medium hover:underline"
           style={{ color: 'var(--accent)' }}
         >
-          {formOpen ? 'Close' : 'Give a comp or trial'}
+          {formOpen ? 'Close' : 'Give a comp, trial or upgrade'}
         </button>
       </div>
 
@@ -97,7 +122,7 @@ export default function CompanyGrants({
               <li key={grant.id} className="text-sm flex flex-wrap items-center justify-between gap-2" style={{ color: 'var(--text-deep)' }}>
                 <span suppressHydrationWarning>
                   <span className="font-medium" style={{ color: 'var(--foreground)' }}>
-                    {PLAN_LABELS[grant.plan] ?? grant.plan}, {GRANT_LABELS[grant.kind as GrantKind].toLowerCase()}
+                    {grantLine(grant)}
                   </span>
                   {' '}{formatDay(grant.starts_on)}{grant.ends_on ? ` to ${formatDay(grant.ends_on)}` : ', no end date'}
                   {active && <span style={{ color: 'var(--success-strong)' }}> · running</span>}
@@ -134,27 +159,32 @@ export default function CompanyGrants({
               <select
                 id={`grant-kind-${company.id}`}
                 value={kind}
-                onChange={(e) => setKind(e.target.value as GrantKind)}
+                onChange={(e) => setKind(e.target.value as CompanyGrantKind)}
                 className="border rounded px-3 py-2 text-sm"
                 style={inputStyle}
               >
                 <option value="trial">A free trial</option>
                 <option value="comp">A comp (complimentary)</option>
+                <option value="upgrade">A free upgrade (still pays for its plan)</option>
               </select>
             </div>
-            <div>
-              <label htmlFor={`grant-plan-${company.id}`} className="block text-xs font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Of</label>
-              <select
-                id={`grant-plan-${company.id}`}
-                value={plan}
-                onChange={(e) => setPlan(e.target.value as 'basic' | 'pro')}
-                className="border rounded px-3 py-2 text-sm"
-                style={inputStyle}
-              >
-                <option value="pro">GaitDesk Pro</option>
-                <option value="basic">GaitDesk Basic</option>
-              </select>
-            </div>
+            {kind === 'upgrade' ? (
+              <p className="text-sm py-2" style={{ color: 'var(--text-deep)' }}>to GaitDesk Pro</p>
+            ) : (
+              <div>
+                <label htmlFor={`grant-plan-${company.id}`} className="block text-xs font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Of</label>
+                <select
+                  id={`grant-plan-${company.id}`}
+                  value={plan}
+                  onChange={(e) => setPlan(e.target.value as 'basic' | 'pro')}
+                  className="border rounded px-3 py-2 text-sm"
+                  style={inputStyle}
+                >
+                  <option value="pro">GaitDesk Pro</option>
+                  <option value="basic">GaitDesk Basic</option>
+                </select>
+              </div>
+            )}
             <div>
               <label htmlFor={`grant-start-${company.id}`} className="block text-xs font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Starting</label>
               <input
@@ -168,7 +198,7 @@ export default function CompanyGrants({
             </div>
           </div>
           <GrantTermPicker
-            allowNoEnd={kind === 'comp'}
+            allowNoEnd={kind !== 'trial'}
             from={startsOn || undefined}
             onChange={setEndsOn}
             idPrefix={`grant-${company.id}`}
@@ -186,12 +216,20 @@ export default function CompanyGrants({
               style={inputStyle}
             />
           </div>
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            Starts today if left blank. A date in the past comps shows already run, though an invoice already issued
-            stands until it is voided. No show that starts while it runs is charged per exhibitor. The company&apos;s
-            show managers are emailed, and reminded a week before it ends. Afterwards it is on{' '}
-            {company.plan_label}; a Pro+ show or year is not affected.
-          </p>
+          {kind === 'upgrade' ? (
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
+              Starts today if left blank. While it runs the company has every GaitDesk Pro feature, and each show is
+              billed at its own plan as usual. {upgradeNote(company)} It doesn&apos;t unfreeze an unpaid Pro+ renewal.
+              The company&apos;s show managers are emailed, and reminded a week before it ends.
+            </p>
+          ) : (
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
+              Starts today if left blank. A date in the past comps shows already run, though an invoice already issued
+              stands until it is voided. No show that starts while it runs is charged per exhibitor. The company&apos;s
+              show managers are emailed, and reminded a week before it ends. Afterwards it is on{' '}
+              {company.plan_label}; a Pro+ show or year is not affected.
+            </p>
+          )}
           <button
             type="button"
             disabled={busy || missingEnd}
@@ -200,7 +238,7 @@ export default function CompanyGrants({
             className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
             style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
           >
-            {busy ? 'Working…' : kind === 'trial' ? 'Start the trial' : 'Give the comp'}
+            {busy ? 'Working…' : kind === 'trial' ? 'Start the trial' : kind === 'upgrade' ? 'Give the upgrade' : 'Give the comp'}
           </button>
         </div>
       )}

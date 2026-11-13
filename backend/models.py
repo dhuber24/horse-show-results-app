@@ -1599,7 +1599,10 @@ class ShowCompanyGrant(Base):
     """A plan given to a company for free (migration 179): a comp, or a trial.
     While one covers a day the company is on its plan, and a show whose first
     day it covers costs nothing per exhibitor. `ends_on` NULL is a comp with no
-    end. `show_companies.plan` is untouched: it is what follows the grant."""
+    end. `show_companies.plan` is untouched: it is what follows the grant.
+
+    Or an **upgrade** (migration 188): Pro's features while the company still
+    pays for its own plan -- the show is billed as if it were not there."""
     __tablename__ = "show_company_grants"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -1615,7 +1618,8 @@ class ShowCompanyGrant(Base):
 
     __table_args__ = (
         CheckConstraint("plan IN ('basic', 'pro')", name="ck_show_company_grants_plan"),
-        CheckConstraint("kind IN ('comp', 'trial')", name="ck_show_company_grants_kind"),
+        CheckConstraint("kind IN ('comp', 'trial', 'upgrade')", name="ck_show_company_grants_kind"),
+        CheckConstraint("kind <> 'upgrade' OR plan = 'pro'", name="ck_show_company_grants_upgrade_plan"),
         CheckConstraint("ends_on IS NULL OR ends_on >= starts_on", name="ck_show_company_grants_dates"),
         CheckConstraint("kind <> 'trial' OR ends_on IS NOT NULL", name="ck_show_company_grants_trial_ends"),
         Index("ix_show_company_grants_company", "company_id"),

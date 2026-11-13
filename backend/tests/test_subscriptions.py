@@ -39,10 +39,14 @@ from show_companies import (
     frozen_since,
     grant_email,
     grant_plan,
+    grant_reminder_email,
+    lifting_grant,
     plan_catalog,
+    plan_features,
     price_notice_email,
     pro_plus_lapse,
     show_billing_plan,
+    upgrade_lifts,
 )
 from subscription_prices import (
     BASIC_RATE,
@@ -305,6 +309,96 @@ def test_the_email_says_what_follows_a_trial():
     assert "no end date" in body and "goes back" not in body
 
 
+# ── A free upgrade (migration 188) ────────────────────────────────────────────
+
+
+def test_an_upgrade_gives_a_basic_company_pros_features():
+    upgrade = grant(PRO, "upgrade")
+    assert effective_plan(BASIC, [], TODAY, grants=[upgrade]) == PRO
+    assert plan_features(effective_plan(BASIC, [], TODAY, grants=[upgrade])) == plan_features(PRO)
+    assert effective_plan(BASIC, [], TODAY + timedelta(days=31), grants=[upgrade]) == BASIC
+
+
+def test_an_upgrade_never_sets_up_a_show_for_a_company_on_free():
+    """Free has chosen no price, so an upgrade there would bill it for one it never agreed to."""
+    upgrade = grant(PRO, "upgrade")
+    assert effective_plan(FREE, [], TODAY, grants=[upgrade]) == FREE
+    assert not upgrade_lifts(FREE, upgrade)
+    assert upgrade_lifts(BASIC, upgrade)
+    assert not upgrade_lifts(PRO, upgrade)
+
+
+def test_a_paid_pro_plus_year_beats_an_upgrade():
+    assert effective_plan(BASIC, [year(TODAY, TODAY)], TODAY, grants=[grant(PRO, "upgrade")]) == PRO_PLUS
+
+
+def test_an_upgrade_does_not_lift_an_unpaid_renewal():
+    """It lifts a plan the company pays for, and a frozen one pays for none."""
+    ended = [year(date(2025, 1, 1), date(2025, 12, 31))]
+    upgrade = grant(PRO, "upgrade")
+    assert pro_plus_lapse(True, ended, TODAY, [upgrade]) == date(2026, 1, 1)
+    assert effective_plan(BASIC, ended, TODAY, True, [upgrade]) == FREE
+    assert frozen_since(True, ended, TODAY + timedelta(days=5), TODAY, [upgrade]) == date(2026, 1, 1)
+
+
+def test_the_label_names_an_upgrade_only_when_it_lifts_the_plan():
+    upgrade = grant(PRO, "upgrade")
+    assert effective_label(PRO, None, upgrade, BASIC) == "GaitDesk Pro (free upgrade)"
+    assert effective_label(PRO, None, upgrade, PRO) == "GaitDesk Pro"
+    assert effective_label(FREE, None, upgrade, FREE) == "GaitDesk Free"
+    assert lifting_grant(BASIC, PRO, upgrade) is upgrade
+    assert lifting_grant(PRO, PRO, upgrade) is None
+    assert lifting_grant(FREE, PRO, grant(PRO, "trial")) is not None
+
+
+def test_an_upgrade_is_to_pro_and_may_run_with_no_end():
+    with pytest.raises(HTTPException) as refused:
+        _give(_company(plan=BASIC), plan=BASIC, kind="upgrade")
+    assert refused.value.status_code == 422
+    assert _give(_company(plan=BASIC), kind="upgrade", ends=None).ends_on is None
+
+
+def test_an_upgrade_cannot_overlap_a_trial_and_says_what_is_in_the_way():
+    company = _company(plan=BASIC)
+    _give(company, kind="upgrade", ends=None)
+    with pytest.raises(HTTPException) as refused:
+        _give(company, kind="trial", starts=TODAY + timedelta(days=60), ends=TODAY + timedelta(days=90))
+    assert refused.value.status_code == 409
+    assert "free upgrade to GaitDesk Pro" in refused.value.detail
+
+
+def test_an_upgrade_answers_a_request_on_basic_but_not_on_free(monkeypatch):
+    monkeypatch.setattr("show_companies.utc_today", lambda: TODAY)
+    on_basic = _company(plan=BASIC, upgrade_requests=[SimpleNamespace(feature="live_boards")])
+    _give(on_basic, kind="upgrade")
+    assert on_basic.upgrade_requests == []
+    on_free = _company(plan=FREE, upgrade_requests=[SimpleNamespace(feature="live_boards")])
+    _give(on_free, kind="upgrade")
+    assert [r.feature for r in on_free.upgrade_requests] == ["live_boards"]
+
+
+def test_the_upgrade_email_says_the_company_still_pays_for_its_plan():
+    upgrade = grant(PRO, "upgrade", ends=date(2026, 12, 1))
+    subject, body = grant_email("Minnesota Paint Club", upgrade, BASIC, prices=STARTING_PRICES)
+    assert subject == "Minnesota Paint Club is upgraded to GaitDesk Pro at no extra charge"
+    assert "still billed at GaitDesk Basic's $2 per exhibitor" in body
+    assert "After December 1, 2026, GaitDesk Pro's features turn off" in body and "$4 per exhibitor" in body
+    assert "costs nothing" not in body and "no per-exhibitor charge" not in body
+    _subject, body = grant_email("Minnesota Paint Club", upgrade, FREE, prices=STARTING_PRICES)
+    assert "once you choose GaitDesk Basic" in body and "turn off" not in body
+    _subject, body = grant_email("Minnesota Paint Club", upgrade, PRO, prices=STARTING_PRICES)
+    assert "already pays for GaitDesk Pro" in body
+
+
+def test_the_upgrade_reminder_says_what_turns_off():
+    upgrade = grant(PRO, "upgrade", ends=date(2026, 12, 1))
+    subject, body = grant_reminder_email("Minnesota Paint Club", upgrade, BASIC, prices=STARTING_PRICES)
+    assert subject == "Minnesota Paint Club's free upgrade to GaitDesk Pro ends December 1, 2026"
+    assert "features turn off" in body
+    subject, _body = grant_reminder_email("Minnesota Paint Club", grant(PRO, "trial", ends=date(2026, 12, 1)), BASIC, prices=STARTING_PRICES)
+    assert subject == "Minnesota Paint Club's free trial of GaitDesk Pro ends December 1, 2026"
+
+
 # ── What a show costs ─────────────────────────────────────────────────────────
 
 
@@ -391,6 +485,26 @@ def test_a_comped_show_never_holds_the_company_back(nothing_invoiced):
         [grant(PRO, "comp", starts=date(2026, 1, 1), ends=None)], _show(TODAY - timedelta(days=1))
     )
     assert unsettled_shows(past, date(2020, 1, 1), TODAY) == []
+
+
+def test_an_upgraded_show_is_billed_at_the_plan_the_company_pays_for(nothing_invoiced):
+    """The point of an upgrade (migration 188): Pro's screens, Basic's bill."""
+    line = _usage([grant(PRO, "upgrade", ends=None)], _show(TODAY), plan=BASIC).shows[0]
+    assert line.rate_cents == 200 and line.amount_cents == 2000
+    assert line.billing_plan == BASIC
+    assert line.billing_plan_label == "GaitDesk Basic (free upgrade to GaitDesk Pro)"
+
+
+def test_an_upgrade_on_a_company_already_paying_for_pro_says_nothing(nothing_invoiced):
+    line = _usage([grant(PRO, "upgrade")], _show(TODAY), plan=PRO).shows[0]
+    assert line.rate_cents == 400 and line.billing_plan_label == "GaitDesk Pro"
+
+
+def test_an_upgraded_show_still_has_to_be_paid_for_before_the_next(nothing_invoiced):
+    past = _usage(
+        [grant(PRO, "upgrade", starts=date(2026, 1, 1), ends=None)], _show(TODAY - timedelta(days=1)), plan=BASIC
+    )
+    assert len(unsettled_shows(past, date(2020, 1, 1), TODAY)) == 1
 
 
 def test_a_plan_is_ranked_by_what_it_is_not_what_it_costs():
