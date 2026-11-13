@@ -15,6 +15,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  ALL_DAY_FEE_UNITS,
   AUTOMATIC_FEE_UNITS,
   CLASS_FEE_EDITOR_UNITS,
   CLUB_SANCTION_UNITS,
@@ -199,5 +200,31 @@ describe('chargesNobody', () => {
   it('splits the Class Fees box into charges and show-bill text, with nothing in between', () => {
     const shown = CLASS_FEE_EDITOR_UNITS.filter(chargesNobody).sort();
     expect(shown).toEqual(['per_class_per_horse']);
+  });
+});
+
+describe('All Day fees (migration 186)', () => {
+  it('bills — it caps class entry fees rather than printing on the show bill only', () => {
+    for (const unit of ALL_DAY_FEE_UNITS) {
+      expect(chargesNobody(unit)).toBe(false);
+    }
+  });
+
+  it('offers a class list, so breed and All-Breed classes can each have their own', () => {
+    for (const unit of ALL_DAY_FEE_UNITS) {
+      expect(offersClassList(unit)).toBe(true);
+    }
+  });
+
+  it('is offered in the Class Fees box', () => {
+    for (const unit of ALL_DAY_FEE_UNITS) {
+      expect(CLASS_FEE_EDITOR_UNITS as readonly string[]).toContain(unit);
+    }
+  });
+
+  it('is published under a heading of its own, not with the charges added to every entry', () => {
+    for (const unit of ALL_DAY_FEE_UNITS) {
+      expect(headingOf(unit)).toBe('All Day fees');
+    }
   });
 });

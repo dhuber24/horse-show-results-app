@@ -286,14 +286,13 @@ def show_fees(saturday: date) -> list[dict]:
         "code": "all_day_open",
         "label": "APHA All Day fee — Open, Amateur & Novice Amateur (one horse)",
         "amount_cents": 18000,
-        # `flat`, not `per_horse`, and this is not a rounding of the truth.
-        # An All Day fee *replaces* per-class fees rather than adding to them --
-        # the exhibitor elects it -- and the app has no concept of a bundle that
-        # substitutes for class lines, so its occurrence is not derivable from
-        # anything stored. That is exactly what the `flat` family means: a price
-        # published on the show bill that bills nobody automatically. Priced
-        # `per_horse` it billed $180 to every exhibitor who entered anything,
-        # which is how a $36 amateur class came out at $552.
+        # `flat`, not `per_horse`: priced `per_horse` it billed $180 to every
+        # exhibitor who entered anything, which is how a $36 amateur class came
+        # out at $552. An All Day fee *replaces* class entry fees rather than
+        # adding to them. Since migration 186 the app can apply it as a cap
+        # (`all_day_per_horse` and friends, over a class list); it is seeded
+        # `flat` because which classes each of the two caps covers is the
+        # office's to tick in Class Fees, not this script's to guess.
         "unit": "flat",
         "notes": (
             "$45 per judge x 4 APHA judges, one horse, APHA classes only. Does not "

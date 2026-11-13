@@ -280,6 +280,17 @@ function BillBreakdown({ account }: { account: FinancialAccount }) {
   const { bill } = account;
   const rows = [
     { label: 'Class entry fees', cents: bill.class_fee_total_cents },
+    // Charged in place of the class entry fees each one covered, which are not
+    // in the row above (migration 186).
+    ...(bill.all_day_lines ?? []).map((line) => ({
+      label:
+        `${line.label}${line.horse_name ? ` — ${line.horse_name}` : ''}` +
+        `${line.class_date ? `, ${line.class_date}` : ''}` +
+        ` (${line.class_count} ${line.class_count === 1 ? 'class' : 'classes'} at ${formatMoney(
+          line.class_fee_cents,
+        )})`,
+      cents: line.line_total_cents,
+    })),
     // The per-class clubs only: their money is spread across the class lines
     // and has no line of its own. A club charging per horse or per exhibitor
     // is itemised below with its arithmetic, the way the show's own charges

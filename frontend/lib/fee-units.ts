@@ -23,7 +23,11 @@ export type FeeUnit =
   | 'per_stall'
   | 'per_bag'
   | 'per_show'
-  | 'percent_of_entry';
+  | 'percent_of_entry'
+  | 'all_day_per_horse'
+  | 'all_day_per_exhibitor'
+  | 'all_show_per_horse'
+  | 'all_show_per_exhibitor';
 
 /** Quantities an exhibitor books at sign-up. */
 export const RESERVABLE_FEE_UNITS = [
@@ -98,6 +102,10 @@ export const UNIT_LABEL: Record<FeeUnit, string> = {
   per_bag: 'per bag',
   per_show: 'per show',
   percent_of_entry: '% of class fee',
+  all_day_per_horse: 'All Day — per horse, each day',
+  all_day_per_exhibitor: 'All Day — per exhibitor, each day',
+  all_show_per_horse: 'All Day — per horse, whole show',
+  all_show_per_exhibitor: 'All Day — per exhibitor, whole show',
 };
 
 export function unitLabel(unit: string): string {
@@ -112,10 +120,32 @@ export function isAutomaticUnit(unit: string): boolean {
   return (AUTOMATIC_FEE_UNITS as readonly string[]).includes(unit);
 }
 
-/** The units the Class Fees box offers for a fee: every automatic unit, and
- *  nothing that bills nobody. `per_class_per_horse` was withdrawn — "per class"
- *  already charges two horses in one class twice, because they are two entries. */
-export const CLASS_FEE_UNIT_OPTIONS = AUTOMATIC_FEE_UNITS;
+/**
+ * An All Day fee (migration 186): a cap on class entry fees, not a charge on
+ * top of them. Where the class entry fees it covers come to more than it, it is
+ * charged instead of them; where they do not, it charges nothing. Mirrors
+ * `ALL_DAY_FEE_UNITS` in backend/billing.py — the unit says whether one fee
+ * covers a horse or an exhibitor, on each show day or for the whole show.
+ */
+export const ALL_DAY_FEE_UNITS = [
+  'all_day_per_horse',
+  'all_day_per_exhibitor',
+  'all_show_per_horse',
+  'all_show_per_exhibitor',
+] as const satisfies readonly FeeUnit[];
+
+export function isAllDayUnit(unit: string): boolean {
+  return (ALL_DAY_FEE_UNITS as readonly string[]).includes(unit);
+}
+
+/** The units the Class Fees box offers for a fee: every automatic unit and the
+ *  All Day fees, and nothing that bills nobody. `per_class_per_horse` was
+ *  withdrawn — "per class" already charges two horses in one class twice,
+ *  because they are two entries. */
+export const CLASS_FEE_UNIT_OPTIONS = [
+  ...AUTOMATIC_FEE_UNITS,
+  ...ALL_DAY_FEE_UNITS,
+] as const satisfies readonly FeeUnit[];
 
 /** The rows the Class Fees box lists: what it offers, plus a row still carrying
  *  the withdrawn `per_class_per_horse`, so it can be seen and switched rather
@@ -139,7 +169,7 @@ export function isClassFeeEditorUnit(unit: string): boolean {
  * tooltip: a class list to tick reads exactly like pricing those classes.
  */
 export function chargesNobody(unit: string): boolean {
-  return !isReservableUnit(unit) && !isAutomaticUnit(unit);
+  return !isReservableUnit(unit) && !isAutomaticUnit(unit) && !isAllDayUnit(unit);
 }
 
 /**
@@ -159,8 +189,11 @@ export const PER_CLASS_FEE_UNITS = [
   'per_class_per_horse',
 ] as const satisfies readonly FeeUnit[];
 
+/** Whether the Class Fees box offers a class list on this unit: every fee quoted
+ *  per class, and an All Day fee, which covers the classes ticked — a show runs
+ *  one for its breed classes and another for its All-Breed classes. */
 export function offersClassList(unit: string): boolean {
-  return (PER_CLASS_FEE_UNITS as readonly string[]).includes(unit);
+  return (PER_CLASS_FEE_UNITS as readonly string[]).includes(unit) || isAllDayUnit(unit);
 }
 
 /** How a club's sanction fee is charged (migration 133) — `show_sanctioning.
@@ -320,6 +353,14 @@ export const FEE_GROUPS: {
       'per_judge_per_entry',
       'per_entry',
     ],
+  },
+  {
+    // A cap, not a charge: what it tells an exhibitor is that entering many
+    // classes costs no more than this (migration 186).
+    key: 'all_day',
+    heading: 'All Day fees',
+    note: 'Charged instead of the class entry fees it covers, whenever those come to more.',
+    units: ['all_day_per_horse', 'all_day_per_exhibitor', 'all_show_per_horse', 'all_show_per_exhibitor'],
   },
   {
     // The units in no billing family. Printed because the show published them

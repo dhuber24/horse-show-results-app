@@ -61,7 +61,13 @@ export type BillClassLine = {
   class_name: string;
   class_date: string;
   horse_name: string | null;
+  /** What the line charges for the class itself — 0 where an All Day fee
+   *  covered it (migration 186). `list_fee_cents` is the class's own price.
+   *  Both All Day fields are optional for a payload built before them. */
   fee_cents: number;
+  list_fee_cents?: number;
+  all_day_fee_id?: string | null;
+  all_day_label?: string | null;
   sanction_cents: number;
   /** The show's own per-class-entry charges counted on this entry — the breed
    *  body's per-judge assessment — itemised. Already inside
@@ -241,8 +247,29 @@ export type BillSidePotLine = {
   line_total_cents: number;
 };
 
+/** One All Day fee, charged in place of the class entry fees it covered because
+ *  they came to more (migration 186). `horse_name` is set on a per-horse fee
+ *  and `class_date` on a per-day one. */
+export type BillAllDayLine = {
+  show_fee_id: string;
+  code: string;
+  label: string;
+  unit: string;
+  amount_cents: number;
+  horse_id: string | null;
+  horse_name: string | null;
+  class_date: string | null;
+  class_count: number;
+  /** What the covered classes would have cost one by one. */
+  class_fee_cents: number;
+  line_total_cents: number;
+};
+
 export type Bill = {
   class_lines: BillClassLine[];
+  /** Optional for a payload built before migration 186. */
+  all_day_lines?: BillAllDayLine[];
+  all_day_total_cents?: number;
   reservation_lines: BillReservationLine[];
   charge_lines: BillChargeLine[];
   sanction_lines: BillSanctionLine[];

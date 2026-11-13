@@ -1,4 +1,4 @@
-import { fetchBreeds, fetchHorseColors, fetchHorsePatterns, fetchExhibitors, fetchAssociations, fetchTrainers } from '@/lib/api';
+import { fetchBreeds, fetchHorseColors, fetchHorsePatterns, fetchExhibitors, fetchAssociations, fetchTrainerNames } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import NewHorseForm from './NewHorseForm';
 import Breadcrumbs from '@/components/Breadcrumbs';
@@ -11,7 +11,7 @@ export default async function NewHorsePage() {
     fetchHorsePatterns(),
     fetchExhibitors(headers || undefined),
     fetchAssociations(headers || undefined),
-    fetchTrainers(headers || undefined),
+    fetchTrainerNames(headers || undefined),
   ]);
 
   return (

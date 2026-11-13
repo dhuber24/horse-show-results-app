@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { fetchHorse, fetchBreeds, fetchHorseColors, fetchHorsePatterns, fetchAssociations, fetchHorseRegistrations, fetchExhibitors, fetchTrainers } from '@/lib/api';
+import { fetchHorse, fetchBreeds, fetchHorseColors, fetchHorsePatterns, fetchAssociations, fetchHorseRegistrations, fetchExhibitors, fetchTrainerNames } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import EditHorseForm from './EditHorseForm';
 import Breadcrumbs from '@/components/Breadcrumbs';
@@ -15,7 +15,7 @@ export default async function AdminHorsePage({ params }: { params: Promise<{ id:
     fetchExhibitors(headers || undefined),
     fetchAssociations(headers || undefined),
     fetchHorseRegistrations(id),
-    fetchTrainers(headers || undefined),
+    fetchTrainerNames(headers || undefined),
   ]);
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">

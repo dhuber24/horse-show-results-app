@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from uuid import UUID
 
 from billing import (
+    ALL_DAY_FEE_UNITS,
     AUTOMATIC_FEE_UNITS,
     EARLY_RATE_FEE_UNITS,
     PER_CLASS_FEE_UNITS,
@@ -153,11 +154,16 @@ async def _resolve_scope_classes(
     """
     if class_ids is None:
         return None
-    if class_ids and unit not in AUTOMATIC_FEE_UNITS and unit not in PER_CLASS_FEE_UNITS:
+    if (
+        class_ids
+        and unit not in AUTOMATIC_FEE_UNITS
+        and unit not in PER_CLASS_FEE_UNITS
+        and unit not in ALL_DAY_FEE_UNITS
+    ):
         raise HTTPException(
             422,
-            "Only a fee charged per class, or per horse, exhibitor or judge, "
-            "can be limited to particular classes. A reserved fee is billed "
+            "Only a fee charged per class, per horse, exhibitor or judge, or an "
+            "All Day fee can be limited to particular classes. A reserved fee is billed "
             "from the quantity somebody books, and a flat price is not billed "
             "at all, so neither has a class list to narrow.",
         )

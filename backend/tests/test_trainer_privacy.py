@@ -94,3 +94,10 @@ def test_only_those_two_columns_are_ever_read():
     db = _NamesDb([])
     asyncio.run(list_trainer_names(db))
     assert [column.name for column in db.query.selected_columns] == ["id", "name"]
+
+
+def test_the_picker_offers_only_trainers_with_an_account():
+    """A row typed in from a horse form before 2026-11-13 is nobody who signed up."""
+    db = _NamesDb([])
+    asyncio.run(list_trainer_names(db))
+    assert "trainers.user_id IS NOT NULL" in str(db.query)

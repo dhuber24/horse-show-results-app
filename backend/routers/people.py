@@ -73,11 +73,6 @@ def _display_name(first_name: str, last_name: str) -> str:
     return f"{first_name.strip()} {last_name.strip()}".strip()
 
 
-def _split_person_name(value: str) -> tuple[str, str]:
-    first, _, last = value.strip().partition(" ")
-    return first.strip(), last.strip()
-
-
 def _validate_name_parts(first_name: Optional[str], last_name: Optional[str]) -> None:
     if first_name is not None and not first_name.strip():
         raise HTTPException(400, "First name is required")
@@ -922,75 +917,55 @@ async def load_my_horse(horse_id: UUID, exhibitor_id: UUID, db: AsyncSession) ->
     return _my_horse_out(result.scalar_one(), exhibitor_id)
 
 
-async def _find_or_create_trainer_by_name_email(
-    first_name: str, last_name: str, email: str, db: AsyncSession
-) -> Trainer:
-    # Match exact first name + last name + email, case-insensitively. Email is
-    # the validation key for "Other" trainer rows so we avoid creating duplicate
-    # registry records when the trainer already exists.
-    first_norm = first_name.strip()
-    last_norm = last_name.strip()
-    email_norm = email.strip().lower()
-    existing = await db.execute(
-        select(Trainer).where(
-            func.lower(Trainer.first_name) == first_norm.lower(),
-            func.lower(Trainer.last_name) == last_norm.lower(),
-            func.lower(Trainer.email) == email_norm,
-        )
-    )
-    trainer = existing.scalar_one_or_none()
-    if trainer:
-        return trainer
-    trainer = Trainer(
-        first_name=first_norm,
-        last_name=last_norm,
-        email=email_norm,
-        user_id=None,
-    )
-    db.add(trainer)
-    await db.flush()
-    return trainer
+TRAINER_NEEDS_ACCOUNT = (
+    "Pick a trainer from the list. Only trainers with their own GaitDesk trainer "
+    "account are listed - if yours isn't there, ask them to sign up as a trainer, "
+    "then pick them here."
+)
 
 
-async def _resolve_horse_trainer_fields(data: dict, db: AsyncSession) -> None:
-    """In-place: resolve transient trainer fields into horse storage columns.
+async def _resolve_horse_trainer_fields(data: dict, db: AsyncSession, current: Optional[Horse] = None) -> None:
+    """In-place: check the horse's trainer and pop the fields Horse has no column for.
 
-    Rules:
-    - trainer_id set: keep it, clear free-text fallback.
-    - trainer_first_name + trainer_last_name + trainer_email, no trainer_id:
-      find-or-create a registry row and link to it.
-    - trainer_name only (legacy): keep as free-text fallback.
-    - Pops transient trainer fields so they don't leak into Horse(**data).
+    A horse names a trainer by picking one who has an account, and nothing here
+    ever creates a `trainers` row (2026-11-13): a trainer exists because they
+    signed up, not because somebody typed them in. So:
+
+    - trainer_id set: it must be a trainer with an account, unless it is the
+      horse's trainer already (`current`) - a link made before the rule stays
+      until somebody changes it. The free-text fallback is cleared.
+    - trainer_first_name / trainer_last_name / trainer_email / trainer_phone:
+      what the old "Other - enter trainer details" sent to mint a row. Refused.
+    - trainer_name with no trainer_id: free text, refused unless it is the
+      text the horse already carries (a legacy value an edit re-sends).
+
+    `current` is the horse being edited; None on create.
     """
-    trainer_phone = data.pop("trainer_phone", None)
-    trainer_first_name = data.pop("trainer_first_name", None)
-    trainer_last_name = data.pop("trainer_last_name", None)
-    trainer_email = data.pop("trainer_email", None)
-    if data.get("trainer_id"):
+    typed = [data.pop(key, None) for key in ("trainer_phone", "trainer_first_name", "trainer_last_name", "trainer_email")]
+    if any(str(value).strip() for value in typed if value is not None):
+        raise HTTPException(400, TRAINER_NEEDS_ACCOUNT)
+
+    trainer_id = data.get("trainer_id")
+    if trainer_id:
         data["trainer_name"] = None
-        return
-    if trainer_first_name and trainer_last_name and trainer_email:
-        trainer = await _find_or_create_trainer_by_name_email(
-            trainer_first_name, trainer_last_name, str(trainer_email), db
-        )
-        data["trainer_id"] = trainer.id
-        data["trainer_name"] = None
-        return
-    name = data.get("trainer_name")
-    if name and trainer_phone:
-        first_name, last_name = _split_person_name(name)
-        if not last_name:
+        if current is not None and current.trainer_id == trainer_id:
             return
-        trainer = Trainer(
-            first_name=first_name,
-            last_name=last_name,
-            phone=trainer_phone.strip(),
-            user_id=None,
-        )
-        db.add(trainer)
-        await db.flush()
-        data["trainer_id"] = trainer.id
-        data["trainer_name"] = None
+        trainer = await db.get(Trainer, trainer_id)
+        if trainer is None:
+            raise HTTPException(400, "Selected trainer is not in the registry.")
+        if trainer.user_id is None:
+            raise HTTPException(400, TRAINER_NEEDS_ACCOUNT)
+        return
+
+    name = (data.get("trainer_name") or "").strip()
+    if not name:
+        if "trainer_name" in data:
+            data["trainer_name"] = None
+        return
+    if current is not None and current.trainer_id is None and (current.trainer_name or "").strip() == name:
+        data["trainer_id"] = None
+        return
+    raise HTTPException(400, TRAINER_NEEDS_ACCOUNT)
 
 
 async def _pop_resolved_horse_breeds(data: dict, db: AsyncSession) -> Optional[list[Breed]]:
@@ -1134,8 +1109,6 @@ async def search_horses_by_name(
 async def create_horse(body: HorseCreate, db: AsyncSession = Depends(get_db)):
     if body.owner_exhibitor_id is not None and not await db.get(Exhibitor, body.owner_exhibitor_id):
         raise HTTPException(400, "Selected owner is not a valid exhibitor.")
-    if body.trainer_id is not None and not await db.get(Trainer, body.trainer_id):
-        raise HTTPException(400, "Selected trainer is not in the registry.")
     data = body.model_dump()
     breeds = await _pop_resolved_horse_breeds(data, db)
     await _resolve_horse_trainer_fields(data, db)
@@ -1175,36 +1148,12 @@ async def update_horse(
     if 'owner_exhibitor_id' in update_data and update_data['owner_exhibitor_id'] is not None:
         if not await db.get(Exhibitor, update_data['owner_exhibitor_id']):
             raise HTTPException(400, "Selected owner is not a valid exhibitor.")
-    if 'trainer_id' in update_data and update_data['trainer_id'] is not None:
-        if not await db.get(Trainer, update_data['trainer_id']):
-            raise HTTPException(400, "Selected trainer is not in the registry.")
     breeds = await _pop_resolved_horse_breeds(update_data, db)
-    # If the caller is switching/clearing the trainer, resolve trainer_id or
-    # transient trainer identity fields into the columns we store. The legacy
-    # name-only path keeps the free-text fallback for backwards compatibility.
-    if (
-        'trainer_id' in update_data
-        or 'trainer_name' in update_data
-        or 'trainer_phone' in update_data
-        or 'trainer_first_name' in update_data
-        or 'trainer_last_name' in update_data
-        or 'trainer_email' in update_data
-    ):
-        if update_data.get('trainer_id'):
-            update_data['trainer_name'] = None
-        elif (
-            update_data.get('trainer_first_name')
-            and update_data.get('trainer_last_name')
-            and update_data.get('trainer_email')
-        ) or (update_data.get('trainer_name') and update_data.get('trainer_phone')):
-            await _resolve_horse_trainer_fields(update_data, db)
-        else:
-            update_data.pop('trainer_phone', None)
-            update_data.pop('trainer_first_name', None)
-            update_data.pop('trainer_last_name', None)
-            update_data.pop('trainer_email', None)
-            if 'trainer_name' in update_data and update_data.get('trainer_name'):
-                update_data['trainer_id'] = None
+    if any(key in update_data for key in (
+        'trainer_id', 'trainer_name', 'trainer_phone',
+        'trainer_first_name', 'trainer_last_name', 'trainer_email',
+    )):
+        await _resolve_horse_trainer_fields(update_data, db, current=horse)
     for k, v in update_data.items():
         setattr(horse, k, v)
     if breeds is not None:

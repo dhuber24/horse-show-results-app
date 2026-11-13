@@ -31,7 +31,6 @@ from models import (
 from schemas import (
     HorseOut,
     TrainerBasic,
-    TrainerCreate,
     TrainerLeadCreate,
     TrainerLeadOut,
     TrainerLeadStatusUpdate,
@@ -186,8 +185,14 @@ async def _check_admin_or_self(
 async def list_trainer_names(db: AsyncSession = Depends(get_db)):
     """Minimal name+id list for the trainer dropdown on a horse form, which any
     signed-in account may fill in. Listed or not: a horse's trainer need not
-    advertise. Only the two columns are read, so nothing else can reach it."""
-    rows = (await db.execute(select(Trainer.id, Trainer.name).order_by(Trainer.name))).all()
+    advertise. Only trainers with an account (2026-11-13): a horse names a trainer
+    who signed up, and a row somebody typed in from a horse form before that rule
+    is not offered. Only the two columns are read, so nothing else can reach it."""
+    rows = (await db.execute(
+        select(Trainer.id, Trainer.name)
+        .where(Trainer.user_id.is_not(None))
+        .order_by(Trainer.name)
+    )).all()
     return [TrainerBasic(id=row.id, name=row.name) for row in rows]
 
 
@@ -210,19 +215,6 @@ async def list_trainers(db: AsyncSession = Depends(get_db)):
     )
     counts = {row[0]: row[1] for row in counts_res.all()}
     return [_trainer_to_out(t, counts.get(t.id, 0), t.pro_request) for t in trainers]
-
-
-@router.post("/", response_model=TrainerOut, status_code=201, dependencies=[Depends(require_admin)])
-async def create_trainer(body: TrainerCreate, db: AsyncSession = Depends(get_db)):
-    trainer = Trainer(**body.model_dump())
-    db.add(trainer)
-    try:
-        await db.commit()
-        await db.refresh(trainer, attribute_names=["user"])
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(409, "A trainer with that name already exists")
-    return _trainer_to_out(trainer, 0)
 
 
 async def _listing_media(trainer_ids: list[UUID], db: AsyncSession) -> dict[UUID, ListingMedia]:

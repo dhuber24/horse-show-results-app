@@ -4,8 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRegisterStepAutosave } from '@/app/admin/shows/[id]/setup/_lib/StepAutosave';
 import {
+  ALL_DAY_FEE_UNITS,
+  AUTOMATIC_FEE_UNITS,
   CLASS_FEE_UNIT_OPTIONS,
   chargesNobody,
+  isAllDayUnit,
   offersClassList,
   unitLabel,
   usesJudgeCount,
@@ -85,8 +88,12 @@ export type ScopeClass = {
  * leaves all three out of every per-class fee, so "Select all" means what the
  * list shows.
  */
-function offeredForScope(cls: ScopeClass): boolean {
-  return !cls.is_futurity_class && !cls.is_free && (cls.sanctioning_codes ?? []).length === 0;
+function offeredForScope(cls: ScopeClass, unit: string): boolean {
+  if (cls.is_futurity_class || cls.is_free) return false;
+  // An All Day fee caps class entry fees, and a show's All-Breed All Day fee
+  // caps exactly the club-sanctioned classes (`billing.all_day_counts_class`).
+  if (isAllDayUnit(unit)) return true;
+  return (cls.sanctioning_codes ?? []).length === 0;
 }
 
 /**
@@ -263,6 +270,14 @@ function chargeExplanation(unit: string, cents: number, judgeCount: number): str
       return `${rate} for each class entered, in the classes ticked below — two horses in one class are two entries.`;
     case 'per_class_per_horse':
       return `${rate} per class, per horse — no longer offered, and printed on the show bill only. Switch it to per class to charge it.`;
+    case 'all_day_per_horse':
+    case 'all_day_per_exhibitor':
+    case 'all_show_per_horse':
+    case 'all_show_per_exhibitor': {
+      const who = unit.endsWith('_per_horse') ? 'each horse' : 'each exhibitor';
+      const when = unit.startsWith('all_day_') ? 'on each show day' : 'across the whole show';
+      return `The most ${who} pays in class entry fees ${when}, in the classes ticked below: when those come to more than ${rate}, ${rate} is charged instead. Association, club and per-class fees are still charged on top.`;
+    }
     default:
       return '';
   }
@@ -305,11 +320,22 @@ function BasisSelect({
       className="border rounded px-2 py-1 text-sm"
       style={{ borderColor: COLORS.border, color: COLORS.text }}
     >
-      {CLASS_FEE_UNIT_OPTIONS.map((unit) => (
-        <option key={unit} value={unit}>
-          {unitLabel(unit)}
-        </option>
-      ))}
+      {/* Two groups, because they are two kinds of money: a charge added on
+          top of what the classes cost, and an All Day fee that caps it. */}
+      <optgroup label="Added to the bill">
+        {AUTOMATIC_FEE_UNITS.map((unit) => (
+          <option key={unit} value={unit}>
+            {unitLabel(unit)}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label="All Day fee — caps class entry fees">
+        {ALL_DAY_FEE_UNITS.map((unit) => (
+          <option key={unit} value={unit}>
+            {unitLabel(unit)}
+          </option>
+        ))}
+      </optgroup>
       {/* A row saved with a withdrawn unit keeps it on screen until changed,
           rather than the select silently showing some other unit. */}
       {!(CLASS_FEE_UNIT_OPTIONS as readonly string[]).includes(value) && (
@@ -344,11 +370,15 @@ function ClassScopePicker({
   onChange,
   defaultOpen = false,
   disabled,
+  allDay = false,
 }: {
   /** Only the classes that may be ticked — see `offeredForScope`. */
   classes: ScopeClass[];
   /** How many classes were not offered, so the list can say why it is short. */
   leftOut?: number;
+  /** An All Day fee, which covers club-sanctioned classes too, so only
+   *  futurity and free classes are left out of its list. */
+  allDay?: boolean;
   scope: ClassScope;
   onChange: (scope: ClassScope) => void;
   defaultOpen?: boolean;
@@ -387,7 +417,9 @@ function ClassScopePicker({
             ? 'Saving this fee'
             : all
               ? 'This fee uses every class, including ones added later. Untick classes to narrow it.'
-              : 'Exhibitors who enter none of the ticked classes owe nothing for this fee.'
+              : allDay
+                ? 'The All Day fee covers only the ticked classes; any others are charged one by one.'
+                : 'Exhibitors who enter none of the ticked classes owe nothing for this fee.'
         }
       >
         <span aria-hidden>{open ? '▾' : '▸'}</span> Choose which classes use the fee
@@ -406,8 +438,11 @@ function ClassScopePicker({
               style={{ color: COLORS.muted }}
               title="A club prices its own classes and a futurity its classes; a class ticked Free carries no fee at all."
             >
-              {leftOut} club-sanctioned, futurity or free class{leftOut === 1 ? ' is' : 'es are'} not
-              listed — no show fee charges {leftOut === 1 ? 'it' : 'them'}.
+              {leftOut} {allDay ? '' : 'club-sanctioned, '}futurity or free class
+              {leftOut === 1 ? ' is' : 'es are'} not listed —{' '}
+              {allDay
+                ? `${leftOut === 1 ? 'it has' : 'they have'} no class entry fee to cap.`
+                : `no show fee charges ${leftOut === 1 ? 'it' : 'them'}.`}
             </p>
           )}
           {classes.length === 0 ? (
@@ -499,8 +534,9 @@ export default function ShowChargesEditor({
   const [newRow, setNewRow] = useState<Draft>(EMPTY_DRAFT);
   const [error, setError] = useState<string | null>(null);
 
-  // The classes a fee may be ticked against: not a club's, not a futurity's.
-  const scopeClasses = classes.filter(offeredForScope);
+  // The classes a fee may be ticked against: not a futurity's, not a free one,
+  // and not a club's unless the fee is an All Day fee.
+  const scopeClassesFor = (unit: FeeUnit) => classes.filter((c) => offeredForScope(c, unit));
 
   const draftFor = (charge: ShowCharge): Draft => drafts[charge.id] ?? draftFromCharge(charge);
 
@@ -738,8 +774,9 @@ export default function ShowChargesEditor({
           )}
           {scopeOffered(newRow.unit) && (
             <ClassScopePicker
-              classes={scopeClasses}
-              leftOut={classes.length - scopeClasses.length}
+              classes={scopeClassesFor(newRow.unit)}
+              leftOut={classes.length - scopeClassesFor(newRow.unit).length}
+              allDay={isAllDayUnit(newRow.unit)}
               scope={newRow.scope}
               onChange={(scope) => setNewRow((p) => ({ ...p, scope }))}
               defaultOpen
@@ -855,8 +892,9 @@ export default function ShowChargesEditor({
                     // Keyed on the unit so switching to another per-class unit
                     // re-opens the list too, not only switching onto one.
                     key={draft.unit}
-                    classes={scopeClasses}
-                    leftOut={classes.length - scopeClasses.length}
+                    classes={scopeClassesFor(draft.unit)}
+                    leftOut={classes.length - scopeClassesFor(draft.unit).length}
+                    allDay={isAllDayUnit(draft.unit)}
                     scope={draft.scope}
                     onChange={(scope) => patchDraft(charge, { scope })}
                     defaultOpen={draft.unit !== charge.unit}

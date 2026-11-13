@@ -77,8 +77,7 @@ const HEALTH_DOC_OPTIONS = DOC_TYPES.filter((t) => HEALTH_DOC_TYPES.includes(t.v
 
 const emptyForm = {
   name: '', barn_name: '',
-  trainer_id: '', trainer_name: '', trainer_first_name: '', trainer_last_name: '',
-  trainer_email: '', sex: '', sire_name: '', dam_name: '', foaling_date: '',
+  trainer_id: '', trainer_name: '', sex: '', sire_name: '', dam_name: '', foaling_date: '',
   breed_ids: [] as string[], color_id: '', pattern_id: '', is_solid_paint_bred: false,
 };
 const emptyOwner = { mode: 'self' as OwnerMode, firstName: '', lastName: '', email: '' };
@@ -440,14 +439,6 @@ export default function AddHorseWizard({
         return `Pick the document type and both dates for ${incomplete.file.name}, or remove it.`;
       }
     }
-    if (key === 'trainer') {
-      const hasOtherTrainer = !form.trainer_id && (
-        form.trainer_first_name.trim() || form.trainer_last_name.trim() || form.trainer_email.trim()
-      );
-      if (hasOtherTrainer && (!form.trainer_first_name.trim() || !form.trainer_last_name.trim() || !form.trainer_email.trim())) {
-        return 'Trainer first name, last name, and email are required when adding a new trainer.';
-      }
-    }
     return null;
   };
 
@@ -455,8 +446,7 @@ export default function AddHorseWizard({
    *  entered, "skip" would be ambiguous about whether it discards the input. */
   const stepHasData = (key: StepKey): boolean => {
     if (key === 'trainer') {
-      return !!(form.trainer_id || form.trainer_name.trim() || form.trainer_first_name.trim()
-        || form.trainer_last_name.trim() || form.trainer_email.trim());
+      return !!(form.trainer_id || form.trainer_name.trim());
     }
     if (key === 'registrations') return pendingRegs.length > 0;
     if (key === 'health') return pendingDocs.length > 0;
@@ -491,8 +481,7 @@ export default function AddHorseWizard({
       setDocError(null);
       setForm((prev) => ({
         ...prev,
-        trainer_id: '', trainer_name: '', trainer_first_name: '',
-        trainer_last_name: '', trainer_email: '',
+        trainer_id: '', trainer_name: '',
       }));
     }
     // Switching modes restarts the ride-mode search so a stale result set can't
@@ -661,9 +650,6 @@ export default function AddHorseWizard({
       })),
       trainer_id: form.trainer_id || null,
       trainer_name: form.trainer_name.trim() || null,
-      trainer_first_name: form.trainer_first_name.trim() || null,
-      trainer_last_name: form.trainer_last_name.trim() || null,
-      trainer_email: form.trainer_email.trim() || null,
       breed_ids: form.breed_ids,
     };
     if (form.barn_name.trim()) body.barn_name = form.barn_name.trim();
@@ -724,8 +710,7 @@ export default function AddHorseWizard({
     .map((id) => breeds.find((b) => b.id === id)?.name)
     .filter(Boolean)
     .join(', ');
-  const trainerLabel = form.trainer_name.trim()
-    || [form.trainer_first_name.trim(), form.trainer_last_name.trim()].filter(Boolean).join(' ');
+  const trainerLabel = form.trainer_name.trim();
   const ownerSummary = owner.mode === 'self'
     ? 'You own this horse'
     : `${owner.firstName} ${owner.lastName} (${owner.email})`.trim();
@@ -952,21 +937,15 @@ export default function AddHorseWizard({
             <StepBadge>Optional</StepBadge>
           </div>
           <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            Pick a trainer already in the app, or add a new one by name and email. Leave it blank if the horse has no trainer.
+            Pick the horse&rsquo;s trainer from those with a GaitDesk account. Leave it blank if the horse has no trainer.
           </p>
           <TrainerSelect
             trainerId={form.trainer_id || null}
             trainerName={form.trainer_name || null}
-            trainerFirstName={form.trainer_first_name || null}
-            trainerLastName={form.trainer_last_name || null}
-            trainerEmail={form.trainer_email || null}
-            onChange={({ trainerId, trainerName, trainerFirstName, trainerLastName, trainerEmail }) => setForm((prev) => ({
+            onChange={({ trainerId, trainerName }) => setForm((prev) => ({
               ...prev,
               trainer_id: trainerId ?? '',
               trainer_name: trainerName ?? '',
-              trainer_first_name: trainerFirstName ?? '',
-              trainer_last_name: trainerLastName ?? '',
-              trainer_email: trainerEmail ?? '',
             }))}
           />
         </div>

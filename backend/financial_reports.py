@@ -114,6 +114,13 @@ def _revenue_summary(fin: dict) -> dict:
         })
 
     add("Class entry fees", totals["class_fee_total_cents"])
+    # Class entry fees an All Day fee replaced (migration 186) are not in the
+    # row above; this is what was charged for them instead.
+    add(
+        "All Day fees",
+        totals.get("all_day_total_cents", 0),
+        "Charged in place of class entry fees that came to more",
+    )
     add(
         "Club sanction fees",
         totals["sanction_total_cents"],

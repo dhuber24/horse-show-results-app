@@ -335,6 +335,18 @@ export async function fetchTrainers(headers?: HeadersInit) {
   return res.json();
 }
 
+/**
+ * The trainers a horse form may pick: those with their own GaitDesk account, by
+ * id and name (`GET /trainers/names`). Not `fetchTrainers`, the admin's whole
+ * list, which still carries rows typed in from a horse form before a trainer had
+ * to sign up to be named.
+ */
+export async function fetchTrainerNames(headers?: HeadersInit) {
+  const res = await fetch(`${API_URL}/trainers/names`, headers ? { headers, cache: 'no-store' } : { cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function fetchBreed(id: string) {
   const res = await fetch(`${API_URL}/breeds/${id}`);
   if (!res.ok) throw new Error('Failed to fetch breed');

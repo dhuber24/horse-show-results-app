@@ -98,6 +98,28 @@ PER_CLASS_FEE_UNITS = (
     "per_class_per_horse",
 )
 
+# The All Day fee (migration 186): a cap on class entry fees, not a charge on
+# top of them. The show office works it out by hand -- add up what the exhibitor
+# owes per class, and if that comes to more than the All Day fee, charge the All
+# Day fee instead -- so whichever is lower is derivable from the entries, and
+# `all_day_lines` derives it. It used to be `flat` (billed nobody) on the
+# reading that the exhibitor elects it; read the way offices price it, nothing
+# is elected.
+#
+# The unit says what one cap covers: one horse or one exhibitor, on each show
+# day (classes grouped by `class_date`) or across the whole show. The fee's
+# class list (migration 137) says which classes -- a show runs one cap for its
+# breed classes and another for its All-Breed ones, and unlike every automatic
+# charge a cap may cover club-sanctioned classes, because an All-Breed All Day
+# fee is exactly that.
+ALL_DAY_FEE_UNITS = (
+    "all_day_per_horse",
+    "all_day_per_exhibitor",
+    "all_show_per_horse",
+    "all_show_per_exhibitor",
+)
+
+
 # The automatic units charged once for each class entry, and so the only ones
 # whose money can be put against a class line on the bill -- a per-horse or
 # per-exhibitor charge belongs to no class in particular. See
@@ -463,14 +485,15 @@ def scoped_class_ids(fee) -> Optional[set]:
     has to be the ordinary case -- and reading it the other way would zero every
     bill at every show that predates the feature.
 
-    Only automatic units have a count for this to narrow. A reserved fee bills
+    Only automatic units have a count for this to narrow, and an All Day fee
+    (migration 186) the classes it caps -- see `all_day_counts_class`. A reserved fee bills
     from a quantity somebody booked and a price-list row bills nobody. A
     per-class price-list row (`per_entry`, `per_class_per_horse`) may carry a
     class list (`PER_CLASS_FEE_UNITS`), but only for the show bill to print, so
     this re-checks the unit on read: billing must never start reading a list
     that was stored to be published.
     """
-    if fee.unit not in AUTOMATIC_FEE_UNITS:
+    if fee.unit not in AUTOMATIC_FEE_UNITS and fee.unit not in ALL_DAY_FEE_UNITS:
         return None
     rows = getattr(fee, "scoped_classes", None) or []
     if not rows:
@@ -686,6 +709,97 @@ def charge_lines(
     return lines, total
 
 
+def all_day_counts_class(fee, cls) -> bool:
+    """Whether an All Day fee covers an entry in this class.
+
+    Its own class list where it names one, every class where it does not.
+    **Club-sanctioned classes are covered** -- unlike every automatic charge --
+    because a show's All-Breed All Day fee caps exactly those. A free class and
+    a futurity class carry no class entry fee to replace, so they are left out
+    rather than counted at $0.
+    """
+    if cls is None or is_free_class(cls) or is_futurity_class(cls):
+        return False
+    scoped = scoped_class_ids(fee)
+    return scoped is None or cls.id in scoped
+
+
+def all_day_lines(fees: Iterable, entries: Iterable) -> tuple[list[dict], dict]:
+    """Apply the show's All Day fees to one exhibitor's class entry fees.
+
+    Returns (lines, covered), where `covered` maps each entry id an All Day fee
+    replaced to that line. One line per horse or per exhibitor (the unit), per
+    show day or for the whole show (the unit again), and only where the class
+    entry fees it covers come to **more** than the All Day fee -- the office's
+    own rule. Where they come to the same or less, the classes are charged one
+    by one and no line is made: nothing changes, so nothing is said.
+
+    Only `classes.entry_fee_cents` is replaced. An association's assessment, a
+    club's sanction fee, the show's per-class charges, side pots and futurities
+    are charged in full on top, which is what the MNSPHC bill says of its own
+    All Day fees ("does not include APHA fees").
+
+    An entry is covered by one All Day fee at most. Fees are taken in the show's
+    fee order, and an entry an earlier fee covered is not counted again by a
+    later one whose class list overlaps -- two caps never stack on one class.
+
+    A per-horse cap groups the entries with no horse together, rather than
+    leaving them out: an entry without a horse is still a class somebody paid
+    for.
+    """
+    entry_list = [e for e in entries if e.class_ is not None]
+    lines: list[dict] = []
+    covered: dict = {}
+    for fee in fees:
+        if fee.unit not in ALL_DAY_FEE_UNITS or fee.amount_cents <= 0:
+            continue
+        per_horse = fee.unit.endswith("_per_horse")
+        per_day = fee.unit.startswith("all_day_")
+        groups: dict = {}
+        for entry in entry_list:
+            cls = entry.class_
+            if entry.id in covered or not all_day_counts_class(fee, cls):
+                continue
+            if cls.entry_fee_cents <= 0:
+                continue
+            key = (
+                entry.horse_id if per_horse else None,
+                cls.class_date if per_day else None,
+            )
+            groups.setdefault(key, []).append(entry)
+        for (horse_id, day), group in groups.items():
+            class_fee_cents = sum(e.class_.entry_fee_cents for e in group)
+            if class_fee_cents <= fee.amount_cents:
+                continue
+            horse = getattr(group[0], "horse", None) if per_horse else None
+            line = {
+                "show_fee_id": fee.id,
+                "code": fee.code,
+                "label": fee.label,
+                "unit": fee.unit,
+                "amount_cents": fee.amount_cents,
+                "horse_id": horse_id,
+                "horse_name": horse.name if horse is not None else None,
+                "class_date": day,
+                "class_count": len(group),
+                # What the covered classes would have cost one by one, so the
+                # bill can say what the All Day fee saved.
+                "class_fee_cents": class_fee_cents,
+                "line_total_cents": fee.amount_cents,
+            }
+            lines.append(line)
+            for entry in group:
+                covered[entry.id] = line
+    lines.sort(
+        key=lambda l: (
+            l["horse_name"] or "",
+            l["class_date"] or date.min,
+            l["label"] or "",
+        )
+    )
+    return lines, covered
+
+
 def futurity_charge_cents(
     futurity,
     entry,
@@ -870,6 +984,14 @@ def build_bill(
     class_sanction_total = 0
 
     entry_list = list(entries)
+    # The All Day fees (migration 186), worked out before the class lines
+    # because they decide what each class line charges: a class an All Day fee
+    # covers charges no entry fee of its own, and the All Day fee is charged
+    # once instead. `fee_cents` stays what the line *charges*, so every screen
+    # that adds up class lines keeps footing; `list_fee_cents` is the class's
+    # own price, for saying what was replaced.
+    all_day_line_list, all_day_covered = all_day_lines(show.fees or [], entry_list)
+    all_day_total = sum(line["line_total_cents"] for line in all_day_line_list)
     for entry in entry_list:
         cls = entry.class_
         if cls is None:
@@ -877,7 +999,9 @@ def build_bill(
         sanction = class_sanction_cents(cls, rates)
         # Held at 0 on the row while the class is free (a CHECK, migration
         # 166); read through the flag as well, so a bill can never charge one.
-        fee = 0 if is_free_class(cls) else cls.entry_fee_cents
+        list_fee = 0 if is_free_class(cls) else cls.entry_fee_cents
+        all_day = all_day_covered.get(entry.id)
+        fee = 0 if all_day is not None else list_fee
         class_lines.append(
             {
                 "entry_id": entry.id,
@@ -887,6 +1011,10 @@ def build_bill(
                 "class_date": cls.class_date,
                 "horse_name": entry.horse.name if getattr(entry, "horse", None) else None,
                 "fee_cents": fee,
+                "list_fee_cents": list_fee,
+                # The All Day fee this class's entry fee went into, if any.
+                "all_day_fee_id": all_day["show_fee_id"] if all_day else None,
+                "all_day_label": all_day["label"] if all_day else None,
                 "sanction_cents": sanction,
                 # So a bill can say "Free" rather than leave a blank that reads
                 # as a price nobody has set.
@@ -985,7 +1113,12 @@ def build_bill(
         "sanction_lines": sanction_line_list,
         "futurity_lines": futurity_line_list,
         "side_pot_lines": side_pot_line_list,
+        "all_day_lines": all_day_line_list,
+        # What the class entry fees charged one by one -- the classes an All
+        # Day fee covered are not in it; `all_day_total_cents` is what replaced
+        # them.
         "class_fee_total_cents": class_fee_total,
+        "all_day_total_cents": all_day_total,
         "class_sanction_total_cents": class_sanction_total,
         "sanction_total_cents": class_sanction_total + sanction_charge_total,
         "reservation_total_cents": reservation_total,
@@ -998,6 +1131,7 @@ def build_bill(
         "side_pot_total_cents": side_pot_total,
         "total_cents": (
             class_fee_total
+            + all_day_total
             + class_sanction_total
             + sanction_charge_total
             + reservation_total
@@ -1070,6 +1204,7 @@ def summarize_accounts(accounts: Iterable) -> dict:
     totals = {
         "accounts": 0,
         "class_fee_total_cents": 0,
+        "all_day_total_cents": 0,
         "sanction_total_cents": 0,
         "reservation_total_cents": 0,
         "charge_total_cents": 0,
@@ -1100,6 +1235,7 @@ def summarize_accounts(accounts: Iterable) -> dict:
         totals["accounts"] += 1
         for key in (
             "class_fee_total_cents",
+            "all_day_total_cents",
             "sanction_total_cents",
             "reservation_total_cents",
             "charge_total_cents",

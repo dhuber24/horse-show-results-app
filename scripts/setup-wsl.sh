@@ -33,6 +33,18 @@ if ! grep -qi microsoft /proc/version 2>/dev/null; then
   echo "This is for a WSL distro; /proc/version says this is not one." >&2
   exit 1
 fi
+# A distro whose first-launch user prompt was skipped logs in as root: the
+# clone, nvm and git identity would all land in /root, and VS Code and Claude
+# Code would run as root. Make the user first.
+if [ "$(id -u)" -eq 0 ]; then
+  cat >&2 <<'EOF'
+This is running as root, so Ubuntu has no user of your own yet. As root, run:
+  adduser <name> && usermod -aG sudo <name>
+  printf '\n[user]\ndefault=<name>\n' >> /etc/wsl.conf
+then `wsl --terminate Ubuntu` from Windows, reopen Ubuntu, and rerun this.
+EOF
+  exit 1
+fi
 if [ ! -f "$WIN_REPO/docker-compose.yml" ]; then
   echo "No GaitDesk checkout at $WIN_REPO. Set WIN_REPO=/mnt/c/... and rerun." >&2
   exit 1
@@ -42,9 +54,28 @@ fi
 # repo trips "dubious ownership" because the files belong to Windows.
 win_git_config() { git config --file "$WIN_REPO/.git/config" "$@" 2>/dev/null || true; }
 
+# A freshly booted distro runs Ubuntu's own apt-daily / unattended-upgrades,
+# which hold the apt lock for a minute or more; apt-get then fails at once with
+# "Could not get lock /var/lib/apt/lists/lock". Wait those out, and let apt
+# itself wait on the dpkg lock for anything that starts in between.
+apt_get() {
+  local waited=0
+  while pgrep -f '/usr/lib/apt/apt.systemd.daily' >/dev/null \
+     || pgrep -f '/usr/bin/unattended-upgrade$' >/dev/null \
+     || pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null; do
+    [ "$waited" -eq 0 ] && note "waiting for Ubuntu's own package update to finish..."
+    sleep 5; waited=$((waited + 5))
+    if [ "$waited" -ge 600 ]; then
+      echo "apt is still busy after 10 minutes; rerun this when it's done." >&2
+      exit 1
+    fi
+  done
+  sudo apt-get -o DPkg::Lock::Timeout=300 "$@"
+}
+
 step "Packages: git, curl"
-sudo apt-get update -qq
-sudo apt-get install -y -qq git curl ca-certificates gnupg >/dev/null
+apt_get update -qq
+apt_get install -y -qq git curl ca-certificates gnupg >/dev/null
 
 step "PowerShell (the pre-commit docs guard, migrate.ps1, release.ps1)"
 # Microsoft's apt repo, where it has a package for this Ubuntu; otherwise the
@@ -61,7 +92,7 @@ install_pwsh_tarball() {
   esac
   # pwsh needs ICU, and the package is named for its version (libicu76, ...).
   icu="$(apt-cache search --names-only '^libicu[0-9]+$' | awk '{print $1}' | sort -V | tail -1)"
-  if [ -n "$icu" ]; then sudo apt-get install -y -qq "$icu" >/dev/null; fi
+  if [ -n "$icu" ]; then apt_get install -y -qq "$icu" >/dev/null; fi
   sudo mkdir -p "$dir"
   curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${ver}/powershell-${ver}-linux-${arch}.tar.gz" \
     | sudo tar -xz -C "$dir"
@@ -77,10 +108,10 @@ else
           -o /tmp/packages-microsoft-prod.deb 2>/dev/null; then
     sudo dpkg -i /tmp/packages-microsoft-prod.deb >/dev/null
     rm -f /tmp/packages-microsoft-prod.deb
-    sudo apt-get update -qq
+    apt_get update -qq
   fi
   if apt-cache policy powershell 2>/dev/null | grep -q 'Candidate: [0-9]'; then
-    sudo apt-get install -y -qq powershell >/dev/null
+    apt_get install -y -qq powershell >/dev/null
   else
     note "no apt package for Ubuntu ${VERSION_ID}; installing the GitHub release"
     install_pwsh_tarball
@@ -98,14 +129,18 @@ else
   sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
     | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq gh >/dev/null
+  apt_get update -qq
+  apt_get install -y -qq gh >/dev/null
 fi
 
 step "Node $NODE_VERSION via nvm (type-check, lint and jest run on the host)"
 export NVM_DIR="$HOME/.nvm"
 if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-  curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" | bash >/dev/null
+  # Without Windows' PATH: WSL appends it, and the installer then finds
+  # C:\Program Files\nodejs\npm, asks it for global modules and prints an npm
+  # ENOENT error about %APPDATA%\npm that is harmless but reads like a failure.
+  curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" \
+    | PATH="$(printf %s "$PATH" | tr : '\n' | grep -v '^/mnt/' | paste -sd: -)" bash >/dev/null
 fi
 set +u  # nvm.sh is not written for nounset
 . "$NVM_DIR/nvm.sh"
@@ -133,6 +168,12 @@ note "$(git config --global user.name) <$(git config --global user.email)>"
 step "Clone into $DEST"
 origin="$(win_git_config remote.origin.url)"
 origin="${origin:-https://github.com/dhuber24/horse-show-results-app}"
+# A Windows checkout cloned over SSH has a key Ubuntu doesn't; clone over HTTPS
+# instead, which the credential manager above signs in to.
+case "$origin" in
+  git@github.com:*)          origin="https://github.com/${origin#git@github.com:}" ;;
+  ssh://git@github.com/*)    origin="https://github.com/${origin#ssh://git@github.com/}" ;;
+esac
 if [ -d "$DEST/.git" ]; then
   note "already cloned"
 else

@@ -1019,6 +1019,13 @@ FeeUnit = Literal[
     'per_bag',
     'per_show',
     'percent_of_entry',
+    # An All Day fee (migration 186): a cap on class entry fees, charged in
+    # their place where they come to more. One horse or one exhibitor, each
+    # show day or the whole show. See `billing.all_day_lines`.
+    'all_day_per_horse',
+    'all_day_per_exhibitor',
+    'all_show_per_horse',
+    'all_show_per_exhibitor',
 ]
 
 
@@ -4692,7 +4699,13 @@ class BillClassLineOut(BaseModel):
     class_name: str
     class_date: Optional[date] = None
     horse_name: Optional[str] = None
+    #: What this line charges for the class itself: 0 where an All Day fee
+    #: covered it (`all_day_fee_id`), so the class lines foot to
+    #: `class_fee_total_cents`. `list_fee_cents` is the class's own price.
     fee_cents: int
+    list_fee_cents: int = 0
+    all_day_fee_id: Optional[UUID] = None
+    all_day_label: Optional[str] = None
     sanction_cents: int
     #: The show's own per-class-entry charges counted on this entry (the breed
     #: body's per-judge assessment), itemised. Part of `charge_total_cents`, put
@@ -4746,6 +4759,28 @@ class BillChargeLineOut(BaseModel):
     #: fees knows not to list this line a second time.
     per_class: bool = False
     quantity: int
+    line_total_cents: int
+
+
+class BillAllDayLineOut(BaseModel):
+    """One All Day fee charged in place of class entry fees (migration 186).
+
+    Only made where the classes it covers came to more than it, so
+    `class_fee_cents - line_total_cents` is what it saved. `horse_name` is set on
+    a per-horse fee and `class_date` on a per-day one. See
+    `billing.all_day_lines`.
+    """
+
+    show_fee_id: UUID
+    code: str
+    label: str
+    unit: FeeUnit
+    amount_cents: int
+    horse_id: Optional[UUID] = None
+    horse_name: Optional[str] = None
+    class_date: Optional[date] = None
+    class_count: int
+    class_fee_cents: int
     line_total_cents: int
 
 
@@ -4829,7 +4864,11 @@ class BillOut(BaseModel):
     sanction_lines: list[BillSanctionLineOut] = Field(default_factory=list)
     futurity_lines: list[BillFuturityLineOut] = Field(default_factory=list)
     side_pot_lines: list[BillSidePotLineOut] = Field(default_factory=list)
+    all_day_lines: list[BillAllDayLineOut] = Field(default_factory=list)
     class_fee_total_cents: int
+    #: What the All Day fees charged in place of the class entry fees they
+    #: covered, which `class_fee_total_cents` leaves out.
+    all_day_total_cents: int = 0
     #: The per-class portion of the sanction money — what the class lines above
     #: already carry. `sanction_total_cents` is that plus `sanction_lines`, so a
     #: screen prints this one beside those and foots without summing anything
@@ -4912,6 +4951,7 @@ class FinancialChargeLineOut(BaseModel):
 class FinancialTotalsOut(BaseModel):
     accounts: int = 0
     class_fee_total_cents: int = 0
+    all_day_total_cents: int = 0
     sanction_total_cents: int = 0
     reservation_total_cents: int = 0
     charge_total_cents: int = 0

@@ -29,82 +29,20 @@ function Tag({ children, tone }: { children: React.ReactNode; tone: 'accent' | '
   return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded" style={style}>{children}</span>;
 }
 
-interface FormState {
-  first_name: string;
-  last_name: string;
-  private_phone: string;
-  phone: string;
-  email: string;
-}
-
 interface Props {
   initialTrainers: Trainer[];
 }
-
-const emptyForm: FormState = { first_name: '', last_name: '', private_phone: '', phone: '', email: '' };
-
-const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
-const labelStyle = { color: 'var(--text-deep)' } as const;
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function FieldRow({
-  label,
-  htmlFor,
-  hint,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={htmlFor} className="text-xs font-medium uppercase tracking-wide" style={labelStyle}>
-        {label}
-      </label>
-      {children}
-      {hint && <span className="text-xs" style={{ color: 'var(--muted)' }}>{hint}</span>}
-    </div>
-  );
-}
-
 export default function TrainersManager({ initialTrainers }: Props) {
   const [trainers, setTrainers] = useState<Trainer[]>(initialTrainers);
-  const [form, setForm] = useState<FormState>(emptyForm);
-  const [isAdding, setIsAdding] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const sorted = useMemo(() => [...trainers].sort((a, b) => a.name.localeCompare(b.name)), [trainers]);
-
-  const handleCreate = async () => {
-    if (!form.first_name.trim() || !form.last_name.trim()) return;
-    setError(null);
-    const res = await fetch('/api/trainers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        private_phone: form.private_phone.trim() || null,
-        phone: form.phone.trim() || null,
-        email: form.email.trim() || null,
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? 'Failed to add trainer.');
-      return;
-    }
-    const created: Trainer = await res.json();
-    setTrainers((prev) => [...prev, created]);
-    setForm(emptyForm);
-    setIsAdding(false);
-  };
 
   const handleDelete = async (id: string) => {
     const res = await fetch(`/api/trainers/${id}`, { method: 'DELETE' });
@@ -119,58 +57,17 @@ export default function TrainersManager({ initialTrainers }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="border rounded-lg p-4 space-y-4" style={{ borderColor: 'var(--border)' }}>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>Trainers</h2>
-          {!isAdding && (
-            <button
-              onClick={() => {
-                setError(null);
-                setIsAdding(true);
-              }}
-              className="px-4 py-2 rounded text-sm font-medium"
-              style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
-            >
-              Add Trainer
-            </button>
-          )}
-        </div>
-
-        {isAdding && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FieldRow label="First name *" htmlFor="new-trainer-first-name">
-                <input id="new-trainer-first-name" value={form.first_name} onChange={(e) => setForm((p) => ({ ...p, first_name: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-              </FieldRow>
-              <FieldRow label="Last name *" htmlFor="new-trainer-last-name">
-                <input id="new-trainer-last-name" value={form.last_name} onChange={(e) => setForm((p) => ({ ...p, last_name: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-              </FieldRow>
-              <FieldRow label="Private phone" htmlFor="new-trainer-private-phone" hint="Internal contact, not shown publicly">
-                <input id="new-trainer-private-phone" value={form.private_phone} onChange={(e) => setForm((p) => ({ ...p, private_phone: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-              </FieldRow>
-              <FieldRow label="Public phone" htmlFor="new-trainer-phone">
-                <input id="new-trainer-phone" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-              </FieldRow>
-              <FieldRow label="Public email" htmlFor="new-trainer-email">
-                <input id="new-trainer-email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-              </FieldRow>
-            </div>
-            <div className="flex items-center gap-3">
-              <button onClick={handleCreate} className="px-4 py-2 rounded text-sm font-medium" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}>Add Trainer</button>
-              <button
-                onClick={() => {
-                  setForm(emptyForm);
-                  setError(null);
-                  setIsAdding(false);
-                }}
-                className="text-sm font-medium hover:underline"
-                style={{ color: 'var(--muted)' }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
+      {/* No Add Trainer (2026-11-13): a trainer exists because they signed up.
+          A row typed in here, like one typed in from a horse form, was a trainer
+          who had never seen GaitDesk, so neither is offered any more. */}
+      <section className="border rounded-lg p-4" style={{ borderColor: 'var(--border)' }}>
+        <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>Trainers</h2>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+          A trainer is added by signing up for their own trainer account at{' '}
+          <Link href="/register/trainer" className="underline" style={{ color: 'var(--accent)' }}>/register/trainer</Link>.
+          Only trainers with an account can be picked on a horse; a trainer shown as <em>Not linked</em> below
+          was typed in before that and stays on the horses that already name them.
+        </p>
       </section>
 
       <section className="space-y-2">

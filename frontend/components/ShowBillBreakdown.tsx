@@ -6,6 +6,7 @@ import {
   formatMoney,
   sanctionArithmetic,
   type Bill,
+  type BillAllDayLine,
   type BillChargeLine,
   type BillClassLine,
   type BillFuturityLine,
@@ -102,6 +103,11 @@ export default function ShowBillBreakdown({
               ))}
           </>
         )}
+        {/* Charged in place of the class entry fees it covered, which read
+            "All Day" on their class lines above. */}
+        {(bill.all_day_lines ?? []).map((line) => (
+          <AllDayLine key={`${line.show_fee_id}-${line.horse_id}-${line.class_date}`} line={line} />
+        ))}
         {/* A club charging per horse or per exhibitor, with its arithmetic.
             A club charging per class is already inside the class lines above. */}
         {(bill.sanction_lines ?? []).map((line) => (
@@ -153,10 +159,13 @@ function ClassSubLine({ line }: { line: BillClassLine }) {
   // What makes it up, only when it is more than the class's own entry fee:
   // "Entry $0.00 · Standard Class Fee $5.00" is what the amount is checked
   // against, and a class with nothing on top says nothing extra.
+  const allDay = line.all_day_fee_id != null;
   const parts =
-    line.sanction_cents > 0 || charges.length > 0
+    allDay || line.sanction_cents > 0 || charges.length > 0
       ? [
-          `Entry ${formatMoney(line.fee_cents)}`,
+          allDay
+            ? `Entry ${formatMoney(line.list_fee_cents ?? 0)} — in ${line.all_day_label ?? 'the All Day fee'}`
+            : `Entry ${formatMoney(line.fee_cents)}`,
           ...(line.sanction_cents > 0 ? [`club sanction ${formatMoney(line.sanction_cents)}`] : []),
           ...charges.map((charge) => `${charge.label} ${formatMoney(charge.cents)}`),
         ]
@@ -190,6 +199,42 @@ function ClassSubLine({ line }: { line: BillClassLine }) {
       </dd>
     </>
   );
+}
+
+/**
+ * One All Day fee, charged instead of the class entry fees it covered. Says
+ * what those would have come to one by one, because "why am I paying $180?"
+ * is answered by "your six classes were $216".
+ */
+function AllDayLine({ line }: { line: BillAllDayLine }) {
+  return (
+    <>
+      <dt>
+        {line.label}
+        {line.horse_name && (
+          <span className="text-xs" style={{ color: 'var(--muted)' }}>
+            {' '}— {line.horse_name}
+          </span>
+        )}
+        <span className="block text-xs" style={{ color: 'var(--muted)' }}>
+          {line.class_date ? `${formatDay(line.class_date)}: ` : ''}
+          {line.class_count} {line.class_count === 1 ? 'class' : 'classes'} at{' '}
+          {formatMoney(line.class_fee_cents)} — charged {formatMoney(line.line_total_cents)} instead
+        </span>
+      </dt>
+      <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
+    </>
+  );
+}
+
+/** "Sat, Jun 13" — a date-only string read as a calendar day, not shifted
+ *  into the reader's zone. */
+function formatDay(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 /** One side pot buy-in: once per pot however many of its classes were entered. */

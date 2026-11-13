@@ -94,6 +94,8 @@ export type FinancialChargeLine = {
 export type FinancialTotals = {
   accounts: number;
   class_fee_total_cents: number;
+  /** What All Day fees charged in place of class entry fees (migration 186). */
+  all_day_total_cents?: number;
   sanction_total_cents: number;
   reservation_total_cents: number;
   charge_total_cents: number;

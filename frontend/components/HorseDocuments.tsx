@@ -49,6 +49,18 @@ export const HEALTH_DOC_TYPES = ['COGGINS', 'VACCINATION', 'HEALTH_CERTIFICATE']
 /** Papers backing the association numbers carried by the horse. */
 export const REGISTRATION_DOC_TYPES = ['REGISTRATION'];
 
+/**
+ * Types uploaded with no dates required. A breed registration certificate has
+ * no issue or expiry date to copy off it (2026-11-13) — the papers are good for
+ * the horse's life — so both boxes are optional for it. Health paperwork keeps
+ * both: the desk's health flags are computed from `expiry_date`.
+ */
+export const DATES_OPTIONAL_DOC_TYPES = ['REGISTRATION'];
+
+export function docDatesRequired(documentType: string): boolean {
+  return !DATES_OPTIONAL_DOC_TYPES.includes(documentType);
+}
+
 function expiryStatus(expiry: string | null): 'expired' | 'soon' | 'valid' | 'none' {
   if (!expiry) return 'none';
   const today = new Date();
@@ -137,7 +149,8 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
   const freshForm = () => ({ ...emptyUpload, document_type: singleType ?? filterType });
 
   const canUpload = (uploadForm: typeof form, uploadFile: File | null) =>
-    !!uploadFile && !!uploadForm.document_type && !!uploadForm.issue_date && !!uploadForm.expiry_date;
+    !!uploadFile && !!uploadForm.document_type
+    && (!docDatesRequired(uploadForm.document_type) || (!!uploadForm.issue_date && !!uploadForm.expiry_date));
 
   const handleUpload = async (uploadForm: typeof form, uploadFile: File) => {
     if (!canUpload(uploadForm, uploadFile)) return;
@@ -148,8 +161,8 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
     const fd = new FormData();
     fd.append('file', uploadFile);
     fd.append('document_type', uploadForm.document_type);
-    fd.append('issue_date', uploadForm.issue_date);
-    fd.append('expiry_date', uploadForm.expiry_date);
+    if (uploadForm.issue_date) fd.append('issue_date', uploadForm.issue_date);
+    if (uploadForm.expiry_date) fd.append('expiry_date', uploadForm.expiry_date);
 
     const res = await fetch(`/api/horses/${horseId}/documents`, { method: 'POST', body: fd });
     setUploading(false);
@@ -170,7 +183,12 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
     }
   };
 
+  // Uploads the moment the last required box is filled. Not for a type whose
+  // dates are optional: the file alone would complete it, and picking the file
+  // first would upload before the optional dates could be typed. That type gets
+  // an Upload button instead.
   const maybeAutoUpload = async (nextForm: typeof form, nextFile: File | null) => {
+    if (!docDatesRequired(nextForm.document_type)) return;
     if (uploading || !nextFile || !canUpload(nextForm, nextFile)) return;
     await handleUpload(nextForm, nextFile);
   };
@@ -199,10 +217,11 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
 
   const visibleDocs = filterType ? scopedDocs.filter((d) => d.document_type === filterType) : scopedDocs;
 
+  const datesRequired = docDatesRequired(form.document_type);
   const missingFields = [
     !form.document_type && 'document type',
-    !form.issue_date && 'issue date',
-    !form.expiry_date && 'expiry date',
+    datesRequired && !form.issue_date && 'issue date',
+    datesRequired && !form.expiry_date && 'expiry date',
   ].filter((label): label is string => Boolean(label));
 
   return (
@@ -260,8 +279,12 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
                     <ExpiryBadge expiry={doc.expiry_date} />
                   </div>
                   <div className="text-xs mt-1 flex flex-wrap gap-x-3" style={{ color: 'var(--muted)' }}>
-                    <span>Issued: {formatDate(doc.issue_date)}</span>
-                    <span>Expires: {formatDate(doc.expiry_date)}</span>
+                    {(doc.issue_date || docDatesRequired(doc.document_type)) && (
+                      <span>Issued: {formatDate(doc.issue_date)}</span>
+                    )}
+                    {(doc.expiry_date || docDatesRequired(doc.document_type)) && (
+                      <span>Expires: {formatDate(doc.expiry_date)}</span>
+                    )}
                     <span>{formatSize(doc.file_size)}</span>
                   </div>
                 </div>
@@ -325,7 +348,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
             )}
             <div>
               <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
-                Issue Date *
+                Issue Date{datesRequired ? ' *' : ' (optional)'}
               </label>
               <input
                 type="date"
@@ -340,7 +363,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
             </div>
             <div>
               <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
-                Expiry Date *
+                Expiry Date{datesRequired ? ' *' : ' (optional)'}
               </label>
               <input
                 type="date"
@@ -380,7 +403,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
           </div>
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
-          {!error && file && !uploading && !canUpload(form, file) && (
+          {!error && file && !uploading && datesRequired && !canUpload(form, file) && (
             <p className="text-xs" style={{ color: 'var(--muted)' }}>
               {/* Names only what is actually missing. Listing "document type"
                   when the filter already supplied it sends people looking for a
@@ -393,6 +416,17 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
           )}
 
           <div className="flex gap-2">
+            {form.document_type && !datesRequired && (
+              <button
+                onClick={() => { if (file) handleUpload(form, file); }}
+                disabled={uploading || !canUpload(form, file)}
+                title={!file ? 'Choose a file to upload' : uploading ? 'Uploading…' : undefined}
+                className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+                style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
+              >
+                {uploading ? 'Uploading...' : 'Upload'}
+              </button>
+            )}
             <button
               onClick={() => {
                 setShowForm(false);

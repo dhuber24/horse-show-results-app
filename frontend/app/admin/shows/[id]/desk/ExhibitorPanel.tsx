@@ -151,6 +151,16 @@ function backendMessage(detail: unknown, fallback: string): string {
  *  APHA Fee". Undefined when the class's own fee is the whole of it, so a plain
  *  row carries no tooltip restating the number beside it. */
 function classFeeBreakdown(line: BillClassLine): string | undefined {
+  // A class an All Day fee covered (migration 186) charges no entry fee of its
+  // own; the tooltip says what it would have been and where it went.
+  if (line.all_day_fee_id != null) {
+    const parts = [
+      `${formatMoney(line.list_fee_cents ?? 0)} class fee, covered by ${line.all_day_label ?? 'the All Day fee'}`,
+    ];
+    if (line.sanction_cents > 0) parts.push(`${formatMoney(line.sanction_cents)} club sanction`);
+    for (const charge of line.charges ?? []) parts.push(`${formatMoney(charge.cents)} ${charge.label}`);
+    return parts.join(' + ');
+  }
   const parts = [`${formatMoney(line.fee_cents)} class fee`];
   if (line.sanction_cents > 0) parts.push(`${formatMoney(line.sanction_cents)} club sanction`);
   for (const charge of line.charges ?? []) parts.push(`${formatMoney(charge.cents)} ${charge.label}`);
@@ -810,8 +820,14 @@ export default function ExhibitorPanel({
   // per-horse sanction — stay out of this section: it is the classes, and the
   // header's billed figure already carries the rest.
   const classChargeCents = bill?.class_charge_total_cents ?? 0;
+  // An All Day fee is class money too: it is charged in place of the class
+  // entry fees it covered, which read $0 on their rows (migration 186).
+  const allDayLines = bill?.all_day_lines ?? [];
   const classFeesCents = bill
-    ? bill.class_fee_total_cents + bill.class_sanction_total_cents + classChargeCents
+    ? bill.class_fee_total_cents +
+      (bill.all_day_total_cents ?? 0) +
+      bill.class_sanction_total_cents +
+      classChargeCents
     : 0;
   const futurityCents = bill?.futurity_total_cents ?? 0;
   const futurityLines = bill?.futurity_lines ?? [];
@@ -1173,6 +1189,9 @@ export default function ExhibitorPanel({
                         ) : line ? (
                           <span title={classFeeBreakdown(line)}>
                             {formatMoney(line.fee_cents + line.sanction_cents + (line.charge_cents ?? 0))}
+                            {line.all_day_fee_id != null && (
+                              <span className="block text-xs">All Day</span>
+                            )}
                           </span>
                         ) : cls ? (
                           formatMoney(cls.entry_fee_cents)
@@ -1202,6 +1221,27 @@ export default function ExhibitorPanel({
               </tbody>
             </table>
           </div>
+        )}
+
+        {/* Each All Day fee charged in place of class entry fees, with what
+            those would have come to — the figure the office used to work out
+            by hand to decide which to charge. */}
+        {allDayLines.length > 0 && (
+          <ul className="space-y-1 mb-3 text-xs" style={{ color: COLORS.muted }}>
+            {allDayLines.map((l) => (
+              <li key={`${l.show_fee_id}-${l.horse_id}-${l.class_date}`}>
+                <span style={{ color: COLORS.text }}>{l.label}</span>
+                {l.horse_name && ` — ${l.horse_name}`}
+                {l.class_date &&
+                  `, ${new Date(`${l.class_date}T00:00:00`).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                  })}`}
+                : {formatMoney(l.line_total_cents)} instead of {l.class_count}{' '}
+                {l.class_count === 1 ? 'class' : 'classes'} at {formatMoney(l.class_fee_cents)}
+              </li>
+            ))}
+          </ul>
         )}
 
         {/* Each enrollment's arithmetic, as the bill charges it. Listed even

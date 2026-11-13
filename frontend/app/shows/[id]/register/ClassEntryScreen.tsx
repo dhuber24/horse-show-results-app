@@ -94,6 +94,18 @@ function EnteredRow({
             reads $5.00 here rather than $0.00. A class the office made free
             says so. */}
         {line.is_free ? 'Free' : formatMoney(line.fee_cents + line.sanction_cents + (line.charge_cents ?? 0))}
+        {/* Covered by an All Day fee (migration 186): the class's own fee is in
+            that fee, which is on the bill below. */}
+        {line.all_day_fee_id != null && (
+          <span
+            className="block text-xs"
+            title={`${formatMoney(line.list_fee_cents ?? 0)} class fee, covered by ${
+              line.all_day_label ?? 'the All Day fee'
+            }`}
+          >
+            All Day
+          </span>
+        )}
       </td>
       <td className="py-1.5 text-right whitespace-nowrap">
         {lockedReason ? (
@@ -287,6 +299,7 @@ export default function ClassEntryScreen({
                       is in the bill further down, with its arithmetic. */}
                   {formatMoney(
                     bill.class_fee_total_cents +
+                      (bill.all_day_total_cents ?? 0) +
                       bill.class_sanction_total_cents +
                       (bill.class_charge_total_cents ?? 0),
                   )}{' '}

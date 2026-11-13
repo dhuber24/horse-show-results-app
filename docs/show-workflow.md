@@ -589,7 +589,7 @@ It exists because "not a club-sanctioned class" (migration 131) was the only sco
 - **Narrows, never widens.** Migration 131's exclusion still applies on top, so ticking a WSCA class into the breed body's own assessment does not make the assessment reach it.
 - `charge_lines` reports each line's **own** counts (`horse_count`, `entry_count`, `is_scoped`), not the exhibitor's, or the arithmetic printed on the bill would not foot.
 
-**Two things scoping does not fix, and both were part of the same $552.** A class rate stated both on the class row and as a *per class* fee charges twice — `per_entry` bills now — so a class is priced in one place or the other. And an **All Day fee is an elective bundle** that replaces per-class fees rather than adding to them; nothing stored says whether an exhibitor chose it, so it is `flat` and bills nobody until the app models the election. See [design/billing.md](design/billing.md) on units moving between billing families.
+**Two things scoping does not fix, and both were part of the same $552.** A class rate stated both on the class row and as a *per class* fee charges twice — `per_entry` bills now — so a class is priced in one place or the other. And an **All Day fee** replaces class entry fees rather than adding to them. Since migration 186 it is a cap the app applies itself — the office's own rule, the All Day fee whenever the class entry fees it covers come to more — priced per horse or per exhibitor, per show day or for the whole show, over its own class list. See [design/billing.md](design/billing.md) on units moving between billing families.
 
 ## My Shows and the Bill
 
