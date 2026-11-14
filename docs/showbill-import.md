@@ -67,7 +67,9 @@ has it.
   configured) and `enabled` (has the caller's company paid) separately, because
   they are different messages: one is the server's, the other is the customer's.
 - **The feature is sold where a show starts.** `AutomateShowCard` sits on
-  `/admin/shows` and `/admin/shows/new` for every role that can create a show:
+  `/admin/shows/new`, above Step 1's form, for every role that can create a show
+  (not on the `/admin/shows` list, whose *+ Create New Show* button leads there;
+  that list shows a read still running or waiting to be created, above the shows):
   a one-row strip with the same pitch for everybody, and on its right an
   **Upload show bill** button for a company on the plan, or for one that is
   not an **Upgrade** link (to the plan chooser on My Company) beside a lock line naming whose company it
@@ -241,7 +243,10 @@ this agrees on all 172 classes.
 ## Checking it, step by step
 
 `backend/showbill_checks.py` makes the checks; `frontend/components/BillChecks.tsx`
-shows them, inside `StepLayout`, from the list `fetchStepCounts` reads. The
+shows them, inside `StepLayout`, from the list `fetchStepCounts` reads. Each
+check appears once: on its field where the step draws one (Accept and *Add …*
+beside it), or, when it has no field on the page, in the box above the form,
+which otherwise holds only the count and the answered checks. The
 confirm page before Create is `StartClient.tsx`, its state in
 `frontend/lib/showbill-import.ts`.
 

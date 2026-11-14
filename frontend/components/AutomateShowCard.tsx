@@ -5,7 +5,7 @@ import UpgradeToProLink from './UpgradeToProLink';
 /**
  * The show bill import, sold.
  *
- * Shown to everybody who can create a show, because a feature nobody can see
+ * Shown on New Show to everybody who can create a show, because a feature nobody can see
  * is one nobody asks to buy. The pitch is identical either way, so the locked
  * strip tells somebody exactly what they are missing; only the action differs.
  * A company that has it (migration 142) gets the upload button. One that does
@@ -13,8 +13,8 @@ import UpgradeToProLink from './UpgradeToProLink';
  * Upgrade link to the plan chooser on My Company, since the company picks Pro
  * itself (migration 170) and is billed after each show.
  *
- * A strip, not a panel: it sits above the show list and above Step 1's form,
- * so it is one row on a desk screen and the pitch is one sentence.
+ * A strip, not a panel: it sits above Step 1's form on New Show, the one place
+ * a show starts, so it is one row on a desk screen and the pitch is one sentence.
  *
  * The button is an offer, never the enforcement: every show-bill endpoint
  * checks the feature for itself.

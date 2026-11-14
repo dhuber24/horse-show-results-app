@@ -296,8 +296,8 @@ export default function StartClient({
             onChange={(e) => set({ attach_showbill: e.target.checked })}
           />
           <span>
-            Keep {imp.original_filename} on file as the show&apos;s own show bill. The Show Bill button
-            stays on the one the app generates until you switch it in the Show Bill step.
+            Keep your paper Show Bill attached to this show so that it can be downloaded and/or viewed
+            by exhibitors and spectators
           </span>
         </label>
       </section>

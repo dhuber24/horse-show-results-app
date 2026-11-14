@@ -90,7 +90,8 @@ export function actionHref(showId: string, action: Extract<BillCheckAction, { ki
   return `/admin/shows/${showId}/${action.href.replace(/^\/+/, '')}`;
 }
 
-/** The anchor a highlighted field carries, so the step's list can scroll to it. */
+/** The anchor a highlighted field carries, so the step's box knows it is drawn
+ * and leaves it out rather than listing it twice. */
 export function checkAnchorId(checkId: string): string {
   return `bill-check-${checkId}`;
 }

@@ -282,7 +282,12 @@ function InlineCheck({ check }: { check: BillCheck }) {
         <span className="sr-only">{sourceLabel(check)}: </span>
         {check.message}
       </span>
-      <AcceptButton onPress={() => ctx?.accept(check.id)} />
+      {/* The answer the check asks for, on the field it is about: the step
+          has no list repeating these, so this is the only place it is. */}
+      <span className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
+        <ActionButton check={check} />
+        <AcceptButton onPress={() => ctx?.accept(check.id)} />
+      </span>
     </div>
   );
 }
@@ -304,33 +309,56 @@ function AcceptButton({ onPress, label = 'Accept' }: { onPress: () => void; labe
 // ── The step's list ─────────────────────────────────────────────────────────
 
 /**
- * Everything read off the show bill to check on this step, above the step's
- * own form.
+ * What the show bill left to check on this step, above the step's own form.
  *
- * Every check is here, whether or not the form draws its field: a check about
- * a judge the bill named but the registry lacks has no field, and one about a
- * tack stall is edited on another screen. Where the field *is* drawn, *Show
- * me* scrolls to it. Answered checks fold into a line at the bottom, each with
- * an undo, since an Accept pressed by mistake would otherwise be invisible.
+ * Each check is answered where it is drawn: on its field, outlined, with its
+ * Accept and its action. The list does not repeat those -- one check in two
+ * places read as two things to do. It holds only the count, the checks with
+ * no field on this page (a judge the registry lacks, the officials the bill
+ * names, a note about the bill as a whole), and the answered ones, folded,
+ * each with an undo, since an Accept pressed by mistake would otherwise be
+ * invisible.
+ *
+ * Which checks have a field here is known only once the page has drawn, and
+ * changes when a section opens, so it is read after mount and whenever the
+ * page's DOM changes. Nothing is listed until it has been read once, so the
+ * list does not flash every check and then shrink.
  */
 export function StepBillChecks({ step }: { step: WizardStepKey }) {
   const ctx = useBillChecks();
   const [showDone, setShowDone] = useState(false);
-  // Which open checks have their field on this page — known only once it has
-  // rendered, so read after mount and whenever the list changes.
-  const [onPage, setOnPage] = useState<Set<string>>(new Set());
+  const [onPage, setOnPage] = useState<Set<string> | null>(null);
   const mine = useMemo(() => (ctx ? ctx.checks.filter((c) => c.step === step) : []), [ctx, step]);
   const open = mine.filter(isOpen);
   const done = mine.filter((c) => !isOpen(c));
+  const openKey = open.map((c) => c.id).join(',');
 
   useEffect(() => {
-    const ids = new Set<string>();
-    for (const c of open) if (document.getElementById(checkAnchorId(c.id))) ids.add(c.id);
-    setOnPage(ids);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `open` is derived from `mine`
-  }, [mine]);
+    const ids = openKey ? openKey.split(',') : [];
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const found = new Set(ids.filter((id) => document.getElementById(checkAnchorId(id))));
+      setOnPage((prev) =>
+        prev && prev.size === found.size && [...found].every((id) => prev.has(id)) ? prev : found,
+      );
+    };
+    measure();
+    if (ids.length === 0) return;
+    const observer = new MutationObserver(() => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [openKey]);
 
-  if (!ctx || mine.length === 0) return null;
+  if (!ctx || mine.length === 0 || onPage === null) return null;
+
+  const highlighted = open.filter((c) => onPage.has(c.id));
+  const elsewhere = open.filter((c) => !onPage.has(c.id));
 
   return (
     <section
@@ -349,8 +377,10 @@ export function StepBillChecks({ step }: { step: WizardStepKey }) {
         </h2>
         {open.length > 0 && (
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-            Accept each one if it is right, or change what it is about (changing it counts as checked).
-            The show can&apos;t be published until every step&apos;s list is clear.
+            {highlighted.length > 0 &&
+              `${highlighted.length === open.length ? 'Each is' : `${highlighted.length} are`} highlighted on the field it is about below. `}
+            Accept each one if it is right, or change it (changing it counts as checked). The show
+            can&apos;t be published until every step is clear.
           </p>
         )}
       </div>
@@ -361,9 +391,9 @@ export function StepBillChecks({ step }: { step: WizardStepKey }) {
         </p>
       )}
 
-      {open.length > 0 && (
+      {elsewhere.length > 0 && (
         <ul className="space-y-2">
-          {open.map((c) => (
+          {elsewhere.map((c) => (
             <li
               key={c.id}
               className="rounded border p-2.5 text-sm flex flex-wrap items-start gap-x-3 gap-y-2"
@@ -376,24 +406,6 @@ export function StepBillChecks({ step }: { step: WizardStepKey }) {
                 <div style={{ color: 'var(--foreground)' }}>{c.message}</div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                {onPage.has(c.id) && (
-                  <button
-                    type="button"
-                    className="text-xs underline"
-                    style={{ color: 'var(--primary)' }}
-                    onClick={() => {
-                      const el = document.getElementById(checkAnchorId(c.id));
-                      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      const box = el?.closest<HTMLElement>('[data-bill-check-field]') ?? el;
-                      box?.animate?.(
-                        [{ outline: `3px solid ${WARN.strong}` }, { outline: '3px solid transparent' }],
-                        { duration: 1200 },
-                      );
-                    }}
-                  >
-                    Show me
-                  </button>
-                )}
                 <ActionButton check={c} />
                 <AcceptButton onPress={() => ctx.accept(c.id)} />
               </div>

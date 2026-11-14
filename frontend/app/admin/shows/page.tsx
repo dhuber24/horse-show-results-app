@@ -2,14 +2,23 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { API_URL } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import AutomateShowCard from '@/components/AutomateShowCard';
-import { fetchMyFeatures } from '@/lib/show-companies';
+import { SHOWBILL_IMPORT, fetchMyFeatures, hasFeature } from '@/lib/show-companies';
+import type { ShowBillImport } from '@/lib/showbill-import';
 import ShowList from './ShowList';
+import ShowbillReads from './ShowbillReads';
 
 async function fetchShowsForUser(headers: Record<string, string>) {
   const res = await fetch(`${API_URL}/shows/`, { headers, cache: 'no-store' });
   if (!res.ok) return [];
   return res.json();
+}
+
+/** The caller's recent show bill reads -- only asked for when their company has
+ * the feature, since the endpoint refuses everybody else. */
+async function fetchShowbillReads(headers: Record<string, string>): Promise<ShowBillImport[]> {
+  const res = await fetch(`${API_URL}/show-bill-imports/`, { headers, cache: 'no-store' }).catch(() => null);
+  if (!res?.ok) return [];
+  return res.json().catch(() => []);
 }
 
 export default async function AdminShowsPage() {
@@ -26,6 +35,7 @@ export default async function AdminShowsPage() {
   };
 
   const [shows, myFeatures] = await Promise.all([fetchShowsForUser(headers), fetchMyFeatures(headers)]);
+  const showbillReads = hasFeature(myFeatures, SHOWBILL_IMPORT) ? await fetchShowbillReads(headers) : [];
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
@@ -66,10 +76,7 @@ export default async function AdminShowsPage() {
         </div>
       </div>
 
-      {/* Where a show starts, so where the faster way to start one is sold.
-          Only to the roles that can create a show -- every role this page
-          admits, today, but the check keeps it honest if that widens. */}
-      {['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY'].includes(role) && <AutomateShowCard mine={myFeatures} />}
+      <ShowbillReads initial={showbillReads} />
 
       <ShowList initialShows={shows} role={role ?? ''} />
     </main>

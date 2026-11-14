@@ -41,6 +41,9 @@ async function readCount(url: string): Promise<number | null> {
  * a page is about. Re-reads the count on every navigation, so reading the
  * messages clears the badge on the next page.
  *
+ * **Shown only while something is unread** (or while on the inbox it links
+ * to); with nothing new it is not rendered at all.
+ *
  * The show's count endpoint checks `works_show`, so a manager browsing somebody
  * else's show gets the combined inbox rather than that show's. Rendered by the
  * Navbar for the office roles only, so an exhibitor sends no request that can
@@ -85,10 +88,15 @@ export default function MessagesButton({ trainer = false }: { trainer?: boolean 
   if (!inbox || inbox.key !== key) return null;
 
   const { count, href, scope } = inbox;
+  const here = pathname === href;
+  // Only there when something is unread, so the top bar stays quiet the rest
+  // of the time. Kept while on the inbox itself, so it does not vanish from
+  // under the person reading the last new message.
+  if (count === 0 && !here) return null;
+
   const whose =
     scope === 'show' ? "This show's messages" : scope === 'trainer' ? 'Your messages' : 'Messages from all your shows';
   const label = count > 0 ? `${whose} — ${count} new` : whose;
-  const here = pathname === href;
 
   return (
     <Link
