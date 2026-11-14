@@ -86,7 +86,7 @@ async function loadShowContext(
     const [show, unread, steps] = await Promise.all([
       fetchShow(showId),
       fetchUnreadCount(showId),
-      // Ten reads, so only where the steps are shown. Memoised per request
+      // Eleven reads, so only where the steps are shown. Memoised per request
       // with the step page's own call.
       inSetup ? fetchStepCounts(showId).then(buildSteps) : Promise.resolve(null),
     ]);

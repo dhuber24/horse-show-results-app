@@ -4,6 +4,7 @@ import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
 import { registrationAnswered } from '@/lib/registration-window';
 import type { SkipKey, WizardStepsInput } from '../../../_wizard/steps';
+import type { BillCheck } from '@/lib/bill-checks';
 
 // Mirrors LODGING_CODES in setup/lodging/page.tsx — `hookup` is the pre-108
 // code for the camping line and still counts as lodging that is configured.
@@ -42,14 +43,14 @@ async function getJson<T>(url: string, fallback: T): Promise<T> {
 }
 
 /**
- * Ten reads, so memoised for the request: a setup step's page and the desktop
+ * Eleven reads, so memoised for the request: a setup step's page and the desktop
  * sidebar beside it (`@sidebar/`) both need these counts, render in the same
  * request, and would otherwise make all ten twice.
  */
 export const fetchStepCounts = cache(async function fetchStepCounts(
   showId: string,
 ): Promise<WizardStepsInput> {
-  const [show, judges, sanctioning, fees, classes, futurities, showbill, sidePots, skips, highPoint] = await Promise.all([
+  const [show, judges, sanctioning, fees, classes, futurities, showbill, sidePots, skips, highPoint, billChecks] = await Promise.all([
     fetchShow(showId),
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/judges/`, []),
     getJson<{ association_id: string }[]>(
@@ -67,6 +68,10 @@ export const fetchStepCounts = cache(async function fetchStepCounts(
     // skips, which only means nothing is folded away -- never a lost step.
     getJson<{ steps: SkipKey[] }>(`${API_URL}/shows/${showId}/setup-skips`, { steps: [] }),
     getJson<{ point_system: unknown | null }>(`${API_URL}/shows/${showId}/high-point`, { point_system: null }),
+    // What was read off the show bill and is still to check (migration 187).
+    // A failed read is none, which hides the lists -- it never unlocks
+    // publishing, which the backend decides for itself.
+    getJson<BillCheck[]>(`${API_URL}/shows/${showId}/bill-checks`, []),
   ]);
 
   const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
@@ -93,6 +98,7 @@ export const fetchStepCounts = cache(async function fetchStepCounts(
     sidePotCount: sidePots.length,
     highPointChosen: highPoint.point_system != null,
     skippedSteps: skips.steps,
+    billChecks,
     scoredClassCount: scoredClasses.length,
     cardedClassCount: scoredClasses.filter((c) => c.judging_system_id).length,
     scoringChosenCount: classes.filter((c) => c.card_type).length,

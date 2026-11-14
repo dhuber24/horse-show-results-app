@@ -41,6 +41,8 @@ export default function SidebarLink({
   return (
     <a
       href={href}
+      // Saves the step itself, below, so the unsaved-changes guard lets it by.
+      data-autosave-link
       className={className}
       style={busy ? { ...style, opacity: 0.6 } : style}
       title={title}

@@ -1,34 +1,36 @@
-"""A show built from its own show bill: the review, and the one press that creates it.
+"""A show built from its own show bill: matching what the bill names, and creating it.
 
-`extraction/showbill.py` reads the bill. This module does the two things either
-side of a person looking at what it read:
+`extraction/showbill.py` reads the bill. This module does the rest:
 
-* **`prepare_draft`** turns the read into a review screen. It matches what the
-  bill *names* -- a judge, a venue, a club, the breed body -- against what the
-  app already *holds*, and routes every class to a discipline the way the
-  Class Builder would. Every match is a suggestion the reviewer can overrule,
-  and every one carries the reason it was made.
-* **`apply_import`** creates the show from what the reviewer submitted, in one
-  transaction: the show and its staff row, venue, judges, club sanctioning,
-  classes, fees, and the bill itself on file. Nothing the model read is used
-  here -- only the reviewed payload -- so there is no path from the file to a
-  record that does not go through a person.
+* **`prepare_draft`** matches what the bill *names* -- a judge, a venue, a club,
+  the breed body -- against what the app already *holds*, and routes every
+  class to a discipline the way the Class Builder would. Every match is a
+  suggestion, and every one carries the reason it was made.
+* **`create_show_from_read`** (migration 187) creates the show as a DRAFT from
+  the read and the four values a person confirmed, with every doubt recorded
+  as a check on its setup step (`showbill_checks.py`). The show cannot leave
+  DRAFT until each one is answered, so nothing read off a bill reaches an
+  exhibitor before a person has looked at it.
+* **`apply_import`** creates a show from a payload in one transaction: the show
+  and its staff row, venue, judges, club sanctioning, classes, fees, and the
+  bill itself on file. `create_show_from_read` builds that payload.
 
 Three rules worth stating, because each was a real mistake before this existed:
 
 * **A name is not an identity.** A judge on the bill is matched to the registry
-  only when first and last name agree exactly, and the screen says it matched
-  on the name. It is preselected because the alternative -- a second registry
-  row for somebody already in it, with no email to tell them apart -- is the
-  worse outcome, and the reviewer is looking straight at it.
+  only when first and last name agree exactly, and that match is a check saying
+  so. Nobody the registry lacks is created from the read: a second registry row
+  for somebody already in it, with no email to tell them apart, is the worse
+  outcome, so adding a judge is a press on the Judges step.
 * **An existing judge's cards are not edited from here.** The registry is shared
   by every show that judge ever worked and editing it is admin-only
   (`routers/judges.py`); the bill's "APHA/WSCA" beside a judge is used only
   when the judge is being created.
 * **One class of a name per show day**, the Class Builder's own rule
-  (`routers/classes.py::_assert_name_free`). A bulk import elsewhere skips a
-  duplicate rather than failing; this one refuses and names it, because the
-  person who can fix it is on the review screen with the row in front of them.
+  (`routers/classes.py::_assert_name_free`). `apply_import` refuses a payload
+  that breaks it; `create_show_from_read` creates the first and makes the
+  second a check, since the bill printing a class twice is not the office's
+  mistake to be refused over.
 
 The pure functions are tested without a database (`tests/test_showbill_import.py`);
 the SQL around them is not, for the reason `tests/factories.py` gives.
@@ -490,11 +492,13 @@ async def apply_import(
     user_id: UUID,
     user_role: str,
     db: AsyncSession,
+    checks: Optional[list[Any]] = None,
 ) -> UUID:
-    """Create the reviewed show in one transaction and return its id.
+    """Create the show in one transaction and return its id.
 
     The import row is locked first, so a double press creates one show and the
-    second press is told which show the first one made.
+    second press is told which show the first one made. `checks` are
+    `showbill_checks.CheckSpec`s, recorded against the rows this creates.
     """
     imp = (
         await db.execute(
@@ -682,6 +686,10 @@ async def apply_import(
     by_day: dict[date, list[Any]] = {}
     for cls in body.classes:
         by_day.setdefault(cls.class_date, []).append(cls)
+    # Created a day at a time, so the ids come back in that order; put them
+    # back in payload order for the checks, which point at a payload index.
+    made_classes: list[Any] = []
+    payload_order = [i for day in sorted(by_day) for i, c in enumerate(body.classes) if c.class_date == day]
     for day in sorted(by_day):
         reviewed = by_day[day]
         items = []
@@ -707,6 +715,7 @@ async def apply_import(
             class_date=day,
             db=db,
         )
+        made_classes.extend(created)
         for cls, made in zip(reviewed, created):
             made.entry_fee_cents = cls.entry_fee_cents
             made.entered_by_qualification = cls.entered_by_qualification
@@ -714,8 +723,9 @@ async def apply_import(
                 db.add(ClassSanctioning(class_id=made.id, association_id=aid))
 
     # --- Fees ---
+    fee_rows: list[ShowFee] = []
     for order, (fee, code) in enumerate(zip(body.fees, fee_codes((f.label, f.unit) for f in body.fees)), start=1):
-        db.add(
+        fee_rows.append(
             ShowFee(
                 show_id=show.id,
                 code=code,
@@ -727,6 +737,25 @@ async def apply_import(
                 early_amount_cents=fee.early_amount_cents,
                 early_deadline=fee.early_deadline,
                 min_quantity=fee.min_quantity,
+            )
+        )
+    db.add_all(fee_rows)
+    await db.flush()
+
+    if checks:
+        from showbill_checks import check_rows
+
+        # Read after the flush above: a class's id is assigned when it is written.
+        by_payload = [UUID(int=0)] * len(body.classes)
+        for made, i in zip(made_classes, payload_order):
+            by_payload[i] = made.id
+        db.add_all(
+            check_rows(
+                checks,
+                show_id=show.id,
+                import_id=import_id,
+                class_ids=by_payload,
+                fee_ids=[f.id for f in fee_rows],
             )
         )
 
@@ -760,6 +789,77 @@ async def apply_import(
     )
     await db.commit()
     return show.id
+
+
+async def resolve_read(db: AsyncSession, extracted: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """`prepare_draft` against what the app holds now, and those rows by id."""
+    show_types = (await db.execute(select(ShowType))).scalars().all()
+    associations = (
+        await db.execute(select(Association).where(Association.is_active.is_(True)))
+    ).scalars().all()
+    judges = (await db.execute(select(Judge).where(Judge.is_active.is_(True)))).scalars().all()
+    venues = (await db.execute(select(Venue))).scalars().all()
+    resolved = prepare_draft(
+        extracted,
+        show_types=show_types,
+        associations=associations,
+        judges=judges,
+        venues=venues,
+    )
+    rows = {
+        "registry_judges": {j.id: j for j in judges},
+        "venues": {v.id: v for v in venues},
+        "clubs": {a.id: a for a in associations if a.association_type == "club"},
+    }
+    return resolved, rows
+
+
+async def create_show_from_read(
+    import_id: UUID,
+    start: Any,
+    *,
+    user_id: UUID,
+    user_role: str,
+    db: AsyncSession,
+) -> UUID:
+    """Create the DRAFT show from a read and the four values a person confirmed
+    (`ShowBillImportStart`), with every doubt a check on its setup step."""
+    from showbill_checks import draft_from_read
+
+    row = (
+        await db.execute(
+            select(
+                ShowBillImport.created_by_user_id,
+                ShowBillImport.status,
+                ShowBillImport.show_id,
+                ShowBillImport.extracted,
+            ).where(ShowBillImport.id == import_id)
+        )
+    ).one_or_none()
+    if row is None or (user_role != "ADMIN" and row.created_by_user_id != user_id):
+        raise HTTPException(404, "Show bill import not found")
+    if row.show_id is not None:
+        raise HTTPException(
+            409,
+            {"msg": "A show has already been created from this show bill.", "show_id": str(row.show_id)},
+        )
+    if row.status != STATUS_SUCCEEDED or not row.extracted:
+        raise HTTPException(409, "This show bill has not been read successfully, so there is nothing to create.")
+
+    resolved, rows = await resolve_read(db, row.extracted)
+    draft = draft_from_read(
+        row.extracted,
+        resolved,
+        name=start.name,
+        show_type_id=start.show_type_id,
+        start_date=start.start_date,
+        end_date=start.end_date,
+        attach_showbill=start.attach_showbill,
+        **rows,
+    )
+    return await apply_import(
+        import_id, draft.payload, user_id=user_id, user_role=user_role, db=db, checks=draft.checks
+    )
 
 
 # --- The background read -------------------------------------------------------

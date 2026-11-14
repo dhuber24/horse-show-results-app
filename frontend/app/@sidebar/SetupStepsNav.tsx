@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { StepDef } from '../admin/shows/_wizard/WizardStepper';
+import { ToCheckBadge, type StepDef } from '../admin/shows/_wizard/WizardStepper';
 import { stepBadge, stepName, stepStatusTitle } from '../admin/shows/_wizard/steps';
 import SidebarLink from './SidebarLink';
 
@@ -66,6 +66,9 @@ export default function SetupStepsNav({
               {stepBadge(step, idx)}
             </span>
             <span className="truncate collapsed:sr-only">{stepName(step.label)}</span>
+            <span className="ml-auto collapsed:hidden">
+              <ToCheckBadge count={step.toCheck} />
+            </span>
           </>
         );
 

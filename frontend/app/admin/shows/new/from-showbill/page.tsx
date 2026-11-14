@@ -13,8 +13,9 @@ import UploadClient from './UploadClient';
  *
  * The other door into `/admin/shows/new`: instead of typing Step 1 and then
  * building the schedule class by class, upload the bill the club already laid
- * out, check what the model read, and press Create. Nothing is created by the
- * upload — see `docs/showbill-import.md`.
+ * out, confirm its name and dates, and press Create. The show is made as a
+ * draft and the rest of what was read is checked step by step in setup.
+ * Nothing is created by the upload — see `docs/showbill-import.md`.
  *
  * A paid feature (migration 142): a caller whose show company has not paid for
  * it is told so, and offered the ordinary setup, instead of an upload form.

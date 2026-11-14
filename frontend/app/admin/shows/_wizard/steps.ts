@@ -1,4 +1,5 @@
 import type { StepDef, WizardStepKey } from './WizardStepper';
+import { openCountByStep, type BillCheck } from '@/lib/bill-checks';
 
 /**
  * What the office can say does not apply to this show (migration 154) — one key
@@ -100,6 +101,10 @@ export type WizardStepsInput = {
    *  the step is also empty — see `skipped` in `buildSteps`. Optional so a
    *  screen with no show yet (`/admin/shows/new`) need not pass it. */
   skippedSteps?: SkipKey[];
+  /** What was read off the show bill and is still to check (migration 187),
+   *  every step's. Empty for a show not set up from its bill; optional so a
+   *  screen with no show yet need not pass it. */
+  billChecks?: BillCheck[];
 };
 
 export function buildSteps({
@@ -118,8 +123,10 @@ export function buildSteps({
   highPointChosen,
   showbillReady,
   skippedSteps = [],
+  billChecks = [],
 }: WizardStepsInput): StepDef[] {
   const skipped = new Set(skippedSteps);
+  const toCheck = openCountByStep(billChecks);
   // Numbered from their position, never by hand: a hand-typed number fell out
   // of step with the flow the first time a step was inserted (the Show Bill
   // read "Step 9" on a tab labelled 10), and every page title reads it from here.
@@ -236,6 +243,7 @@ export function buildSteps({
   return steps.map((step, index) => ({
     ...step,
     label: `${index + 1}. ${step.label}`,
+    toCheck: toCheck[step.key] ?? 0,
     // A skip counts only while the step is empty: somebody who skipped a step
     // and then set something up on it has changed their mind, and it comes back
     // without their having to undo the skip first. A step of two features is
@@ -249,7 +257,7 @@ export function buildSteps({
 
 /**
  * Where each step lives, without what any of them has on file — enough for the
- * sidebar to tell whether a page is part of setup before it pays for the ten
+ * sidebar to tell whether a page is part of setup before it pays for the eleven
  * reads `fetchStepCounts` makes. Read from `buildSteps` rather than listed
  * again, so a step added there is a setup page here too.
  */
@@ -282,11 +290,14 @@ export function stepBadge(step: StepDef, index: number): string {
 /** The hover text that says what the badge means — neither the tick nor the
  *  number says it on its own. */
 export function stepStatusTitle(step: StepDef, index: number): string {
-  return step.skipped
+  const status = step.skipped
     ? `Step ${index + 1} — skipped, not used at this show`
     : step.done
       ? `Step ${index + 1} — set up`
       : `Step ${index + 1} — nothing on file yet`;
+  return step.toCheck
+    ? `${status}; ${step.toCheck} thing${step.toCheck === 1 ? '' : 's'} from the show bill to check`
+    : status;
 }
 
 /**

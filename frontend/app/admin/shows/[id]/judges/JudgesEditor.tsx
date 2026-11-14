@@ -1,7 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BillCheckNotes, useBillCheckAction, useBillChecks } from '@/components/BillChecks';
+import { useRegisterUnsavedChanges } from '../setup/_lib/StepAutosave';
 
 export interface JudgeAssociation {
   id: string;
@@ -101,6 +103,51 @@ export default function JudgesEditor({
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The show-bill check (migration 187) this add was started from, accepted
+  // once the judge is on the show: adding them is the answer it asked for.
+  const [fromCheck, setFromCheck] = useState<string | null>(null);
+  const billChecks = useBillChecks();
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // A judge picked but not added, or a new judge half typed, is lost by
+  // leaving; the guard asks first (`StepAutosave`).
+  useRegisterUnsavedChanges(
+    () =>
+      (picking && !showNewJudgeForm && pickedId !== '') ||
+      (showNewJudgeForm &&
+        Boolean(newJudge.first_name.trim() || newJudge.last_name.trim() || newJudge.email.trim() || newJudge.phone.trim())),
+  );
+
+  // A judge the bill named and the app could not attach: open the picker on
+  // them — straight to the new-judge form, filled in from the bill, when
+  // nobody on file shares the surname; the list otherwise, since choosing
+  // between people of one name is the call the app declined to make.
+  useBillCheckAction('add_judge', (check) => {
+    if (check.action?.kind !== 'add_judge') return;
+    const action = check.action;
+    setError(null);
+    setPicking(true);
+    setPickedId('');
+    setFromCheck(check.id);
+    if (action.candidate_ids.length > 0) {
+      setShowNewJudgeForm(false);
+    } else {
+      setShowNewJudgeForm(true);
+      setNewJudge({
+        first_name: action.first_name,
+        last_name: action.last_name,
+        email: '',
+        phone: '',
+        association_ids: new Set(action.association_ids.filter((id) => associations.some((a) => a.id === id))),
+      });
+    }
+    window.setTimeout(() => pickerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+  });
+
+  async function settleCheck() {
+    if (fromCheck && billChecks) await billChecks.accept(fromCheck);
+    setFromCheck(null);
+  }
 
   const assignedJudgeIds = useMemo(
     () => new Set(judges.map((j) => j.judge_id)),
@@ -115,6 +162,7 @@ export default function JudgesEditor({
   function closePicker() {
     setPicking(false);
     setPickedId('');
+    setFromCheck(null);
     setShowNewJudgeForm(false);
     setNewJudge({
       first_name: '',
@@ -143,6 +191,7 @@ export default function JudgesEditor({
     setSaving(true);
     try {
       await assign(pickedId);
+      await settleCheck();
       closePicker();
       router.refresh();
     } catch (err) {
@@ -180,6 +229,7 @@ export default function JudgesEditor({
         ),
       );
       await assign(created.id);
+      await settleCheck();
       closePicker();
       router.refresh();
     } catch (err) {
@@ -226,7 +276,9 @@ export default function JudgesEditor({
       {judges.length > 0 && (
         <ul className="space-y-1 mb-4">
           {judges.map((judge) => (
-            <li key={judge.id} className="border-b py-2" style={{ borderColor: COLORS.borderSoft }}>
+            <li key={judge.id} className="border-b py-2 space-y-2" style={{ borderColor: COLORS.borderSoft }}>
+              {/* What was read off the show bill about this judge (migration 187). */}
+              <BillCheckNotes target="judge" id={judge.judge_id} />
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-sm font-medium" style={{ color: COLORS.text }}>
@@ -294,6 +346,7 @@ export default function JudgesEditor({
         </button>
       )}
 
+      <div ref={pickerRef} className="scroll-mt-24" />
       {picking && !showNewJudgeForm && (
         <div className="mt-3 space-y-3">
           <div>

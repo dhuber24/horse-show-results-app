@@ -2,7 +2,11 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useRegisterStepAutosave } from '@/app/admin/shows/[id]/setup/_lib/StepAutosave';
+import {
+  useRegisterStepAutosave,
+  useRegisterUnsavedChanges,
+} from '@/app/admin/shows/[id]/setup/_lib/StepAutosave';
+import { BillCheckNotes } from '@/components/BillChecks';
 import {
   ALL_DAY_FEE_UNITS,
   AUTOMATIC_FEE_UNITS,
@@ -646,15 +650,24 @@ export default function ShowChargesEditor({
   // on. The open "new fee" form is written too, but only once it has both a
   // name and an amount typed: saving on the name alone would put a $0 fee on
   // the bill for anybody who started typing one and thought better of it.
-  useRegisterStepAutosave(async () => {
-    for (const charge of charges) {
-      if (!isDirty(charge, draftFor(charge))) continue;
-      if (!(await save(charge))) throw new Error('A class fee could not be saved.');
-    }
-    if (showAddForm && newRow.label.trim() && newRow.amount.trim()) {
-      if (!(await add())) throw new Error('A class fee could not be added.');
-    }
-  });
+  const newRowComplete = showAddForm && Boolean(newRow.label.trim() && newRow.amount.trim());
+  useRegisterStepAutosave(
+    async () => {
+      for (const charge of charges) {
+        if (!isDirty(charge, draftFor(charge))) continue;
+        if (!(await save(charge))) throw new Error('A class fee could not be saved.');
+      }
+      if (newRowComplete) {
+        if (!(await add())) throw new Error('A class fee could not be added.');
+      }
+    },
+    () => newRowComplete || charges.some((charge) => isDirty(charge, draftFor(charge))),
+  );
+  // A new fee with only its name or only its amount typed is never saved on
+  // the way out (see above), so leaving with one asks rather than dropping it.
+  useRegisterUnsavedChanges(
+    () => showAddForm && !newRowComplete && Boolean(newRow.label.trim() || newRow.amount.trim()),
+  );
 
   const judgePanelMissing =
     judgeCount === 0 && charges.some((c) => usesJudgeCount(c.unit) && c.amount_cents > 0);
@@ -811,6 +824,8 @@ export default function ShowChargesEditor({
             const dirty = isDirty(charge, draft);
             return (
               <li key={charge.id} className="py-2.5 space-y-1.5">
+                {/* What was read off the show bill about this fee (migration 187). */}
+                <BillCheckNotes target="fee" id={charge.id} />
                 <div className="flex items-center gap-2 flex-wrap">
                   <input
                     value={draft.label}

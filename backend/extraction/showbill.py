@@ -5,8 +5,10 @@ here: the dates and the venue, who is judging, which clubs sanction it, every
 class in program order with its price, and the stall / shavings / camping
 catalogue. `scripts/seed_mnsphc_paint_o_rama.py` is a day's hand transcription
 of one. This module does that transcription and hands it back as a
-**suggestion** -- `showbill_import.py` turns it into a review screen, and only a
-person's press creates the show.
+**suggestion** -- `showbill_import.py` creates a DRAFT show from it once a
+person has confirmed its name and dates, and every doubt the read carries
+becomes a check on its setup step (`showbill_checks.py`) that has to be
+answered before the show can be published.
 
 Design notes:
 
@@ -14,8 +16,9 @@ Design notes:
   `show_bill_imports` row.
 * **Transcribe, never compute.** A bill quotes class prices "per judge" and the
   app stores the multiplied figure, but the multiplication depends on a judge
-  panel the reviewer may still change -- so the model reports the rate and says
-  it is per judge, and the review screen does the arithmetic in front of them.
+  panel the office may still change -- so the model reports the rate and says
+  it is per judge, and `showbill_checks.py` multiplies it by the judges the bill
+  names and says so in a check on the Fees step.
 * **A class price is never a show fee.** The single most expensive mistake this
   app has made with a real bill was a class rate stored as a `per_entry` fee
   row, which billed every entry on top of the class's own price (a $36 class
@@ -143,6 +146,39 @@ def _object(properties: dict[str, Any], description: str | None = None) -> dict[
 
 def _strings(description: str) -> dict[str, Any]:
     return {"type": "array", "items": {"type": "string"}, "description": description}
+
+
+# What a reader's doubt may be about, so it can be shown against that field or
+# item in setup (migration 187, `showbill_checks.py`). Said as a tag at the
+# start of a `warnings` line -- "[start_date] ...", "[judge: Jane Smith] ..." --
+# rather than as fields of the schema, because the header schema is at the
+# API's grammar limit: on 2026-11-13 adding even one `check` string to each of
+# four item types was refused as "The compiled grammar is too large", and the
+# tags cost the grammar nothing. `normalize_showbill` reads them back out.
+#
+# The show fields first, each one a box in setup. Health papers and the
+# shavings rule are asked on their own steps; the venue is one field however
+# many lines of address the bill prints.
+SHOW_CHECK_FIELDS = (
+    "name",
+    "start_date",
+    "end_date",
+    "entry_deadline",
+    "breed_association",
+    "apha_show_number",
+    "aqha_show_number",
+    "apha_zone",
+    "venue",
+    "requires_coggins",
+    "requires_health_certificate",
+    "requires_vaccination",
+    "shavings_ban_outside",
+)
+
+# What a line of `not_imported` is about, which decides the setup step that
+# shows it: a futurity and a side pot are set up on Futurities & Side Pots, a
+# hi-point award beside the points chart on Scoring, anything else on Basics.
+NOT_IMPORTED_TOPICS = ("futurity", "side_pot", "high_point", "other")
 
 
 _SHOW = _object(
@@ -300,8 +336,8 @@ _FEE = _object(
 )
 
 _WARNINGS = _strings(
-    "Short sentences for the reviewer about anything uncertain: an unreadable section, a "
-    "page that seems cut off, prices that conflict, a year you had to infer."
+    "Short sentences for the reviewer about anything uncertain. Start one about a single "
+    "show detail or item with a tag in square brackets saying which; see the instructions."
 )
 
 # The bill is read in two passes, each held to its own schema: everything but
@@ -336,7 +372,9 @@ HEADER_SCHEMA: dict[str, Any] = _object(
         },
         "not_imported": _strings(
             "One short line for each thing on the bill this form has no place for -- side pots / "
-            "jackpots, a futurity's categories and rules, hi-point awards, sponsors, refund policy."
+            "jackpots, a futurity's categories and rules, hi-point awards, sponsors, refund policy. "
+            "Start a line about a futurity with [futurity], a side pot or jackpot with [side_pot], "
+            "a hi-point or year-end award with [high_point]."
         ),
         "warnings": _WARNINGS,
     }
@@ -434,7 +472,15 @@ awards, sponsors, refund and cancellation policies: one short line each in \
 `not_imported`. Do not force them into classes or fees.
 - Money is integer cents: $36 -> 3600, $7.50 -> 750.
 - Dates are YYYY-MM-DD.
-- Put anything uncertain in `warnings` and on the class's `note`. \
+- Put anything uncertain about one class on that class's `note`. Anything else \
+uncertain goes in `warnings`, one short sentence each, starting with a tag that \
+says what it is about, so it can be shown to the reviewer against that field: \
+[name], [start_date], [end_date], [entry_deadline], [breed_association], \
+[apha_show_number], [aqha_show_number], [apha_zone], [venue], [requires_coggins], \
+[requires_health_certificate], [requires_vaccination] or [shavings_ban_outside] \
+for a show detail; [judge: First Last], [club: CODE], [rate: key] or \
+[fee: Label as you wrote it] for one item. A warning about the bill as a whole \
+-- a page cut off, a section you could not read -- has no tag. \
 Under-reporting uncertainty is worse than over-reporting it: a flagged value gets \
 a second look, an unflagged wrong one may not.
 - If the document is not a horse show bill, return empty lists, blanks and nulls \
@@ -541,6 +587,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                 "last_name": last,
                 "location": _clean_str(j.get("location")),
                 "associations": _clean_codes(j.get("associations")),
+                "check": None,
             }
         )
 
@@ -559,6 +606,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                 "fee_amount_cents": _clean_cents(c.get("fee_amount_cents")),
                 "fee_unit": unit if unit in CLUB_FEE_UNITS else None,
                 "fee_text": _clean_str(c.get("fee_text")),
+                "check": None,
             }
         )
 
@@ -578,6 +626,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                 "per_judge": bool(r.get("per_judge")),
                 "association_code": _clean_str(r.get("association_code")),
                 "printed_text": _clean_str(r.get("printed_text")),
+                "check": None,
             }
         )
 
@@ -638,6 +687,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                     if isinstance(minimum, int) and not isinstance(minimum, bool) and 0 < minimum < 1000
                     else None
                 ),
+                "check": None,
             }
         )
 
@@ -648,9 +698,85 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
         "class_rates": rates,
         "classes": classes,
         "fees": fees,
-        "not_imported": [x for x in (_clean_str(v) for v in raw.get("not_imported") or []) if x],
+        "show_checks": route_warnings(warnings, judges=judges, clubs=clubs, rates=rates, fees=fees),
+        "not_imported": _clean_not_imported(raw.get("not_imported")),
         "warnings": warnings,
     }
+
+
+_TAG = re.compile(r"^\[\s*([A-Za-z_]+)\s*(?::\s*([^\]]*?))?\s*\]\s*(.+)$", re.DOTALL)
+
+
+def _key(value: str | None) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).split())
+
+
+def route_warnings(
+    warnings: list[str],
+    *,
+    judges: list[dict[str, Any]],
+    clubs: list[dict[str, Any]],
+    rates: list[dict[str, Any]],
+    fees: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Put each tagged warning where it belongs, in place; return the show-level ones.
+
+    "[start_date] ..." becomes a check on that field of the show; "[judge: Jane
+    Smith] ..." the `check` on that judge, and the same for a club (by code), a
+    rate (by key or label) and a fee (by label). What is left in `warnings` is
+    about the bill as a whole -- including a tagged line whose item cannot be
+    found, kept with the item's name rather than lost. Never raises: a tag is
+    the model's convention, not a guarantee.
+    """
+    show_checks: list[dict[str, str]] = []
+    items = {
+        "judge": [(_key(f"{j['first_name']} {j['last_name']}"), j) for j in judges],
+        "club": [(_key(c["code"]), c) for c in clubs],
+        "rate": [(_key(r["key"]), r) for r in rates] + [(_key(r["label"]), r) for r in rates],
+        "fee": [(_key(f["label"]), f) for f in fees],
+    }
+    general: list[str] = []
+    for line in warnings:
+        m = _TAG.match(line)
+        if not m:
+            general.append(line)
+            continue
+        tag, item, message = m.group(1).lower(), (m.group(2) or "").strip(), m.group(3).strip()
+        if tag in SHOW_CHECK_FIELDS and not item:
+            show_checks.append({"field": tag, "message": message})
+            continue
+        if tag in items and item:
+            wanted = _key(item)
+            found = next((row for key, row in items[tag] if key == wanted), None)
+            if found is None and tag == "judge":
+                # "Smith" for "Jane Smith": only when one judge has that surname.
+                same = [j for j in judges if _key(j["last_name"]) == wanted]
+                found = same[0] if len(same) == 1 else None
+            if found is not None:
+                found["check"] = f"{found['check']} {message}" if found.get("check") else message
+                continue
+            general.append(f"{item}: {message}")
+            continue
+        general.append(line)
+    warnings[:] = general
+    return show_checks
+
+
+def _clean_not_imported(values: Any) -> list[dict[str, str]]:
+    """Each line with its topic, from the tag it starts with. An untagged line
+    -- and every line of a read from before the tags -- is `other`, which shows
+    on Basics."""
+    lines = []
+    for v in values if isinstance(values, list) else []:
+        text = _clean_str(v)
+        if not text:
+            continue
+        topic = "other"
+        m = _TAG.match(text)
+        if m and not m.group(2) and m.group(1).lower() in NOT_IMPORTED_TOPICS:
+            topic, text = m.group(1).lower(), m.group(3).strip()
+        lines.append({"topic": topic, "text": text})
+    return lines
 
 
 async def extract_showbill(content: bytes, mime_type: str, filename: str) -> ExtractionResult:

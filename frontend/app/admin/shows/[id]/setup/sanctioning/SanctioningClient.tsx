@@ -13,6 +13,7 @@ import {
   type PanelJudge,
 } from '@/lib/fee-units';
 import { useRegisterStepAutosave } from '../_lib/StepAutosave';
+import { BillCheckNotes } from '@/components/BillChecks';
 
 /**
  * Club sanctioning, whole.
@@ -331,17 +332,20 @@ export default function SanctioningClient({
     }
   }
 
-  useRegisterStepAutosave(async () => {
-    if (!dirty) return;
-    setError(null);
-    try {
-      await persist();
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save sanctioning.');
-      throw e;
-    }
-  });
+  useRegisterStepAutosave(
+    async () => {
+      if (!dirty) return;
+      setError(null);
+      try {
+        await persist();
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to save sanctioning.');
+        throw e;
+      }
+    },
+    () => dirty,
+  );
 
   async function save() {
     setError(null);
@@ -458,6 +462,8 @@ export default function SanctioningClient({
                       {a.name}
                     </span>
                   </label>
+                  {/* What was read off the show bill about this club (migration 187). */}
+                  <BillCheckNotes target="sanctioning" id={a.id} />
 
                   {isPicked && (
                     <div className="pl-6 flex items-end gap-3 flex-wrap">

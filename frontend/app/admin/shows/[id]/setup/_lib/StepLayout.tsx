@@ -10,6 +10,7 @@ import {
 } from '../../../_wizard/steps';
 import { StepAutosaveProvider, AutosaveNavLink } from './StepAutosave';
 import { SkipStepOffer, SkippedStepNotice } from './SkipStep';
+import { BillChecksProvider, StepBillChecks } from '@/components/BillChecks';
 
 /** What a skipped step greys out on the show dashboard, where it has a tile. */
 const DASHBOARD_TILES: Partial<Record<WizardStepKey, string>> = {
@@ -108,6 +109,9 @@ export default function StepLayout({
     // autosave registry: a step's client registers what it has unsaved, and any
     // control that leaves writes it first. See StepAutosave.tsx.
     <StepAutosaveProvider>
+      {/* The show-bill checks (migration 187) wrap the step too, so its own
+          form can highlight a field a check is about. */}
+      <BillChecksProvider showId={showId} initial={stepsInput.billChecks ?? []}>
       <main className="max-w-3xl mx-auto p-4 md:p-6">
         {/* The cap is on this column, not on <main>: admin/layout.tsx lifts
             every <main>'s cap on the desktop layout, and its selector would win
@@ -150,6 +154,10 @@ export default function StepLayout({
             )
           )}
 
+          {/* Above the form, like the skip: what is left to check on this step
+              is the first thing the person working through it needs. */}
+          <StepBillChecks step={current} />
+
           <div>{children}</div>
 
           <div
@@ -183,6 +191,7 @@ export default function StepLayout({
           </div>
         </div>
       </main>
+      </BillChecksProvider>
     </StepAutosaveProvider>
   );
 }

@@ -27,6 +27,8 @@ export default async function SetupHubPage({
   // helper, so the hub and the stepper can never disagree about what is done.
   const counts = await fetchStepCounts(id);
   const steps = buildSteps(counts);
+  const toCheck = steps.reduce((n, s) => n + (s.toCheck ?? 0), 0);
+  const firstToCheck = steps.find((s) => s.toCheck);
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
@@ -57,6 +59,28 @@ export default async function SetupHubPage({
         hubHref={`/admin/shows/${id}/setup`}
         className="desktop:hidden"
       />
+
+      {/* A show set up from its show bill (migration 187): what is left to
+          check, said once here and step by step below. */}
+      {toCheck > 0 && (
+        <div
+          className="p-4 rounded-lg border text-sm space-y-1"
+          style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: COLORS.text }}
+        >
+          <p className="font-semibold">
+            {toCheck} thing{toCheck === 1 ? '' : 's'} read off the show bill still to check
+          </p>
+          <p>
+            Each step lists its own at the top, and highlights the field it is about. Accept each one, or
+            change what it is about. The show stays a draft until they are all checked.
+          </p>
+          {firstToCheck?.href && (
+            <Link href={firstToCheck.href} className="underline font-medium" style={{ color: 'var(--primary)' }}>
+              Start with {firstToCheck.label} →
+            </Link>
+          )}
+        </div>
+      )}
 
       <ul className="space-y-3">
         {steps.map((step) => step.skipped ? (
@@ -94,6 +118,11 @@ export default async function SetupHubPage({
                   <p className="text-sm mt-0.5" style={{ color: COLORS.muted }}>
                     {stepHint(step.key, counts)}
                   </p>
+                  {step.toCheck ? (
+                    <p className="text-sm mt-1 font-medium" style={{ color: 'var(--warning-strong)' }}>
+                      {step.toCheck} thing{step.toCheck === 1 ? '' : 's'} from the show bill to check.
+                    </p>
+                  ) : null}
                 </div>
                 {/* A configured step is still a link, so the badge names what
                     clicking it does rather than restating the green styling. */}

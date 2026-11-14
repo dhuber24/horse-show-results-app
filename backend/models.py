@@ -1478,6 +1478,41 @@ class ShowBillImport(Base):
     applied_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
 
+class ShowBillCheck(Base):
+    """One thing a show created from its show bill still has to have checked
+    (migration 187) -- the reader's doubt or the app's, on the setup step and
+    the field it is about. Open until accepted, or until its field changes or
+    its row is deleted, which is decided on read; a show cannot leave DRAFT
+    while one is open. See `backend/showbill_checks.py`."""
+    __tablename__ = "show_bill_checks"
+    __table_args__ = (
+        CheckConstraint("source IN ('bill', 'app')", name="show_bill_checks_source_check"),
+        CheckConstraint(
+            "target_type IS NULL OR target_type IN ('show', 'class', 'fee', 'judge', 'sanctioning')",
+            name="show_bill_checks_target_check",
+        ),
+        Index("ix_show_bill_checks_show", "show_id", "sort_order"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    import_id = Column(UUID(as_uuid=True), ForeignKey("show_bill_imports.id", ondelete="SET NULL"), nullable=True)
+    # A wizard step key (`_wizard/steps.ts`): basic, judges, lodging, classes,
+    # sanctioning, futurities, fees, judgecards, paperwork, showbill.
+    step = Column(Text, nullable=False)
+    target_type = Column(Text, nullable=True)
+    target_id = Column(UUID(as_uuid=True), nullable=True)
+    field = Column(Text, nullable=True)
+    value = Column(JSONB, nullable=True)
+    message = Column(Text, nullable=False)
+    source = Column(Text, nullable=False)
+    action = Column(JSONB, nullable=True)
+    sort_order = Column(Integer, nullable=False)
+    accepted_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    accepted_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
 class ShowCompany(Base):
     """The business that runs shows, and what GaitDesk has switched on for it.
 

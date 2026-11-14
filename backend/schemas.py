@@ -1454,6 +1454,42 @@ class ShowBillImportApply(BaseModel):
     attach_showbill: bool = True
 
 
+class ShowBillImportStart(BaseModel):
+    """What a person confirms before a show is created from its read (migration
+    187): the four values a show row cannot exist without. Everything else is
+    the read, created as a DRAFT with every doubt a check on its setup step --
+    see `showbill_checks.py`."""
+    name: str = Field(min_length=1, max_length=200)
+    show_type_id: UUID
+    start_date: date
+    end_date: date
+    attach_showbill: bool = True
+
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.end_date < self.start_date:
+            raise ValueError("The end date must be on or after the start date.")
+        return self
+
+
+class ShowBillCheckOut(BaseModel):
+    """One thing read off the show bill for somebody to check (migration 187).
+
+    `state` is decided on read: `open`, `accepted`, `changed` (its field no
+    longer holds what was read) or `removed` (its row is gone). Only `open`
+    keeps the show in DRAFT."""
+    id: UUID
+    step: str
+    target_type: Optional[str] = None
+    target_id: Optional[UUID] = None
+    field: Optional[str] = None
+    message: str
+    source: Literal["bill", "app"]
+    action: Optional[dict] = None
+    state: Literal["open", "accepted", "changed", "removed"]
+    accepted_at: Optional[datetime] = None
+
+
 # ── Show companies (migration 142) ────────────────────────────────────────────
 
 class ShowCompanyCreate(BaseModel):

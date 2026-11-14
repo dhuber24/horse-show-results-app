@@ -206,11 +206,14 @@ export default function ShowPointChart({
 
   // Leaving the Scoring step with the editor open saves it, like every step;
   // a no-op when nothing differs from the show's saved chart.
-  useRegisterStepAutosave(async () => {
-    if (mode.kind !== 'edit') return;
-    if (baseline !== null && JSON.stringify(mode.draft) === baseline) return;
-    if (!(await persist(mode.draft, mode.custom))) throw new Error('The chart could not be saved.');
-  });
+  useRegisterStepAutosave(
+    async () => {
+      if (mode.kind !== 'edit') return;
+      if (baseline !== null && JSON.stringify(mode.draft) === baseline) return;
+      if (!(await persist(mode.draft, mode.custom))) throw new Error('The chart could not be saved.');
+    },
+    () => mode.kind === 'edit' && (baseline === null || JSON.stringify(mode.draft) !== baseline),
+  );
 
   const turnOff = async () => {
     setBusy(true);

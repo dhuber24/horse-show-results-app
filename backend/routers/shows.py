@@ -629,6 +629,20 @@ async def update_show(
                 + " and ".join(missing)
                 + ", under Exhibitor registration in Step 1 (Basics & Staff).",
             )
+        # A show set up from its show bill (migration 187) leaves DRAFT only
+        # once somebody has answered every doubt about what was read: this is
+        # the one door between the read and the exhibitors.
+        from showbill_checks import open_check_count
+
+        open_checks = await open_check_count(db, show_id) if show.status == "DRAFT" else 0
+        if open_checks:
+            action = "publish" if new_status == "PUBLISHED" else "set to In Progress"
+            raise HTTPException(
+                400,
+                f"Cannot {action}: {open_checks} thing{'s' if open_checks != 1 else ''} read off the "
+                "show bill still need checking. Each setup step lists its own; accept each one, or "
+                "change what it is about.",
+            )
     # And once answered, a show exhibitors can see keeps its answers: blanking
     # one would quietly put the show back on the defaults under people who read
     # the rule on the show bill.

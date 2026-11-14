@@ -197,6 +197,8 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   // Read the way the wizard reads it -- declined, and still none set up -- so a
   // tile is greyed out exactly when the setup step says the show has declined it.
   const declined = (feature: Tile['feature']) => (feature ? featureDeclined(stepCounts, feature) : false);
+  // What was read off the show bill and is still to check (migration 187).
+  const billChecksOpen = (stepCounts.billChecks ?? []).filter((c) => c.state === 'open').length;
   const session = await auth();
   const user = session?.user as { id?: string; role?: string } | undefined;
   const isAdmin = user?.role === 'ADMIN';
@@ -264,8 +266,18 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             endDate={show.end_date}
             venueId={show.venue_id ?? null}
             registrationAnswered={registrationAnswered(show)}
+            billChecksOpen={billChecksOpen}
           />
         </div>
+        {billChecksOpen > 0 && (
+          <p className="text-sm mt-2" style={{ color: 'var(--warning-strong)' }}>
+            {billChecksOpen} thing{billChecksOpen === 1 ? '' : 's'} read off the show bill still to check before
+            this show can be published.{' '}
+            <Link href={`/admin/shows/${id}/setup`} className="underline font-medium">
+              Open setup →
+            </Link>
+          </p>
+        )}
         {(isAdmin || isShowAdmin) && (
           <p className="text-sm mt-2" style={{ color: 'var(--muted)' }}>
             {scribeNames.length > 0 ? (

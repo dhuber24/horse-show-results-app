@@ -2,6 +2,31 @@
 
 ## November 2026
 
+### A show read off its bill is checked step by step
+
+- **The show is created as a draft straight from the read**, once somebody has
+  confirmed its name, breed association and dates, and opens on Step 1. The one
+  long review screen is gone: it was a second copy of every setup step, and it
+  lost everything typed into it if the page was left.
+- **Every doubt about the read is a check on its step, highlighted on its
+  field**: what the reader was unsure of, and what GaitDesk wants a second look
+  at — a judge matched on the name alone, a judge or venue it could not find, a
+  club the registry lacks, a fee that bills everybody, what each per-judge class
+  price was multiplied by. Each has an Accept; changing the field counts too.
+- **The show can't be published until every check is answered.** The steps, the
+  sidebar, the setup hub and the show's page count what is left.
+- **No judge, venue or club is created from a read.** One the app can't match
+  exactly is a check carrying what the bill printed, added with the step's own
+  form at a press.
+
+### Leaving a page with unsaved work asks first
+
+- **A link, a breadcrumb or the browser's Back with unsaved work on the page
+  opens a dialog**: stay, leave without saving, or save and leave where the page
+  can save itself. Closing or reloading the tab gets the browser's own prompt.
+- **Step 1 no longer drops what was typed** when its Next or a step tab is
+  pressed; it asks.
+
 ### A show company can be given a free upgrade
 
 - **A GaitDesk admin can upgrade a company to Pro's features while it keeps paying

@@ -1,8 +1,10 @@
 """Setting a show up from its own printed show bill.
 
-Upload the bill, wait while the model reads it, review what it read, press
-Create. The reading lives in `extraction/showbill.py`, the matching and the
-creating in `showbill_import.py`; this router is the doors onto them.
+Upload the bill, wait while the model reads it, confirm the show's name, type
+and dates, press Create: the show is made as a DRAFT and every doubt about the
+read is a check on its setup step (migration 187). The reading lives in
+`extraction/showbill.py`, the matching and the creating in `showbill_import.py`,
+the checks in `showbill_checks.py`; this router is the doors onto them.
 
 Show-office tier only (ADMIN, SHOW_MANAGER, SHOW_SECRETARY) -- the roles that
 can create a show at `/admin/shows/new` today. An import belongs to whoever
@@ -29,18 +31,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
 from extraction import extraction_available
-from models import Association, Judge, ShowBillImport, ShowType, Venue
+from models import ShowBillImport
 from routers.show_documents import MAX_SHOWBILL_BYTES, _detect_mime
-from schemas import ShowBillImportApply, ShowBillImportOut
+from schemas import ShowBillImportOut, ShowBillImportStart
 from show_companies import SHOWBILL_IMPORT, enabled_features, require_feature
 from showbill_import import (
     INTERRUPTED_MESSAGE,
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_SUCCEEDED,
-    apply_import,
+    create_show_from_read,
     effective_status,
-    prepare_draft,
+    resolve_read,
     start_read,
 )
 
@@ -205,33 +207,23 @@ async def get_import(
     if status != STATUS_SUCCEEDED or not row.extracted:
         return out
 
-    show_types = (await db.execute(select(ShowType))).scalars().all()
-    associations = (
-        await db.execute(select(Association).where(Association.is_active.is_(True)))
-    ).scalars().all()
-    judges = (await db.execute(select(Judge).where(Judge.is_active.is_(True)))).scalars().all()
-    venues = (await db.execute(select(Venue))).scalars().all()
     out.extracted = row.extracted
-    out.resolved = prepare_draft(
-        row.extracted,
-        show_types=show_types,
-        associations=associations,
-        judges=judges,
-        venues=venues,
-    )
+    out.resolved, _rows = await resolve_read(db, row.extracted)
     return out
 
 
-@router.post("/{import_id}/apply", status_code=201, dependencies=_PAID)
-async def apply_show_bill(
+@router.post("/{import_id}/create-show", status_code=201, dependencies=_PAID)
+async def create_show_from_bill(
     import_id: UUID,
-    body: ShowBillImportApply,
+    body: ShowBillImportStart,
     x_user_id: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create the reviewed show as a DRAFT, in one transaction."""
-    show_id = await apply_import(
+    """Create the show as a DRAFT from the read, in one transaction (migration
+    187). Every doubt about what was read is a check on its setup step, and the
+    show cannot leave DRAFT until each is answered."""
+    show_id = await create_show_from_read(
         import_id,
         body,
         user_id=safe_uuid(x_user_id),

@@ -24,6 +24,9 @@ export type StepDef = {
   /** The office said this step does not apply, and it is still empty
    *  (migration 154). Minimized rather than hidden: it is one press away. */
   skipped: boolean;
+  /** Things read off the show bill still to check on this step (migration
+   *  187). Zero on a show not set up from its bill. */
+  toCheck?: number;
 };
 
 const COLORS = {
@@ -38,6 +41,28 @@ const COLORS = {
   doneText: 'var(--success-strong)',
   doneBorder: 'var(--success-border)',
 } as const;
+
+/** The count of show-bill checks still open on a step — beside the tab's own
+ *  tick or number rather than instead of it, since a step can be set up and
+ *  still have something read off the bill to look at. Shared with the sidebar. */
+export function ToCheckBadge({ count }: { count?: number }) {
+  if (!count) return null;
+  return (
+    <span
+      className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] font-bold shrink-0 border"
+      style={{
+        backgroundColor: 'var(--warning-bg)',
+        borderColor: 'var(--warning-border)',
+        color: 'var(--warning-strong)',
+      }}
+    >
+      <span aria-hidden>{count}</span>
+      <span className="sr-only">
+        {count} thing{count === 1 ? '' : 's'} from the show bill to check
+      </span>
+    </span>
+  );
+}
 
 const TAB =
   'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs sm:text-sm leading-none transition-colors';
@@ -138,6 +163,7 @@ export default function WizardStepper({
                 // neither says what it means on its own.
                 title={stepStatusTitle(step, idx)}
                 badge={stepBadge(step, idx)}
+                toCheck={step.toCheck}
               >
                 {stepName(step.label)}
               </Tab>
@@ -170,6 +196,7 @@ function Tab({
   skipped,
   badge,
   title,
+  toCheck,
   children,
 }: {
   href: string | null;
@@ -178,6 +205,7 @@ function Tab({
   skipped?: boolean;
   badge?: string;
   title: string;
+  toCheck?: number;
   children: React.ReactNode;
 }) {
   // Minimized: smaller, dashed, and muted, so it reads as set aside rather than
@@ -224,6 +252,7 @@ function Tab({
         </span>
       )}
       <span className="whitespace-nowrap">{children}</span>
+      <ToCheckBadge count={toCheck} />
     </>
   );
 

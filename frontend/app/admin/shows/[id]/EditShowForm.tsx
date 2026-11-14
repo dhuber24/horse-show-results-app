@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { errorMessage } from '@/lib/api-error';
+import { BillCheckField, useBillCheckAction } from '@/components/BillChecks';
+import { useRegisterUnsavedChanges } from './setup/_lib/StepAutosave';
 import BackNumberQuestion, { type BackNumberPer } from '@/components/BackNumberQuestion';
 import RegistrationQuestions from '@/components/RegistrationQuestions';
 import type { SelfEntryCloses } from '@/lib/registration-window';
@@ -116,6 +118,11 @@ export default function EditShowForm({
     public_notes: show.public_notes ?? '',
     office_notes: officeNotes ?? '',
   });
+  // What the form opened with, and was last saved as: leaving with anything
+  // else typed is unsaved work, and the step's guard asks before losing it.
+  const savedForm = useRef(form);
+  const [venueList, setVenueList] = useState(venues);
+  const [venueError, setVenueError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -125,6 +132,38 @@ export default function EditShowForm({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
+
+  useRegisterUnsavedChanges(() => JSON.stringify(form) !== JSON.stringify(savedForm.current));
+
+  // A venue the show bill named and nobody has on file (migration 187): add it
+  // from what the bill printed and pick it here. The show is saved with it by
+  // the Save below, as any other change on this form is.
+  useBillCheckAction('add_venue', async (check) => {
+    if (check.action?.kind !== 'add_venue' || !check.action.name) return;
+    setVenueError(null);
+    const res = await fetch('/api/venues', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: check.action.name,
+        address: check.action.address,
+        city: check.action.city,
+        state: check.action.state,
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.id) {
+      setVenueError(
+        res.status === 403
+          ? 'Only a show manager or an admin can add a venue. Pick one from the list, or ask a manager.'
+          : errorMessage(body, 'The venue could not be added.'),
+      );
+      return;
+    }
+    setVenueList((prev) => [...prev, body]);
+    setForm((prev) => ({ ...prev, venue_id: body.id }));
+    document.getElementsByName('venue_id')[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
 
   const selectedShowType = showTypes.find((t) => t.id === form.show_type_id);
 
@@ -171,6 +210,7 @@ export default function EditShowForm({
     });
     setSaving(false);
     if (res.ok) {
+      savedForm.current = form;
       setSuccess('Show details saved.');
       router.refresh();
     } else {
@@ -221,6 +261,7 @@ export default function EditShowForm({
         <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
           Show details
         </h2>
+        <BillCheckField target="show" field="name">
         <input
           name="name"
           value={form.name}
@@ -229,6 +270,8 @@ export default function EditShowForm({
           style={{ borderColor: COLORS.border }}
           placeholder="Show name *"
         />
+        </BillCheckField>
+        <BillCheckField target="show" field="show_type_id">
         <select
           name="show_type_id"
           value={form.show_type_id}
@@ -243,6 +286,8 @@ export default function EditShowForm({
             </option>
           ))}
         </select>
+        </BillCheckField>
+        <BillCheckField target="show" field="venue_id">
         <select
           name="venue_id"
           value={form.venue_id}
@@ -251,7 +296,7 @@ export default function EditShowForm({
           style={{ borderColor: COLORS.border }}
         >
           <option value="">Select a venue (optional)</option>
-          {venues.map((v) => (
+          {venueList.map((v) => (
             <option key={v.id} value={v.id}>
               {v.name}
               {v.city ? `, ${v.city}` : ''}
@@ -259,7 +304,14 @@ export default function EditShowForm({
             </option>
           ))}
         </select>
+        {venueError && (
+          <p className="text-xs mt-1" role="alert" style={{ color: 'var(--error-strong)' }}>
+            {venueError}
+          </p>
+        )}
+        </BillCheckField>
         <div className="grid sm:grid-cols-2 gap-3">
+          <BillCheckField target="show" field="start_date">
           <label className="block">
             <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
               Start date *
@@ -273,6 +325,8 @@ export default function EditShowForm({
               style={{ borderColor: COLORS.border }}
             />
           </label>
+          </BillCheckField>
+          <BillCheckField target="show" field="end_date">
           <label className="block">
             <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
               End date *
@@ -286,6 +340,7 @@ export default function EditShowForm({
               style={{ borderColor: COLORS.border }}
             />
           </label>
+          </BillCheckField>
         </div>
 
         {categoriesForType.length > 0 && (
@@ -338,6 +393,7 @@ export default function EditShowForm({
         </label>
 
         {selectedShowType?.code === 'APHA' && (
+          <BillCheckField target="show" field="apha_show_number">
           <label className="block">
             <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
               APHA Show Number
@@ -351,8 +407,10 @@ export default function EditShowForm({
               placeholder="e.g. 2024-TX-0042"
             />
           </label>
+          </BillCheckField>
         )}
         {selectedShowType?.code === 'APHA' && (
+          <BillCheckField target="show" field="apha_zone">
           <label className="block">
             <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
               APHA Zone
@@ -370,12 +428,14 @@ export default function EditShowForm({
               ))}
             </select>
           </label>
+          </BillCheckField>
         )}
         {selectedShowType?.code === 'AQHA' && (
           <div
             className="border rounded p-3 space-y-3"
             style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' }}
           >
+            <BillCheckField target="show" field="aqha_show_number">
             <label className="block">
               <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
                 AQHA Show Number
@@ -389,6 +449,7 @@ export default function EditShowForm({
                 placeholder="Assigned by AQHA after approval"
               />
             </label>
+            </BillCheckField>
             <div className="grid sm:grid-cols-2 gap-3">
               <label className="block">
                 <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
@@ -441,6 +502,7 @@ export default function EditShowForm({
             used to be an optional box here that closed nothing. It is the first
             of two questions every show answers now (migration 159). */}
         <div className="border-t pt-3" style={{ borderColor: 'var(--border-subtle)' }}>
+          <BillCheckField target="show" field="entry_deadline">
           <RegistrationQuestions
             entryDeadline={form.entry_deadline}
             selfEntryCloses={form.self_entry_closes}
@@ -448,6 +510,7 @@ export default function EditShowForm({
             onEntryDeadline={(value) => setForm((prev) => ({ ...prev, entry_deadline: value }))}
             onSelfEntryCloses={(value) => setForm((prev) => ({ ...prev, self_entry_closes: value }))}
           />
+          </BillCheckField>
         </div>
 
         <div className="border-t pt-3" style={{ borderColor: 'var(--border-subtle)' }}>

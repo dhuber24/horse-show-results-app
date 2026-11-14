@@ -54,11 +54,17 @@ function preflightCheck(
   startDate: string,
   endDate: string,
   registrationAnswered: boolean,
+  billChecksOpen: number,
 ): string | null {
   // The two registration questions (migration 159), asked of every show before
   // exhibitors can see it. Mirrors `update_show`, which is the enforcement.
   if (!registrationAnswered && (target === 'PUBLISHED' || (target === 'ACTIVE' && current === 'DRAFT'))) {
     return `Cannot ${target === 'PUBLISHED' ? 'publish' : 'set to In Progress'}: answer the last day to sign up online and how late exhibitors can enter and scratch their own classes, under Exhibitor registration in Step 1 (Basics & Staff).`;
+  }
+  // A show set up from its show bill (migration 187) leaves DRAFT only once
+  // every doubt about the read is answered. Mirrors `update_show` too.
+  if (billChecksOpen > 0 && current === 'DRAFT' && (target === 'PUBLISHED' || target === 'ACTIVE')) {
+    return `Cannot ${target === 'PUBLISHED' ? 'publish' : 'set to In Progress'}: ${billChecksOpen} thing${billChecksOpen === 1 ? '' : 's'} read off the show bill still need checking. Each setup step lists its own; accept each one, or change what it is about.`;
   }
   if (target === 'PUBLISHED') {
     if (!venueId) return 'Cannot publish: a venue must be selected before publishing.';
@@ -85,6 +91,8 @@ interface Props {
   venueId: string | null;
   /** Both of Step 1's registration questions are answered (migration 159). */
   registrationAnswered: boolean;
+  /** Things read off the show bill still to check (migration 187). */
+  billChecksOpen?: number;
 }
 
 export default function ShowStatusControl({
@@ -95,6 +103,7 @@ export default function ShowStatusControl({
   endDate,
   venueId,
   registrationAnswered,
+  billChecksOpen = 0,
 }: Props) {
   const router = useRouter();
   const [targetStatus, setTargetStatus] = useState<ShowStatus | ''>('');
@@ -115,6 +124,7 @@ export default function ShowStatusControl({
       startDate,
       endDate,
       registrationAnswered,
+      billChecksOpen,
     );
     if (err) {
       setError(err);

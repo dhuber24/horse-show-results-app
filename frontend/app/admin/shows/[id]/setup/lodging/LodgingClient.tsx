@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRegisterStepAutosave } from '../_lib/StepAutosave';
+import { BillCheckField, BillCheckNotes } from '@/components/BillChecks';
 import { canHaveEarlyRate } from '@/lib/fee-units';
 import { errorMessage } from '@/lib/api-error';
 import { formatStallsOpen } from '@/lib/stalls-open';
@@ -441,10 +442,13 @@ export default function LodgingClient({
   // is a no-op in the one case that matters, a manager passing through a step
   // they have not touched, because each slot's write is skipped when the
   // amount is unchanged and empty.
-  useRegisterStepAutosave(async () => {
-    if (!dirty) return;
-    if (!(await save())) throw new Error('Lodging & boarding could not be saved.');
-  });
+  useRegisterStepAutosave(
+    async () => {
+      if (!dirty) return;
+      if (!(await save())) throw new Error('Lodging & boarding could not be saved.');
+    },
+    () => dirty,
+  );
 
   return (
     <div className="space-y-6">
@@ -577,6 +581,8 @@ export default function LodgingClient({
               <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
                 {s.title}
               </h2>
+              {/* What was read off the show bill about this line (migration 187). */}
+              <BillCheckNotes target="fee" id={slot.feeId} className="mt-2" />
               {!managed ? (
                 <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
                   Charged {slot.unit.replace(/_/g, ' ')}{' '}
@@ -773,6 +779,7 @@ export default function LodgingClient({
             </div>
 
             {s.code === 'shavings' && (
+              <BillCheckField target="show" field="shavings_ban_outside">
               <label
                 className="flex items-start gap-2 text-sm ml-1"
                 style={{ color: COLORS.text }}
@@ -791,6 +798,7 @@ export default function LodgingClient({
                   </span>
                 </span>
               </label>
+              </BillCheckField>
             )}
           </section>
         );

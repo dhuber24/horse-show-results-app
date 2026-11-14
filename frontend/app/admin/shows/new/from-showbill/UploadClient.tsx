@@ -32,7 +32,7 @@ function fileProblem(file: File): string | null {
 
 const STATUS_LABEL: Record<ShowBillImport["status"], string> = {
   pending: "Reading…",
-  succeeded: "Ready to review",
+  succeeded: "Ready to create",
   failed: "Could not be read",
   unsupported_media: "Could not be read",
 };
@@ -271,7 +271,7 @@ export default function UploadClient({
                     className="underline"
                     style={{ color: "var(--primary)" }}
                   >
-                    {imp.status === "pending" ? "Check on it →" : "Review →"}
+                    {imp.status === "pending" ? "Check on it →" : "Create →"}
                   </Link>
                 ) : (
                   <span className="text-xs" style={{ color: "var(--muted)" }}>

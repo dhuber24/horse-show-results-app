@@ -38,6 +38,10 @@ Show creation runs through a ten-step wizard. Each step is a separate route, rea
 
 **Leaving a step saves it.** Every step used to end in a Save button, and moving on without pressing it lost whatever had been typed — silently, because walking the wizard looks like progress rather than like discarding a form. `setup/_lib/StepAutosave.tsx` turns that round: a step's client registers a `flush`, and every control that leaves the step (the footer's Back / Next, and every tab) awaits it before navigating. Two rules keep it safe on forms that already had Save buttons — **a flush that throws stops the navigation**, because the step's error is on screen at that point and carrying somebody forward from a 422 is the loss this replaces; and **a flush must be a no-op when nothing is dirty**, because these fire on every press of every tab and an unconditional write would rewrite a step somebody only passed through. Lodging and Sanctioning keep their Save buttons, which are now a second door onto the same function.
 
+**Leaving any other way asks first.** A breadcrumb, the Navbar, a link in the page, or the browser's Back with unsaved work on the page opens a dialog — stay, leave without saving, or (where the step can save itself) save and leave — and a reload or a closed tab gets the browser's own prompt. Step 1, whose form only its Save button writes, asks on its Next and tabs too rather than dropping what was typed. See "Every other way off a page" in [design/show-setup.md](design/show-setup.md).
+
+**A show set up from its show bill carries checks** (migration 187): each step lists what was read off the bill for somebody to check, highlights the field each is about, and the show stays a draft until every one is accepted or changed. See [showbill-import.md](showbill-import.md).
+
 The hub and every step page read those counts from one helper, `setup/_lib/fetchStepCounts.ts`, so the tab bar on a step page and the checklist on the hub cannot disagree about what is done.
 
 ### The Tab Bar, And What It Replaced
