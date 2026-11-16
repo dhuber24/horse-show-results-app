@@ -28,6 +28,7 @@ Every function takes the ring's day (a *lane*) **already in running order**,
 which is how the router queries it; nothing here sorts.
 """
 from dataclasses import dataclass
+from class_numbers import hash_label
 from typing import Iterable, Optional, Sequence
 
 NOT_STARTED = ("pending", "ready")
@@ -101,7 +102,7 @@ def in_ring(lane_: Sequence) -> list:
 
 
 def _label(cls) -> str:
-    return f"#{cls.class_number} {cls.class_name}"
+    return hash_label(cls)
 
 
 def check_in_refusal(cls) -> Optional[str]:

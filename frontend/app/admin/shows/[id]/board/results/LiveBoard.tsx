@@ -21,6 +21,7 @@ import { BoardSetupPage, HubHeading, ScreenPicker } from '../_components/BoardSe
 import { useBoxSize } from '../_components/hooks';
 import { U_VH, clamp, c, u, wrap, type SizeKey } from '../_components/units';
 import { useBoardScreen } from '../_components/useBoardScreen';
+import { hashNumber } from '@/lib/class-number';
 
 /* Sizing — the two units, the three presets and why the size is asked rather
    than measured — is shared by every board: `../_components/units.ts`. So is
@@ -457,7 +458,7 @@ function ClassHeader({ block, split = false }: { block: Block; split?: boolean }
             overflow: 'hidden',
           }}
         >
-          #{cls.class_number} · {cls.class_name}
+          {cls.class_number ? `${hashNumber(cls.class_number)} · ${cls.class_name}` : cls.class_name}
         </h2>
 
         {/* Said on every screen, so somebody who placed sixth reads it as the

@@ -189,6 +189,9 @@ def _serialize(show: Show) -> dict:
         # -- the `apha_zone` note above is what happens when a column is in only
         # one of the two.
         "showbill_source": show.showbill_source,
+        # Migration 191: whether the class numbers are the bill's, kept as
+        # printed, so the Class Builder knows to leave them alone on a move.
+        "class_numbers_as_printed": show.class_numbers_as_printed,
         # Which health papers this show requires (migration 097). Serialized
         # here rather than left to ShowOut's defaults: this function builds the
         # payload by hand, so a column missing from it reads back as the schema

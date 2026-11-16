@@ -9,6 +9,7 @@ import {
   type ClassItem,
   type Futurity,
 } from './futurity-shared';
+import { hashNumber } from '@/lib/class-number';
 
 /**
  * Every question a futurity entry form asks, in one place.
@@ -514,7 +515,7 @@ export default function FuturityForm({
                   checked={value.classIds.has(c.id)}
                   onChange={() => toggleClass(c.id)}
                 />
-                <span className="font-mono text-xs">#{c.class_number}</span>
+                <span className="font-mono text-xs">{hashNumber(c.class_number)}</span>
                 <span style={{ color: COLORS.text }}>{c.class_name}</span>
                 {c.entry_fee_cents > 0 && (
                   <span className="text-xs" style={{ color: 'var(--error-strong)' }}>

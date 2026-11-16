@@ -11,6 +11,7 @@ import {
   type ScoringMethod,
   type SidePot,
 } from './pot-shared';
+import { hashNumber } from '@/lib/class-number';
 
 export default function SidePotsManager({
   showId,
@@ -397,7 +398,7 @@ function CreatePotForm({
                           color: 'var(--accent)',
                         }}
                       >
-                        #{c.class_number}
+                        {hashNumber(c.class_number)}
                       </span>
                       <span style={{ color: 'var(--foreground)' }}>{c.class_name}</span>
                       {c.score_type !== 'placement' && (

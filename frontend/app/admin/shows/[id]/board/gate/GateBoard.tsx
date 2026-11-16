@@ -18,6 +18,7 @@ import { BoardSetupPage, HubHeading, ScreenPicker, segmentStyle } from '../_comp
 import { useBoxSize } from '../_components/hooks';
 import { U_VH, c, u, wrap, type SizeKey } from '../_components/units';
 import { useBoardScreen } from '../_components/useBoardScreen';
+import { hashLabel, hashNumber } from '@/lib/class-number';
 
 /* ── The gate board ──────────────────────────────────────────────────────────
    For the riders who are not in the ring yet: one ring's gate, on a TV by the
@@ -434,7 +435,7 @@ function ComingUp({ classes, later, stageU }: { classes: BoardClass[]; later: nu
       >
         {shown.map((cls) => (
           <div key={cls.id} className="min-w-0 truncate" style={{ fontSize: u(1.2), color: 'var(--on-slate)' }}>
-            <span className="font-bold tabular-nums">#{cls.class_number}</span> {cls.class_name}
+            <span className="font-bold tabular-nums">{hashNumber(cls.class_number)}</span> {cls.class_name}
           </div>
         ))}
       </div>
@@ -695,7 +696,7 @@ export default function GateBoard({
                 tick={tick}
               />
             ) : (
-              <EmptyPane kind="hole">#{lane.onDeck.class_number} is the last class today.</EmptyPane>
+              <EmptyPane kind="hole">{hashLabel(lane.onDeck)} is the last class today.</EmptyPane>
             )}
           </div>
         ) : (

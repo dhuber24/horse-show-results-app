@@ -12,6 +12,7 @@ import {
   futurityCrumbs,
 } from '../futurity-shared';
 import DeleteFuturityButton from './DeleteFuturityButton';
+import { hashNumber } from '@/lib/class-number';
 
 /**
  * One futurity: what it is, what it charges, and buttons to the screens that do
@@ -273,7 +274,7 @@ export default async function FuturityPage({
           <ul className="text-sm space-y-1">
             {futurity.classes.map((c) => (
               <li key={c.class_id} style={{ color: COLORS.text }}>
-                <span className="font-mono text-xs">#{c.class_number}</span>{' '}
+                <span className="font-mono text-xs">{hashNumber(c.class_number)}</span>{' '}
                 {c.class_name}{' '}
                 <span className="text-xs" style={{ color: COLORS.muted }}>
                   · {formatDate(c.class_date)}

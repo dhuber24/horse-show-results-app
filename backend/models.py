@@ -181,6 +181,9 @@ class Show(Base):
     # guessed at would be wrong at exactly the shows that sit near a border.
     apha_zone = Column(Integer, nullable=True)
     aqha_show_number = Column(Text, nullable=True)
+    # The class numbers are the show bill's, stored as printed (migration 191),
+    # rather than 1..N down the running order. See `class_numbers.py`.
+    class_numbers_as_printed = Column(Boolean, nullable=False, server_default="false")
     shavings_ban_outside = Column(Boolean, nullable=False, server_default="false")
     # When exhibitors may arrive and move into their stalls (migration 181).
     # Wall-clock values at the venue, printed as typed -- not an instant, so not

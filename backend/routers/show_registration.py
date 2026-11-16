@@ -112,6 +112,7 @@ from billing import (
     sanction_rates,
 )
 from database import get_db
+from class_numbers import class_label
 from dependencies import INTERNAL_API_KEY, require_authenticated, safe_uuid
 from models import (
     Association,
@@ -1977,7 +1978,7 @@ async def register_for_show(
         if cls.status == "CLOSED":
             raise HTTPException(
                 400,
-                f"Class {cls.class_number} ({cls.class_name}) is closed and not "
+                f"{class_label(cls)} is closed and not "
                 "accepting entries.",
             )
         # Under way or already run. Only reachable at a running show, where this
@@ -2000,7 +2001,7 @@ async def register_for_show(
                 {
                     "code": "CLASS_BY_QUALIFICATION",
                     "message": (
-                        f"Class {cls.class_number} ({cls.class_name}) is not "
+                        f"{class_label(cls)} is not "
                         "entered directly -- the top two from each qualifying "
                         "class are called back to it. Enter the qualifying "
                         "class instead."
@@ -2112,7 +2113,7 @@ async def register_for_show(
                     {
                         "code": "FUTURITY_ENTRY_REQUIRED",
                         "message": (
-                            f"Class {cls.class_number} ({cls.class_name}) is judged "
+                            f"{class_label(cls)} is judged "
                             f"in {names}, and this horse has no futurity entry. Now "
                             "the show is under way, the show office takes futurity "
                             "entries."
@@ -2136,8 +2137,7 @@ async def register_for_show(
             if cls.id in existing_non_pattern_classes or cls.id in batch_non_pattern_classes:
                 raise HTTPException(
                     409,
-                    f"You can only enter class {cls.class_number} "
-                    f"({cls.class_name}) once.",
+                    f"You can only enter {class_label(cls)} once.",
                 )
             batch_non_pattern_classes.add(cls.id)
 
@@ -2192,7 +2192,7 @@ async def register_for_show(
                 {
                     "code": "ASSOCIATION_VALIDATION_FAILED",
                     "message": (
-                        f"Entry for class {cls.class_number} ({cls.class_name}) "
+                        f"Entry for {class_label(cls)} "
                         "fails validation"
                     ),
                     "issues": refused,

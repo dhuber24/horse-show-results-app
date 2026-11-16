@@ -11,6 +11,7 @@ from datetime import date
 from typing import Any
 
 from .default import DefaultRules
+from class_numbers import class_label
 
 
 LEVEL_1_RE = re.compile(r"\s*-?\s*(LEVEL\s*1|LV1)\b", re.IGNORECASE)
@@ -164,7 +165,7 @@ class AQHARules(DefaultRules):
                 issues.append(self._issue(
                     "error",
                     "AQHA_CLASS_CODE_REQUIRED",
-                    f"Class {getattr(cls, 'class_number', '')} needs an AQHA class code.",
+                    f"{class_label(cls)} needs an AQHA class code.",
                     class_id=getattr(cls, "id", None),
                 ))
                 continue

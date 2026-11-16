@@ -13,6 +13,7 @@ import {
   type PanelJudge,
 } from '@/lib/fee-units';
 import { useRegisterStepAutosave } from '../_lib/StepAutosave';
+import { hashNumber } from '@/lib/class-number';
 
 /**
  * Club sanctioning, whole.
@@ -954,7 +955,7 @@ function ClubClassPicker({
                     className="text-xs font-mono px-1.5 py-0.5 rounded"
                     style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                   >
-                    #{c.class_number}
+                    {hashNumber(c.class_number)}
                   </span>
                   <span style={{ color: COLORS.text }}>{c.class_name}</span>
                   <span className="ml-auto text-xs" style={{ color: COLORS.muted }}>

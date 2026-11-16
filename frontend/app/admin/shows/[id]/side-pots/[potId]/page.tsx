@@ -12,6 +12,7 @@ import {
   potMoney,
 } from '../pot-shared';
 import DeletePotButton from './DeletePotButton';
+import { hashNumber } from '@/lib/class-number';
 
 /**
  * One side pot: what it is, what is in the pool, and three buttons to the screens
@@ -219,7 +220,7 @@ export default async function SidePotDetailPage({
                     style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                     title={c.class_name}
                   >
-                    #{c.class_number}
+                    {hashNumber(c.class_number)}
                   </span>
                 ))
               )}

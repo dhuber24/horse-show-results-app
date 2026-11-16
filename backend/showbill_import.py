@@ -72,6 +72,7 @@ from models import (
 from schemas import DEFAULT_SIDE_POT_PAYOUT_SCHEDULE, ShowBillImportApply
 from rules.disciplines import DISCIPLINE_KEYWORDS, classify_class_name, entered_by_qualification
 from show_companies import show_setup_company_for
+from class_numbers import number_in_order
 
 logger = logging.getLogger(__name__)
 
@@ -651,6 +652,10 @@ async def apply_import(
         office_notes=s.office_notes,
         created_by_user_id=user_id,
         company_id=company_id,
+        # The bill's class numbers are kept as printed (migration 191) when it
+        # printed any. A bill that numbers nothing is numbered down the running
+        # order instead, as a show built by hand is.
+        class_numbers_as_printed=any((c.class_number or "").strip() for c in body.classes),
     )
     db.add(show)
     await db.flush()
@@ -736,8 +741,15 @@ async def apply_import(
         for cls, made in zip(reviewed, created):
             made.entry_fee_cents = cls.entry_fee_cents
             made.entered_by_qualification = cls.entered_by_qualification
+            if show.class_numbers_as_printed:
+                # Verbatim, blank included: a Grand & Reserve class the bill
+                # printed no number for has none here either.
+                made.class_number = (cls.class_number or "").strip()
             for aid in dict.fromkeys(cls.club_association_ids):
                 db.add(ClassSanctioning(class_id=made.id, association_id=aid))
+    # Otherwise 1..N down the schedule, which `made_classes` already is, with
+    # the qualifying classes left unnumbered -- set above, after the create.
+    number_in_order(made_classes, as_printed=show.class_numbers_as_printed)
 
     # --- Fees ---
     fee_rows: list[ShowFee] = []

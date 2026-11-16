@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ClassItem, SidePot, ScoringMethod, EligibilityRule } from '../../pot-shared';
+import { hashNumber } from '@/lib/class-number';
 
 /**
  * The pot's settings form. No heading of its own — the page title is the
@@ -264,7 +265,7 @@ export default function SidePotSettingsForm({
                           className="text-xs font-mono px-1.5 py-0.5 rounded"
                           style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                         >
-                          #{c.class_number}
+                          {hashNumber(c.class_number)}
                         </span>
                         <span style={{ color: 'var(--foreground)' }}>{c.class_name}</span>
                         {c.score_type !== 'placement' && (

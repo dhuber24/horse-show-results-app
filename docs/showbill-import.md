@@ -320,11 +320,15 @@ schedule with it, day for day.
   `POST /venues` (manager or admin) and `POST /judges` (name + email identity)
   keep.
 - **Classes** go through `routers/classes._create_classes_auto_routed` — the
-  Class Builder's own importer — a day at a time in program order, so the
-  running number it assigns is already the schedule's 1..N. The bill's printed
-  numbers ("2-3", "A") are named in the office notes' lines about a class and not kept: the app
-  numbers sequentially and renumbers on every add, so a kept "2-3" would be gone
-  the first time somebody added a class.
+  Class Builder's own importer — a day at a time in program order.
+- **The bill's printed class numbers are kept, verbatim** (migration 191). The
+  read takes each number as printed ("12", "5N", "2-3"), the draft carries it as
+  `class_number`, and a bill that printed any number makes the show
+  `class_numbers_as_printed`: each class keeps the bill's number, blank where
+  the bill printed none — a Grand & Reserve class, a "Ship Challenge" — and
+  nothing renumbers the show afterwards. A bill that numbers nothing is numbered
+  down the running order instead, as a show built by hand is. See
+  `backend/class_numbers.py` and [design/show-setup.md](design/show-setup.md).
 - A class code is kept only at a breed show. An Open show has no catalogue to
   hold one against.
 - **One class of a name per show day**, the Class Builder's rule.
@@ -385,8 +389,11 @@ would be one global bucket and a single busy user would lock out everyone else.
 
 ## Sharp edges
 
-- **The bill's printed class numbers are not kept.** See above; a line about
-  a class names its printed number ("bill #2-3") so it can be found on paper.
+- **A class the bill prints twice under one name is created once.** A bill
+  that runs a companion class under the same name — "5" and "5N", Amateur
+  Performance Stallions both — loses the second to the one-name-per-day rule,
+  and the office notes say so. A line about a class names its printed number
+  ("bill #5N") so it can be found on paper.
 - **Club classes a registry club does not exist for cannot be designated.** A
   club is added to the registry by an admin, or requested by a manager through
   `sanctioned_association_requests` from the Sanctioning step; the office notes

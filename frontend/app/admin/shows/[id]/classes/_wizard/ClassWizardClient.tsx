@@ -10,6 +10,7 @@ import {
 } from '@hello-pangea/dnd';
 import { useRegisterStepAutosave } from '../../setup/_lib/StepAutosave';
 import { errorMessage } from '@/lib/api-error';
+import { hashLabel, hashNumber } from '@/lib/class-number';
 
 export type StandardItem = {
   id: string;
@@ -187,6 +188,7 @@ export default function ClassWizardClient({
   initialClasses,
   standardDisciplines,
   standardDivisions,
+  numbersAsPrinted = false,
 }: {
   showId: string;
   showStartDate: string;
@@ -196,6 +198,10 @@ export default function ClassWizardClient({
   initialClasses: ClassItem[];
   standardDisciplines: StandardItem[];
   standardDivisions: StandardItem[];
+  /** The class numbers are the show bill's, kept as printed (migration 191):
+   *  a move leaves them alone and each one can be typed over. Otherwise they
+   *  run 1..N down the schedule, skipping the classes entered by qualifying. */
+  numbersAsPrinted?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -231,6 +237,7 @@ export default function ClassWizardClient({
         onDisciplinesChanged={setDisciplines}
         onDivisionsChanged={setDivisions}
         onClassesChanged={setClasses}
+        numbersAsPrinted={numbersAsPrinted}
       />
     </div>
   );
@@ -347,6 +354,7 @@ function ClassBuilder({
   onDisciplinesChanged,
   onDivisionsChanged,
   onClassesChanged,
+  numbersAsPrinted,
 }: {
   showId: string;
   showStartDate: string;
@@ -362,6 +370,7 @@ function ClassBuilder({
   onDisciplinesChanged: (rows: DisciplineItem[]) => void;
   onDivisionsChanged: (rows: DivisionItem[]) => void;
   onClassesChanged: (rows: ClassItem[]) => void;
+  numbersAsPrinted: boolean;
 }) {
   const onChanged = onClassesChanged;
   const [classDate, setClassDate] = useState(showStartDate);
@@ -894,14 +903,21 @@ function ClassBuilder({
 
   /** Saves a whole-show running order and renumbers to match. Numbers run
    *  1..N across the whole show, ordered by date then position, so any move
-   *  persists the full ordered id list. */
+   *  persists the full ordered id list. A class entered by qualifying gets no
+   *  number and does not use one up; on a show numbered as its bill printed
+   *  it, nothing is renumbered at all (`backend/class_numbers.py`). */
   async function saveOrder(ordered: ClassItem[]) {
     // Optimistically renumber to match the new global position so the list
     // doesn't flash stale numbers while the save is in flight.
+    let n = 0;
     const renumbered = ordered.map((c, i) => ({
       ...c,
       sort_order: i + 1,
-      class_number: String(i + 1),
+      class_number: numbersAsPrinted
+        ? c.class_number
+        : c.entered_by_qualification
+          ? ''
+          : String(++n),
     }));
     onChanged(renumbered);
 
@@ -1078,6 +1094,10 @@ function ClassBuilder({
         const j = await res.json().catch(() => null);
         setError(errorMessage(j, `Could not update "${cls.class_name}".`));
         await refreshClasses();
+      } else if (!numbersAsPrinted) {
+        // A class entered by qualifying has no number, so ticking or
+        // unticking it moves the number of every class after it.
+        await refreshClasses();
       }
     } catch {
       setError(`Could not update "${cls.class_name}".`);
@@ -1088,6 +1108,30 @@ function ClassBuilder({
         nextSet.delete(cls.id);
         return nextSet;
       });
+    }
+  }
+
+  /** Types over a bill number — only on a show numbered as its bill printed
+   *  it, where nothing renumbers. Blank is allowed: no number. */
+  async function setClassNumber(cls: ClassItem, typed: string) {
+    const next = typed.trim();
+    if (next === cls.class_number) return;
+    setError(null);
+    onChanged(classes.map((c) => (c.id === cls.id ? { ...c, class_number: next } : c)));
+    try {
+      const res = await fetch(`/api/shows/${showId}/classes/${cls.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ class_number: next }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setError(errorMessage(j, `Could not change the number of "${cls.class_name}".`));
+        await refreshClasses();
+      }
+    } catch {
+      setError(`Could not change the number of "${cls.class_name}".`);
+      await refreshClasses();
     }
   }
 
@@ -1801,6 +1845,8 @@ function ClassBuilder({
                             onToggleSelect={() => toggleSelected(c.id)}
                             qualifyPending={pendingQualify.has(c.id)}
                             onToggleQualify={() => toggleQualification(c)}
+                            numbersAsPrinted={numbersAsPrinted}
+                            onSetNumber={(typed) => setClassNumber(c, typed)}
                             onDelete={() => removeClass(c.id)}
                             deleteDisabled={busy}
                             highlighted={added?.id === c.id}
@@ -1844,6 +1890,8 @@ function ClassBuilder({
                                       onToggleSelect={() => toggleSelected(c.id)}
                                       qualifyPending={pendingQualify.has(c.id)}
                                       onToggleQualify={() => toggleQualification(c)}
+                                      numbersAsPrinted={numbersAsPrinted}
+                                      onSetNumber={(typed) => setClassNumber(c, typed)}
                                       onDelete={() => removeClass(c.id)}
                                       deleteDisabled={busy}
                                       highlighted={added?.id === c.id}
@@ -1945,6 +1993,8 @@ function ClassRow({
   onToggleSelect,
   qualifyPending,
   onToggleQualify,
+  numbersAsPrinted,
+  onSetNumber,
   onDelete,
   deleteDisabled,
   highlighted,
@@ -1955,6 +2005,9 @@ function ClassRow({
   onToggleSelect: () => void;
   qualifyPending: boolean;
   onToggleQualify: () => void;
+  /** The number is the bill's, so it is a box to type over, not a label. */
+  numbersAsPrinted: boolean;
+  onSetNumber: (typed: string) => void;
   onDelete: () => void;
   deleteDisabled: boolean;
   /** Just added by the by-name form — marked so it can be found in a long list. */
@@ -2021,9 +2074,41 @@ function ClassRow({
             ⠿
           </span>
         )}
-        <span className="font-mono shrink-0" style={{ color: 'var(--accent)' }}>
-          #{cls.class_number}
-        </span>
+        {numbersAsPrinted ? (
+          // Uncontrolled and keyed on the stored number, so a refresh that
+          // changes it replaces the box rather than fighting a half-typed one.
+          <input
+            key={cls.class_number}
+            type="text"
+            defaultValue={cls.class_number}
+            maxLength={20}
+            placeholder="—"
+            onBlur={(e) => onSetNumber(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'Escape') {
+                e.currentTarget.value = cls.class_number;
+                e.currentTarget.blur();
+              }
+            }}
+            aria-label={`Class number — ${cls.class_name}`}
+            title="The number the show bill printed. Leave it blank for a class the bill does not number, like a Grand & Reserve class."
+            className="font-mono shrink-0 w-14 border rounded px-1 py-0.5 text-sm"
+            style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)', color: 'var(--accent)' }}
+          />
+        ) : cls.class_number ? (
+          <span className="font-mono shrink-0" style={{ color: 'var(--accent)' }}>
+            {hashNumber(cls.class_number)}
+          </span>
+        ) : (
+          <span
+            className="font-mono shrink-0"
+            style={{ color: COLORS.muted }}
+            title="No class number — entry is by qualifying, so this class is called back into, not entered"
+          >
+            —
+          </span>
+        )}
         <span className="truncate" title={cls.class_name}>
           {cls.class_name}
         </span>
@@ -2036,7 +2121,7 @@ function ClassRow({
       {confirmingDelete ? (
         <span className="flex items-center gap-3 shrink-0" role="group" aria-label={`Confirm deleting ${cls.class_name}`}>
           <span className="text-xs font-medium" style={{ color: 'var(--error-strong)' }}>
-            Delete #{cls.class_number}?
+            Delete {hashLabel(cls)}?
           </span>
           <button
             type="button"
@@ -2072,7 +2157,7 @@ function ClassRow({
               checked={cls.entered_by_qualification}
               disabled={qualifyPending}
               onChange={onToggleQualify}
-              aria-label={`Must qualify — #${cls.class_number} ${cls.class_name}`}
+              aria-label={`Must qualify — ${hashLabel(cls)}`}
             />
             Must qualify
           </label>
@@ -2080,8 +2165,8 @@ function ClassRow({
             type="button"
             disabled={deleteDisabled}
             onClick={() => setConfirmingDelete(true)}
-            aria-label={`Delete #${cls.class_number} ${cls.class_name}`}
-            title={deleteDisabled ? 'Another change is still saving' : `Delete #${cls.class_number} ${cls.class_name}`}
+            aria-label={`Delete ${hashLabel(cls)}`}
+            title={deleteDisabled ? 'Another change is still saving' : `Delete ${hashLabel(cls)}`}
             className="text-xs hover:underline disabled:opacity-50"
             style={{ color: 'var(--error-strong)' }}
           >
@@ -2309,7 +2394,7 @@ function AddNamedClass({
         if (mine && at >= 0 && rest[at].class_date === date) {
           rest.splice(at + 1, 0, mine);
           await saveOrder(rest);
-          where = `after #${rest[at].class_number}`;
+          where = `after ${hashLabel(rest[at])}`;
         }
       }
 
@@ -2462,7 +2547,7 @@ function AddNamedClass({
           <option value="end">At the end of {date}</option>
           {dayClasses.map((c) => (
             <option key={c.id} value={c.id}>
-              After #{c.class_number} {c.class_name}
+              After {hashLabel(c)}
             </option>
           ))}
         </select>
@@ -2497,7 +2582,7 @@ function AddNamedClass({
           disabled={saving || !effectiveName.trim() || clash !== null}
           title={
             clash
-              ? `${date} already runs a class called “${clash.class_name}” (#${clash.class_number}). Change the name or the day.`
+              ? `${date} already runs a class called “${clash.class_name}”${clash.class_number ? ` (#${clash.class_number})` : ''}. Change the name or the day.`
               : !effectiveName.trim()
                 ? 'Give the class a name'
                 : undefined
@@ -2509,7 +2594,7 @@ function AddNamedClass({
         </button>
         {clash && (
           <span className="text-xs" role="alert" style={{ color: 'var(--error-strong)' }}>
-            Already on {date} as #{clash.class_number} {clash.class_name}. Change the
+            Already on {date} as {hashLabel(clash)}. Change the
             name or the day.
           </span>
         )}

@@ -285,6 +285,9 @@ class ShowOut(BaseModel):
     show_category: Optional[ShowCategoryOut] = None
     offers_clinic: bool = False
     aqha_show_number: Optional[str] = None
+    # Migration 191: the class numbers are the bill's, kept as printed. Serialized
+    # in `_serialize` too -- see `showbill_source`.
+    class_numbers_as_printed: bool = False
     shavings_ban_outside: bool = False
     # Migration 181. Serialized in `_serialize` too -- see `showbill_source`.
     stalls_open_date: Optional[date] = None
@@ -822,6 +825,10 @@ class ClassUpdate(BaseModel):
     # Entered by placing rather than by signing up (migration 129). Derived
     # from the class name at creation; this is how it is corrected.
     entered_by_qualification: Optional[bool] = None
+    # Only on a show whose numbers are the bill's (`class_numbers_as_printed`);
+    # elsewhere the number is the class's place in the running order. Blank
+    # for no number.
+    class_number: Optional[str] = Field(default=None, max_length=20)
     # Free to enter (migration 166). Setting it holds `entry_fee_cents` at 0;
     # pricing a free class is refused until it is unset.
     is_free: Optional[bool] = None
@@ -1424,6 +1431,9 @@ class ShowBillImportClub(BaseModel):
 
 class ShowBillImportClass(BaseModel):
     class_date: date
+    # The number as the bill printed it ("12", "5N"); blank where it printed
+    # none, as for a Grand & Reserve class. Kept verbatim (migration 191).
+    class_number: Optional[str] = Field(default=None, max_length=20)
     class_name: str = Field(min_length=1, max_length=200)
     discipline: Optional[str] = Field(default=None, max_length=100)
     bracket: Optional[str] = Field(default=None, max_length=100)

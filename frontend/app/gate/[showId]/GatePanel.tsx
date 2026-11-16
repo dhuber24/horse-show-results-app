@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import { patternFileHref } from '@/lib/patterns';
 import { errorMessage } from '@/lib/api-error';
+import { hashLabel, hashNumber } from '@/lib/class-number';
 
 type GateClassStatus = 'pending' | 'ready' | 'in_progress' | 'done';
 
@@ -570,7 +571,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
           <>
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
-                Order of go — #{selectedClass.class_number} {selectedClass.class_name}
+                Order of go — {hashLabel(selectedClass)}
               </h2>
               <span
                 className="text-xs px-2 py-0.5 rounded-full"
@@ -681,7 +682,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                 ) : (
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs" style={{ color: 'var(--warning-strong)' }}>
-                      Mark #{selectedClass.class_number} done without running it?
+                      Mark {hashLabel(selectedClass)} done without running it?
                     </span>
                     <button
                       onClick={finishClass}
@@ -764,7 +765,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
 
             {!isStarted && !isOnDeck && isReady && deckInLane && (
               <p className="text-sm mb-3" style={{ color: 'var(--accent)' }}>
-                Ready. Classes run in order, so it can start after #{deckInLane.class_number} {deckInLane.class_name}.
+                Ready. Classes run in order, so it can start after {hashLabel(deckInLane)}.
               </p>
             )}
 
@@ -1027,7 +1028,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                     }
                   >
                     <span className="truncate">
-                      <span className="font-mono" style={{ color: 'var(--accent)' }}>#{c.class_number}</span>{' '}
+                      <span className="font-mono" style={{ color: 'var(--accent)' }}>{hashNumber(c.class_number)}</span>{' '}
                       {c.class_name}
                     </span>
                     <span className="flex gap-1 shrink-0">

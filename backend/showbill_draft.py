@@ -134,8 +134,8 @@ def _cut(value: Optional[str], limit: int) -> Optional[str]:
 
 
 def _class_label(cls: dict[str, Any]) -> str:
-    """The class as the bill printed it -- its printed number, which the app
-    does not keep (it numbers 1..N), is how the reader finds it on paper."""
+    """The class as the bill printed it -- its printed number is how the reader
+    finds it on paper."""
     number = cls.get("number")
     return f"{cls['name']} (bill #{number})" if number else cls["name"]
 
@@ -362,9 +362,15 @@ def draft_from_read(
             priced_by.setdefault(rate_key, []).append(label)
         elif not cls.get("is_futurity") and not cls.get("is_championship") and not routed.get("entered_by_qualification"):
             unpriced.append(label)
+        # Kept as printed (migration 191); blank where the bill printed none.
+        # Longer than a number can be is a misread, not a number.
+        printed_number = (cls.get("number") or "").strip()
+        if len(printed_number) > 20:
+            printed_number = ""
         classes_payload.append(
             {
                 "class_date": day,
+                "class_number": printed_number,
                 "class_name": _cut(cls["name"], 200),
                 "discipline": _cut(routed.get("discipline") or cls.get("discipline"), 100),
                 "bracket": _cut(cls.get("bracket"), 100),

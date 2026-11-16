@@ -131,6 +131,7 @@ export default async function ShowClassesPage({
         initialClasses={classes as ClassItem[]}
         standardDisciplines={standardLibrary.disciplines}
         standardDivisions={standardLibrary.divisions}
+        numbersAsPrinted={Boolean(show.class_numbers_as_printed)}
       />
     </StepLayout>
   );

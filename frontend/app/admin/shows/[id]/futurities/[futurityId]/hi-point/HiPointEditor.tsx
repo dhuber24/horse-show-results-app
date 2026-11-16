@@ -11,6 +11,7 @@ import {
   type DivisionScoring,
   type Futurity,
 } from '../../futurity-shared';
+import { hashNumber } from '@/lib/class-number';
 
 type ClassRow = {
   class_id: string;
@@ -129,7 +130,7 @@ export default function HiPointEditor({
                 <ul className="mt-2 text-sm space-y-1">
                   {division.classes.map((c) => (
                     <li key={c.class_id} style={{ color: COLORS.text }}>
-                      <span className="font-mono text-xs">#{c.class_number}</span>{' '}
+                      <span className="font-mono text-xs">{hashNumber(c.class_number)}</span>{' '}
                       {c.class_name}
                       {c.scoring === 'best_of_group' && (
                         <span className="text-xs ml-1" style={{ color: COLORS.muted }}>
@@ -355,7 +356,7 @@ function DivisionForm({
                     checked={row.selected}
                     onChange={(e) => setRow(row.class_id, { selected: e.target.checked })}
                   />
-                  <span className="font-mono text-xs">#{cls.class_number}</span>
+                  <span className="font-mono text-xs">{hashNumber(cls.class_number)}</span>
                   <span style={{ color: COLORS.text }}>{cls.class_name}</span>
                 </label>
                 {row.selected && (

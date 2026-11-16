@@ -51,6 +51,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Optional
+from class_numbers import class_label
 
 # The show statuses in which an exhibitor may enter and scratch their own
 # classes, at a show whose classes stay open until each one starts. Signing up
@@ -189,7 +190,7 @@ def class_under_way(cls) -> bool:
 
 
 def _label(cls) -> str:
-    return f"Class {cls.class_number} ({cls.class_name})"
+    return class_label(cls)
 
 
 def entry_refusal(cls) -> Optional[dict]:

@@ -44,6 +44,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Class, Entry, ShowEntry, SidePot, SidePotEntry
+from class_numbers import class_label
 
 # A pot that is no longer taking buy-ins cannot be a condition of entering.
 # Only `open` obliges: `settled` has its payouts written and the pot's own
@@ -151,7 +152,7 @@ def requirement_detail(cls, covering: list[SidePot]) -> dict:
     return {
         "code": "SIDE_POT_REQUIRED",
         "message": (
-            f"Class {cls.class_number} ({cls.class_name}) is part of "
+            f"{class_label(cls)} is part of "
             + _pot_phrase(covering)
             + ". Entering it means buying into "
             + ("it" if len(covering) == 1 else "one of them")

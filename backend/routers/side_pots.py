@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backnumbers import back_numbers_for_show
+from class_numbers import class_label
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from show_companies import refuse_frozen_show
@@ -124,7 +125,7 @@ async def _validate_class_ids_for_show(
             raise HTTPException(
                 400,
                 f"scoring_method 'sum_scores' requires every class to be score_type "
-                f"'pattern' or 'time'; class {non_score[0].class_number} is "
+                f"'pattern' or 'time'; {class_label(non_score[0])} is "
                 f"'{non_score[0].score_type}'",
             )
     return classes

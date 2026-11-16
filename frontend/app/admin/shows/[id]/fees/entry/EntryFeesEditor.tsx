@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ShowChargesEditor, { type ShowCharge } from '@/components/ShowChargesEditor';
 import { errorMessage } from '@/lib/api-error';
+import { hashNumber } from '@/lib/class-number';
 
 /**
  * Entry Fees: everything a class fee can mean, in one "Class Fees" box —
@@ -279,7 +280,7 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
               <div className="flex-1 min-w-0">
                 <span className="text-xs font-mono mr-2 px-1.5 py-0.5 rounded"
                   style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
-                  #{cls.class_number}
+                  {hashNumber(cls.class_number)}
                 </span>
                 <span className="text-sm" style={{ color: 'var(--foreground)' }}>{cls.class_name}</span>
                 {cls.sanctioning_codes.length > 0 && (

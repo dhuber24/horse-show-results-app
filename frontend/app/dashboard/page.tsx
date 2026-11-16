@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import { outcomeLabel } from '@/lib/result-outcomes';
+import { compareClassNumbers, dashLabel } from '@/lib/class-number';
 
 type EntryRow = {
   entry_id: string;
@@ -16,7 +17,9 @@ type EntryRow = {
   show_start_date: string;
   show_end_date: string;
   show_venue: string | null;
-  class_number: number;
+  // Text: a bill's number is printed as-is ("5N"), and a Grand & Reserve
+  // class has none ("").
+  class_number: string;
   class_name: string;
   class_id: string;
   class_date: string;
@@ -201,7 +204,7 @@ function ShowList({ groups, sevenDaysAgo }: { groups: ShowGroup[]; sevenDaysAgo:
 
 function ShowCard({ show, sevenDaysAgo }: { show: ShowGroup; sevenDaysAgo: Date }) {
   const badge = STATUS_BADGE[show.show_status] ?? STATUS_BADGE.DRAFT;
-  const sorted = [...show.entries].sort((a, b) => (a.class_number ?? 0) - (b.class_number ?? 0));
+  const sorted = [...show.entries].sort((a, b) => compareClassNumbers(a.class_number, b.class_number));
 
   return (
     <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
@@ -288,7 +291,7 @@ function EntryRow({ entry, sevenDaysAgo }: { entry: EntryRow; sevenDaysAgo: Date
       >
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-            {entry.class_number} — {entry.class_name}
+            {dashLabel(entry)}
           </div>
           <div className="text-xs mt-0.5 flex items-center flex-wrap gap-x-2 gap-y-1" style={{ color: 'var(--muted)' }}>
             {entry.horse_name && <span>🐴 {entry.horse_name}</span>}

@@ -30,6 +30,7 @@ from models import (
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from rules.apha import zone_individual_work_note
 from rules.disciplines import classify_class_name, entered_by_qualification
+from class_numbers import class_label, hash_label, next_number, number_in_order
 from card_types import (
     CARD_TYPES,
     SCORE_TYPE_FOR,
@@ -112,6 +113,16 @@ async def _create_classes_auto_routed(
     )
     next_sort_order = max_order_result.scalar_one()
 
+    # A show numbered as its bill printed it is never renumbered, so a class
+    # added to it is given its number here: the next whole number after the
+    # highest on the show. Otherwise the caller's renumber sets it.
+    show = await db.get(Show, show_id)
+    as_printed = bool(show and show.class_numbers_as_printed)
+    printed_next = 0
+    if as_printed:
+        existing = await db.execute(select(Class.class_number).where(Class.show_id == show_id))
+        printed_next = int(next_number(existing.scalars().all()))
+
     disc_rows = await db.execute(select(Discipline).where(Discipline.show_id == show_id))
     discipline_by_name: dict[str, Discipline] = {d.name: d for d in disc_rows.scalars().all()}
     div_rows = await db.execute(select(Division).where(Division.show_id == show_id))
@@ -169,7 +180,7 @@ async def _create_classes_auto_routed(
 
         cls = Class(
             show_id=show_id,
-            class_number=str(next_sort_order),
+            class_number=str(printed_next + len(created) if as_printed else next_sort_order),
             class_name=name,
             class_date=class_date,
             status="OPEN",
@@ -254,7 +265,7 @@ def bulk_delete_blocker(classes: list) -> Optional[str]:
     )
     if not blocked:
         return None
-    named = ", ".join(f"#{cls.class_number} {cls.class_name}" for cls in blocked[:3])
+    named = ", ".join(hash_label(cls) for cls in blocked[:3])
     more = len(blocked) - 3
     return (
         "Nothing was deleted. These classes have entries or placings on them: "
@@ -279,7 +290,7 @@ def scoring_blocker(classes: list, new_score_type: str) -> Optional[str]:
     )
     if not blocked:
         return None
-    named = ", ".join(f"#{cls.class_number} {cls.class_name}" for cls in blocked[:3])
+    named = ", ".join(hash_label(cls) for cls in blocked[:3])
     more = len(blocked) - 3
     return (
         "Nothing was changed. These classes already have placings filed the other way: "
@@ -321,20 +332,25 @@ async def _assert_name_free(
     if number is not None:
         raise HTTPException(
             409,
-            f'"{class_name.strip()}" is already on the schedule for {class_date}, '
-            f"as class #{number}.",
+            f'"{class_name.strip()}" is already on the schedule for {class_date}'
+            + (f", as class #{number}." if number else "."),
         )
 
 
 async def _renumber_classes(show_id: UUID, db: AsyncSession) -> None:
+    """Close the running order up after an add or a delete, and renumber to
+    match -- unless the numbers are the bill's, which stay as printed. A class
+    entered by qualifying gets no number. See `class_numbers.py`."""
+    show = await db.get(Show, show_id)
     result = await db.execute(
         select(Class)
         .where(Class.show_id == show_id)
         .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
     )
-    for i, cls in enumerate(result.scalars().all(), start=1):
-        cls.sort_order = i
-        cls.class_number = str(i)
+    number_in_order(
+        result.scalars().all(),
+        as_printed=bool(show and show.class_numbers_as_printed),
+    )
     await db.commit()
 
 
@@ -658,10 +674,15 @@ async def create_class(
     )
     next_sort_order = max_order_result.scalar_one() + 1
     ring_id = body.ring_id or await _get_or_create_default_ring(show_id, db)
+    if show.class_numbers_as_printed:
+        taken = await db.execute(select(Class.class_number).where(Class.show_id == show_id))
+        new_number = next_number(taken.scalars().all())
+    else:
+        new_number = str(next_sort_order)  # the renumber below puts it in place
     class_ = Class(
         show_id=show_id,
         sort_order=next_sort_order,
-        class_number=str(next_sort_order),
+        class_number=new_number,
         ring_id=ring_id,
         discipline_id=body.discipline_id,
         division_id=body.division_id,
@@ -784,7 +805,7 @@ def _apply_free(class_: Class, update_fields: dict) -> None:
         update_fields.pop("is_free")
     if not update_fields.get("is_free", class_.is_free):
         return
-    label = f"Class {class_.class_number} ({class_.class_name})"
+    label = class_label(class_)
     if update_fields.get("is_free") and class_.is_futurity_class:
         raise HTTPException(
             409,
@@ -855,6 +876,16 @@ async def update_class(
             "Selected division is not part of the selected discipline. "
             "Add the membership on the Setup page first.",
         )
+    if "class_number" in update_fields:
+        # A number typed in only sticks where nothing renumbers: on a show
+        # numbered down the running order, the next move would overwrite it.
+        if not show.class_numbers_as_printed:
+            raise HTTPException(
+                422,
+                "This show's classes are numbered in running order. Drag a class "
+                "to a new place to change its number.",
+            )
+        update_fields["class_number"] = (update_fields["class_number"] or "").strip()
     _apply_free(class_, update_fields)
     for k, v in update_fields.items():
         setattr(class_, k, v)
@@ -863,6 +894,10 @@ async def update_class(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "Failed to update class")
+    # A class entered by qualifying has no number and does not use one up, so
+    # turning that on or off moves every number after it.
+    if "entered_by_qualification" in update_fields and not show.class_numbers_as_printed:
+        await _renumber_classes(show_id, db)
     await db.refresh(class_)
     return class_
 
@@ -1109,15 +1144,17 @@ async def reorder_classes(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_or_404(show_id, db)
     result = await db.execute(
         select(Class).where(Class.show_id == show_id, Class.id.in_(body.class_ids))
     )
     classes = {cls.id: cls for cls in result.scalars().all()}
     if len(classes) != len(body.class_ids):
         raise HTTPException(400, "One or more class IDs not found in this show")
-    for i, class_id in enumerate(body.class_ids, start=1):
-        classes[class_id].sort_order = i
-        classes[class_id].class_number = str(i)
+    number_in_order(
+        [classes[class_id] for class_id in body.class_ids],
+        as_printed=show.class_numbers_as_printed,
+    )
     await db.commit()
 
 

@@ -13,6 +13,7 @@
  */
 
 import Link from 'next/link';
+import { hashNumber } from '@/lib/class-number';
 
 export type DivisionScoring = 'sum_placings' | 'sum_scores';
 export type ClassScoring = 'counts' | 'best_of_group';
@@ -313,7 +314,7 @@ export function PricedClassWarning({
             className="underline"
             style={{ color: 'var(--error-strong)' }}
           >
-            #{c.class_number}
+            {hashNumber(c.class_number)}
           </Link>
         </span>
       ))}{' '}
