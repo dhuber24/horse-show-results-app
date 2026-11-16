@@ -118,6 +118,7 @@ def make_fee(**overrides) -> SimpleNamespace:
         amount_cents=5000,
         early_amount_cents=None,
         early_deadline=None,
+        early_deadline_time=None,
         min_quantity=0,
         # No class scope unless a test asks for one (migration 137).
         # Defaulted to empty rather than omitted so a fee built here

@@ -9,7 +9,6 @@ import {
   type DropResult,
 } from '@hello-pangea/dnd';
 import { useRegisterStepAutosave } from '../../setup/_lib/StepAutosave';
-import { BillCheckNotes, OPEN_CHECK_STYLE, useHasOpenCheck } from '@/components/BillChecks';
 import { errorMessage } from '@/lib/api-error';
 
 export type StandardItem = {
@@ -1968,16 +1967,11 @@ function ClassRow({
   // neighbouring row's Delete took out the wrong class and moved the number
   // of the one meant, so the slip could not even be spotted by number.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  // Something read off the show bill about this class (migration 187): the
-  // row takes the warning colour and the check goes under it.
-  const toCheck = useHasOpenCheck('class', cls.id);
   const rowBackground = confirmingDelete
     ? 'var(--error-bg)'
     : drag?.isDragging || highlighted
       ? COLORS.highlight
-      : toCheck
-        ? (OPEN_CHECK_STYLE.backgroundColor as string)
-        : undefined;
+      : undefined;
   return (
     <li
       id={`class-row-${cls.id}`}
@@ -1997,7 +1991,7 @@ function ClassRow({
        * checkbox, Must qualify and Delete read as belonging to the class at
        * the other end of it. Only when nothing else colours the row: an
        * inline background would win over the hover class. */
-      className={`flex items-center justify-between gap-2 text-sm border-b py-1 px-1 rounded-sm hover:bg-[var(--bg-subtle)] focus-within:bg-[var(--bg-subtle)] ${toCheck ? 'flex-wrap' : ''}`}
+      className="flex items-center justify-between gap-2 text-sm border-b py-1 px-1 rounded-sm hover:bg-[var(--bg-subtle)] focus-within:bg-[var(--bg-subtle)]"
       title={drag ? 'Tap and hold to drag into a new running order' : undefined}
       style={{
         borderColor: COLORS.borderSoft,
@@ -2005,7 +1999,6 @@ function ClassRow({
         // Stops the browser scrolling or text-selecting the row out from under
         // a press that is becoming a drag.
         ...(drag ? { touchAction: 'none', userSelect: 'none' as const, cursor: 'grab' } : {}),
-        ...(toCheck ? { boxShadow: OPEN_CHECK_STYLE.boxShadow } : {}),
         ...(drag?.provided.draggableProps.style ?? {}),
       }}
     >
@@ -2096,7 +2089,6 @@ function ClassRow({
           </button>
         </span>
       )}
-      {toCheck && <BillCheckNotes target="class" id={cls.id} className="basis-full mt-1" />}
     </li>
   );
 }

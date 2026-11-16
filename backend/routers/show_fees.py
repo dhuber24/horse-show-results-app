@@ -59,6 +59,12 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
     return show
 
 
+def _assert_deadline_time_valid(early_deadline: date | None, early_deadline_time) -> None:
+    """An hour on the early-rate deadline needs the day it is on (migration 190)."""
+    if early_deadline_time is not None and early_deadline is None:
+        raise HTTPException(422, "A reserve-by time needs a reserve-by date.")
+
+
 def _assert_early_rate_valid(
     *,
     unit: str,
@@ -284,6 +290,7 @@ async def create_show_fee(
         early_deadline=body.early_deadline,
     )
     _assert_min_quantity_valid(unit=body.unit, min_quantity=body.min_quantity)
+    _assert_deadline_time_valid(body.early_deadline, body.early_deadline_time)
     scope = await _resolve_scope_classes(
         show_id=show_id, unit=body.unit, class_ids=body.class_ids, db=db
     )
@@ -347,6 +354,14 @@ async def update_show_fee(
     if not fee or fee.show_id != show_id:
         raise HTTPException(404, "Fee not found")
     updates = body.model_dump(exclude_unset=True)
+    # Clearing the deadline clears its hour with it: an hour on no day is
+    # meaningless, and the CHECK (migration 190) would refuse the row.
+    if "early_deadline" in updates and updates["early_deadline"] is None:
+        updates["early_deadline_time"] = None
+    _assert_deadline_time_valid(
+        updates.get("early_deadline", fee.early_deadline),
+        updates.get("early_deadline_time", fee.early_deadline_time),
+    )
     _assert_early_rate_valid(
         unit=updates.get("unit", fee.unit),
         amount_cents=updates.get("amount_cents", fee.amount_cents),

@@ -5,10 +5,10 @@ here: the dates and the venue, who is judging, which clubs sanction it, every
 class in program order with its price, and the stall / shavings / camping
 catalogue. `scripts/seed_mnsphc_paint_o_rama.py` is a day's hand transcription
 of one. This module does that transcription and hands it back as a
-**suggestion** -- `showbill_import.py` creates a DRAFT show from it once a
-person has confirmed its name and dates, and every doubt the read carries
-becomes a check on its setup step (`showbill_checks.py`) that has to be
-answered before the show can be published.
+**draft** -- `showbill_import.py` creates a DRAFT show from it once a person
+has confirmed its name, dates, judges and venue (`showbill_draft.py` builds
+it), and every doubt the read carries is written into the show's office
+notes for the office to look at while it walks the setup steps.
 
 Design notes:
 
@@ -17,8 +17,8 @@ Design notes:
 * **Transcribe, never compute.** A bill quotes class prices "per judge" and the
   app stores the multiplied figure, but the multiplication depends on a judge
   panel the office may still change -- so the model reports the rate and says
-  it is per judge, and `showbill_checks.py` multiplies it by the judges the bill
-  names and says so in a check on the Fees step.
+  it is per judge, and `showbill_draft.py` multiplies it by the judges the bill
+  names and says so in the office notes.
 * **A class price is never a show fee.** The single most expensive mistake this
   app has made with a real bill was a class rate stored as a `per_entry` fee
   row, which billed every entry on top of the class's own price (a $36 class
@@ -148,39 +148,6 @@ def _strings(description: str) -> dict[str, Any]:
     return {"type": "array", "items": {"type": "string"}, "description": description}
 
 
-# What a reader's doubt may be about, so it can be shown against that field or
-# item in setup (migration 187, `showbill_checks.py`). Said as a tag at the
-# start of a `warnings` line -- "[start_date] ...", "[judge: Jane Smith] ..." --
-# rather than as fields of the schema, because the header schema is at the
-# API's grammar limit: on 2026-11-13 adding even one `check` string to each of
-# four item types was refused as "The compiled grammar is too large", and the
-# tags cost the grammar nothing. `normalize_showbill` reads them back out.
-#
-# The show fields first, each one a box in setup. Health papers and the
-# shavings rule are asked on their own steps; the venue is one field however
-# many lines of address the bill prints.
-SHOW_CHECK_FIELDS = (
-    "name",
-    "start_date",
-    "end_date",
-    "entry_deadline",
-    "breed_association",
-    "apha_show_number",
-    "aqha_show_number",
-    "apha_zone",
-    "venue",
-    "requires_coggins",
-    "requires_health_certificate",
-    "requires_vaccination",
-    "shavings_ban_outside",
-)
-
-# What a line of `not_imported` is about, which decides the setup step that
-# shows it: a futurity and a side pot are set up on Futurities & Side Pots, a
-# hi-point award beside the points chart on Scoring, anything else on Basics.
-NOT_IMPORTED_TOPICS = ("futurity", "side_pot", "high_point", "other")
-
-
 _SHOW = _object(
     {
         "name": _text("The show's name as printed, without the year unless the year is part of the name."),
@@ -203,6 +170,7 @@ _SHOW = _object(
         "venue_address": _text("Street address, on one line."),
         "venue_city": _text("City."),
         "venue_state": _text("State or province, as its postal abbreviation where printed that way."),
+        "venue_zip": _text("ZIP or postal code."),
         "shavings_ban_outside": _nullable(
             "boolean",
             "True only if the bill says outside shavings/bedding are not allowed (must be "
@@ -218,16 +186,6 @@ _SHOW = _object(
         "requires_vaccination": _nullable(
             "boolean", "True if proof of vaccination is required. Null if not mentioned."
         ),
-        "staff": {
-            "type": "array",
-            "description": "Show officials named on the bill other than judges (manager, secretary, steward, ...).",
-            "items": _object(
-                {
-                    "role": {"type": "string", "description": "Role as printed, e.g. 'Show Secretary'."},
-                    "name": {"type": "string", "description": "Name as printed."},
-                }
-            ),
-        },
     }
 )
 
@@ -235,7 +193,6 @@ _JUDGE = _object(
     {
         "first_name": {"type": "string", "description": "Judge's first name as printed."},
         "last_name": {"type": "string", "description": "Judge's last name as printed."},
-        "location": _text("Home town/state printed beside the judge, if any."),
         "associations": _strings(
             "Association codes the bill says this judge is carded with or judging for "
             "(e.g. APHA, WSCA, NSBA). Empty if the bill does not say."
@@ -309,12 +266,17 @@ _CLASS = _object(
             "type": "boolean",
             "description": "True for a Grand & Reserve / Grand Champion class that horses are called back into rather than entered.",
         },
-        "is_futurity": {
-            "type": "boolean",
-            "description": "True if the bill marks this class as part of a futurity programme.",
-        },
+        "futurity": _text(
+            "The name of the futurity (from `futurities`) this class is part of, exactly as you "
+            "wrote it there.",
+        ),
+        "side_pots": _strings(
+            "Names of the side pots or jackpots (from `side_pots`) this class counts toward, "
+            "exactly as you wrote them there. Empty for most classes."
+        ),
         "note": _text(
-            "One short sentence for the reviewer if something about this class was unclear."
+            "One short sentence for the reviewer if something about this one class was unclear. "
+            "A doubt shared by many classes goes once in `warnings` instead."
         ),
     }
 )
@@ -335,16 +297,58 @@ _FEE = _object(
     }
 )
 
+_FUTURITY = _object(
+    {
+        "name": {"type": "string", "description": "The futurity's name as printed."},
+        "description": _text("One or two sentences on what the futurity is, in the bill's words."),
+        "entry_deadline": _text("The futurity's own nomination or entry deadline, YYYY-MM-DD."),
+        "late_fee_cents": _nullable("integer", "A late fee per class after that deadline, in cents, if printed."),
+        "office_fee_member_cents": _nullable(
+            "integer", "A one-time office or nomination fee for club members, in cents, if printed."
+        ),
+        "office_fee_nonmember_cents": _nullable(
+            "integer", "The same fee for non-members, in cents. The single figure when the bill prints only one."
+        ),
+        "fee_tiers": {
+            "type": "array",
+            "description": "The futurity's per-class prices by category or tier (e.g. 'Open $50', "
+            "'Non-Pro $35'). Empty if the bill prints none.",
+            "items": _object(
+                {
+                    "name": {"type": "string", "description": "The tier as printed."},
+                    "amount_cents": {"type": "integer", "description": "Its per-class price, in cents."},
+                }
+            ),
+        },
+        "entry_instructions": _text("How to enter or nominate, in the bill's words."),
+        "award_notice": _text("What the futurity pays out or awards, in the bill's words."),
+        "rules_notice": _text("Its eligibility rules and how its categories work, in the bill's words."),
+        "refund_policy": _text("What happens to the money if a horse does not show, in the bill's words."),
+    }
+)
+
+_SIDE_POT = _object(
+    {
+        "name": {"type": "string", "description": "The side pot or jackpot's name as printed."},
+        "description": _text("What it is and how it is won, in the bill's words, short."),
+        "entry_fee_cents": _nullable("integer", "What it costs to enter, in cents, if printed."),
+        "payback_percent": _nullable(
+            "integer", "The percent of the pot paid back to winners (0-100), only if the bill states it."
+        ),
+    }
+)
+
 _WARNINGS = _strings(
-    "Short sentences for the reviewer about anything uncertain. Start one about a single "
-    "show detail or item with a tag in square brackets saying which; see the instructions."
+    "Short sentences for the show office about anything uncertain in what you read. Name the "
+    "item each is about (a judge, a fee, a class number) so it can be found."
 )
 
 # The bill is read in two passes, each held to its own schema: everything but
-# the class list, then the class list. One schema for the whole bill is refused
-# by the API -- "The compiled grammar is too large" -- although each half
-# compiles, so the split is forced, not chosen. The header goes first because
-# each class points at one of its `class_rates` by key.
+# the class list, then the class list with the programmes run over it --
+# futurities and side pots, which are named per class. One schema for the
+# whole bill is refused by the API -- "The compiled grammar is too large" --
+# although each half compiles, so the split is forced, not chosen. The header
+# goes first because each class points at one of its `class_rates` by key.
 #
 # The bill is not cached between the passes, on purpose: the output schema sits
 # ahead of the bill in the prompt prefix, so two schemas are two prefixes and
@@ -370,11 +374,15 @@ HEADER_SCHEMA: dict[str, Any] = _object(
             "items": _FEE,
             "description": "Every charge that is not a class entry price.",
         },
-        "not_imported": _strings(
-            "One short line for each thing on the bill this form has no place for -- side pots / "
-            "jackpots, a futurity's categories and rules, hi-point awards, sponsors, refund policy. "
-            "Start a line about a futurity with [futurity], a side pot or jackpot with [side_pot], "
-            "a hi-point or year-end award with [high_point]."
+        "notes_for_exhibitors": _text(
+            "What an exhibitor should know that no other field holds: awards and hi-point prizes, "
+            "sponsors, refund and scratch policy, arrival and check-in, dogs, golf carts, grounds "
+            "rules. Short lines, one per topic, plain text."
+        ),
+        "notes_for_office": _text(
+            "What only the show office needs and no other field holds: the show officials named "
+            "(managers, secretaries, stewards, ring crew) with their roles and contact details, "
+            "the bill's own office procedures. Short lines, plain text."
         ),
         "warnings": _WARNINGS,
     }
@@ -387,6 +395,16 @@ CLASSES_SCHEMA: dict[str, Any] = _object(
             "items": _CLASS,
             "description": "Every class on the schedule, in the printed program order.",
         },
+        "futurities": {
+            "type": "array",
+            "items": _FUTURITY,
+            "description": "Every futurity the bill runs. Empty if none.",
+        },
+        "side_pots": {
+            "type": "array",
+            "items": _SIDE_POT,
+            "description": "Every side pot or jackpot exhibitors pay into on top of class entries. Empty if none.",
+        },
         "warnings": _WARNINGS,
     }
 )
@@ -396,8 +414,8 @@ SHOWBILL_SCHEMAS: tuple[dict[str, Any], ...] = (HEADER_SCHEMA, CLASSES_SCHEMA)
 
 SYSTEM_PROMPT = """You transcribe horse show bills (also called premium lists or \
 prize lists) into a structured draft for a horse show management app. A show \
-manager uploads the club's own printed bill; your output pre-fills a review \
-screen they check and correct before the show is created.
+manager uploads the club's own printed bill; your output becomes a draft of the \
+show, which the show office reviews and corrects before it is published.
 
 Transcribe what is printed. Do not invent, complete or correct. A blank, a null \
 or an empty list costs the manager a minute of typing; a plausible wrong value \
@@ -421,8 +439,10 @@ Green Horse). Use the bill's own words.
 to fill in a year the heading leaves out, and say so in `warnings`.
 - Grand & Reserve / Grand Champion classes are ones horses are called back into \
 from earlier classes. Mark `is_championship` and leave `rate_key` empty.
-- Classes the bill marks as part of a futurity: mark `is_futurity` and leave \
-`rate_key` empty -- the futurity prices them.
+- Classes the bill marks as part of a futurity: set `futurity` to that \
+futurity's name and leave `rate_key` empty -- the futurity prices them.
+- A class that counts toward a side pot or jackpot lists it in `side_pots`. A \
+jackpot printed as a class of its own on the schedule is a class, not a side pot.
 
 Class prices -> `class_rates`, never `fees`
 - A class entry price belongs in `class_rates`, and each class points at the \
@@ -466,23 +486,32 @@ reviewer can promote it; a wrongly automatic fee bills everyone.
 - Early rates: only when the bill prints both a lower amount and the date it \
 applies until.
 
+Futurities and side pots
+- A futurity is a programme a horse is nominated to, with its own deadline, \
+fees and categories. List each in `futurities` with whatever the bill prints \
+about it, in the bill's words; leave the rest empty.
+- A side pot or jackpot is money exhibitors pay into on top of their class \
+entries, paid back to the winners of one or more classes. List each in \
+`side_pots`, and name it on each class it covers.
+
+Notes
+- Anything an exhibitor should know that no field holds goes in \
+`notes_for_exhibitors`: awards and hi-point prizes, sponsors, refund and \
+scratch policy, arrival and check-in, grounds rules. Anything only the show \
+office needs -- the show officials named, with their roles and contact \
+details -- goes in `notes_for_office`. Short lines, in the bill's words. \
+Leave out what a field already holds, and leave out futurities and side pots: \
+they are read with the class list.
+
 Everything else
-- Side pots and jackpots, a futurity's categories, fees and rules, hi-point \
-awards, sponsors, refund and cancellation policies: one short line each in \
-`not_imported`. Do not force them into classes or fees.
 - Money is integer cents: $36 -> 3600, $7.50 -> 750.
 - Dates are YYYY-MM-DD.
 - Put anything uncertain about one class on that class's `note`. Anything else \
-uncertain goes in `warnings`, one short sentence each, starting with a tag that \
-says what it is about, so it can be shown to the reviewer against that field: \
-[name], [start_date], [end_date], [entry_deadline], [breed_association], \
-[apha_show_number], [aqha_show_number], [apha_zone], [venue], [requires_coggins], \
-[requires_health_certificate], [requires_vaccination] or [shavings_ban_outside] \
-for a show detail; [judge: First Last], [club: CODE], [rate: key] or \
-[fee: Label as you wrote it] for one item. A warning about the bill as a whole \
--- a page cut off, a section you could not read -- has no tag. \
-Under-reporting uncertainty is worse than over-reporting it: a flagged value gets \
-a second look, an unflagged wrong one may not.
+uncertain goes in `warnings`, one short sentence each, naming what it is about \
+(the start date, judge Jane Smith, the Stall fee, the futurity) -- or the bill \
+as a whole, for a page cut off or a section you could not read. These reach \
+the show office as its list of things to check, so under-reporting \
+uncertainty is worse than over-reporting it.
 - If the document is not a horse show bill, return empty lists, blanks and nulls \
 and say so in `warnings`."""
 
@@ -534,7 +563,8 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
     `warnings`, so a malformed value never reaches a form as though it had been
     read off the page.
     """
-    warnings = [w for w in (_clean_str(x) for x in raw.get("warnings") or []) if w]
+    # Both passes see the whole bill, and each may say the same thing once.
+    warnings = list(dict.fromkeys(w for w in (_clean_str(x) for x in raw.get("warnings") or []) if w))
 
     show_raw = raw.get("show") or {}
     show: dict[str, Any] = {
@@ -547,6 +577,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
             "venue_address",
             "venue_city",
             "venue_state",
+            "venue_zip",
         )
     }
     for key in ("start_date", "end_date", "entry_deadline"):
@@ -567,11 +598,6 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
     show["health_certificate_valid_days"] = (
         days if isinstance(days, int) and not isinstance(days, bool) and 0 < days <= 365 else None
     )
-    show["staff"] = [
-        {"role": _clean_str(s.get("role")) or "", "name": _clean_str(s.get("name")) or ""}
-        for s in show_raw.get("staff") or []
-        if isinstance(s, dict) and _clean_str(s.get("name"))
-    ]
     if show["start_date"] and show["end_date"] and show["end_date"] < show["start_date"]:
         warnings.append("The end date read as earlier than the start date; both left for you to set.")
         show["start_date"] = show["end_date"] = None
@@ -585,9 +611,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
             {
                 "first_name": first,
                 "last_name": last,
-                "location": _clean_str(j.get("location")),
                 "associations": _clean_codes(j.get("associations")),
-                "check": None,
             }
         )
 
@@ -606,7 +630,6 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                 "fee_amount_cents": _clean_cents(c.get("fee_amount_cents")),
                 "fee_unit": unit if unit in CLUB_FEE_UNITS else None,
                 "fee_text": _clean_str(c.get("fee_text")),
-                "check": None,
             }
         )
 
@@ -626,7 +649,6 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                 "per_judge": bool(r.get("per_judge")),
                 "association_code": _clean_str(r.get("association_code")),
                 "printed_text": _clean_str(r.get("printed_text")),
-                "check": None,
             }
         )
 
@@ -641,6 +663,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
             dangling.add(rate_key)
             rate_key = None
         label = f"class {c.get('number') or name}"
+        futurity = _clean_str(c.get("futurity"))
         classes.append(
             {
                 "date": _clean_date(c.get("date"), f"the date of {label}", warnings),
@@ -652,7 +675,9 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                 "rate_key": rate_key,
                 "club_codes": _clean_codes(c.get("club_codes")),
                 "is_championship": bool(c.get("is_championship")),
-                "is_futurity": bool(c.get("is_futurity")),
+                "futurity": futurity,
+                "is_futurity": bool(futurity) or bool(c.get("is_futurity")),
+                "side_pots": _clean_codes(c.get("side_pots")),
                 "note": _clean_str(c.get("note")),
             }
         )
@@ -687,7 +712,56 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                     if isinstance(minimum, int) and not isinstance(minimum, bool) and 0 < minimum < 1000
                     else None
                 ),
-                "check": None,
+            }
+        )
+
+    futurities = []
+    seen_futurities: set[str] = set()
+    for f in raw.get("futurities") or []:
+        name = _clean_str(f.get("name")) if isinstance(f, dict) else None
+        if not name or name.lower() in seen_futurities:
+            continue
+        seen_futurities.add(name.lower())
+        tiers = []
+        for t in f.get("fee_tiers") or []:
+            tier_name = _clean_str(t.get("name")) if isinstance(t, dict) else None
+            tier_cents = _clean_cents(t.get("amount_cents")) if isinstance(t, dict) else None
+            if tier_name and tier_cents is not None:
+                tiers.append({"name": tier_name, "amount_cents": tier_cents})
+        futurities.append(
+            {
+                "name": name,
+                "description": _clean_str(f.get("description")),
+                "entry_deadline": _clean_date(f.get("entry_deadline"), f"the deadline for {name}", warnings),
+                "late_fee_cents": _clean_cents(f.get("late_fee_cents")),
+                "office_fee_member_cents": _clean_cents(f.get("office_fee_member_cents")),
+                "office_fee_nonmember_cents": _clean_cents(f.get("office_fee_nonmember_cents")),
+                "fee_tiers": tiers,
+                "entry_instructions": _clean_text(f.get("entry_instructions")),
+                "award_notice": _clean_text(f.get("award_notice")),
+                "rules_notice": _clean_text(f.get("rules_notice")),
+                "refund_policy": _clean_text(f.get("refund_policy")),
+            }
+        )
+
+    side_pots = []
+    seen_pots: set[str] = set()
+    for p in raw.get("side_pots") or []:
+        name = _clean_str(p.get("name")) if isinstance(p, dict) else None
+        if not name or name.lower() in seen_pots:
+            continue
+        seen_pots.add(name.lower())
+        payback = p.get("payback_percent")
+        side_pots.append(
+            {
+                "name": name,
+                "description": _clean_str(p.get("description")),
+                "entry_fee_cents": _clean_cents(p.get("entry_fee_cents")),
+                "payback_percent": (
+                    payback
+                    if isinstance(payback, int) and not isinstance(payback, bool) and 0 <= payback <= 100
+                    else None
+                ),
             }
         )
 
@@ -698,85 +772,24 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
         "class_rates": rates,
         "classes": classes,
         "fees": fees,
-        "show_checks": route_warnings(warnings, judges=judges, clubs=clubs, rates=rates, fees=fees),
-        "not_imported": _clean_not_imported(raw.get("not_imported")),
+        "futurities": futurities,
+        "side_pots": side_pots,
+        "notes_for_exhibitors": _clean_text(raw.get("notes_for_exhibitors")),
+        "notes_for_office": _clean_text(raw.get("notes_for_office")),
         "warnings": warnings,
     }
 
 
-_TAG = re.compile(r"^\[\s*([A-Za-z_]+)\s*(?::\s*([^\]]*?))?\s*\]\s*(.+)$", re.DOTALL)
-
-
-def _key(value: str | None) -> str:
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).split())
-
-
-def route_warnings(
-    warnings: list[str],
-    *,
-    judges: list[dict[str, Any]],
-    clubs: list[dict[str, Any]],
-    rates: list[dict[str, Any]],
-    fees: list[dict[str, Any]],
-) -> list[dict[str, str]]:
-    """Put each tagged warning where it belongs, in place; return the show-level ones.
-
-    "[start_date] ..." becomes a check on that field of the show; "[judge: Jane
-    Smith] ..." the `check` on that judge, and the same for a club (by code), a
-    rate (by key or label) and a fee (by label). What is left in `warnings` is
-    about the bill as a whole -- including a tagged line whose item cannot be
-    found, kept with the item's name rather than lost. Never raises: a tag is
-    the model's convention, not a guarantee.
-    """
-    show_checks: list[dict[str, str]] = []
-    items = {
-        "judge": [(_key(f"{j['first_name']} {j['last_name']}"), j) for j in judges],
-        "club": [(_key(c["code"]), c) for c in clubs],
-        "rate": [(_key(r["key"]), r) for r in rates] + [(_key(r["label"]), r) for r in rates],
-        "fee": [(_key(f["label"]), f) for f in fees],
-    }
-    general: list[str] = []
-    for line in warnings:
-        m = _TAG.match(line)
-        if not m:
-            general.append(line)
-            continue
-        tag, item, message = m.group(1).lower(), (m.group(2) or "").strip(), m.group(3).strip()
-        if tag in SHOW_CHECK_FIELDS and not item:
-            show_checks.append({"field": tag, "message": message})
-            continue
-        if tag in items and item:
-            wanted = _key(item)
-            found = next((row for key, row in items[tag] if key == wanted), None)
-            if found is None and tag == "judge":
-                # "Smith" for "Jane Smith": only when one judge has that surname.
-                same = [j for j in judges if _key(j["last_name"]) == wanted]
-                found = same[0] if len(same) == 1 else None
-            if found is not None:
-                found["check"] = f"{found['check']} {message}" if found.get("check") else message
-                continue
-            general.append(f"{item}: {message}")
-            continue
-        general.append(line)
-    warnings[:] = general
-    return show_checks
-
-
-def _clean_not_imported(values: Any) -> list[dict[str, str]]:
-    """Each line with its topic, from the tag it starts with. An untagged line
-    -- and every line of a read from before the tags -- is `other`, which shows
-    on Basics."""
-    lines = []
-    for v in values if isinstance(values, list) else []:
-        text = _clean_str(v)
-        if not text:
-            continue
-        topic = "other"
-        m = _TAG.match(text)
-        if m and not m.group(2) and m.group(1).lower() in NOT_IMPORTED_TOPICS:
-            topic, text = m.group(1).lower(), m.group(3).strip()
-        lines.append({"topic": topic, "text": text})
-    return lines
+def _clean_text(value: Any) -> str | None:
+    """Text that keeps its line breaks -- notes and a futurity's wording are
+    read as paragraphs and lists, and folding them onto one line loses that."""
+    if not isinstance(value, str):
+        return None
+    lines = [" ".join(line.split()) for line in value.strip().splitlines()]
+    text = "\n".join(lines).strip()
+    while "\n\n\n" in text:
+        text = text.replace("\n\n\n", "\n\n")
+    return text or None
 
 
 async def extract_showbill(content: bytes, mime_type: str, filename: str) -> ExtractionResult:
@@ -809,7 +822,8 @@ async def extract_showbill(content: bytes, mime_type: str, filename: str) -> Ext
         client,
         document,
         f"Uploaded as {filename!r}. Transcribe this show bill: everything except the "
-        "class list, which is read separately. Trust the page over the filename.",
+        "class list, futurities and side pots, which are read separately -- leave doubts about those to that "
+        "pass. Trust the page over the filename.",
         HEADER_SCHEMA,
         filename,
         usage,
@@ -820,8 +834,9 @@ async def extract_showbill(content: bytes, mime_type: str, filename: str) -> Ext
     classes, failure = await _read_pass(
         client,
         document,
-        f"Uploaded as {filename!r}. Transcribe the class list of this show bill. "
-        f"{_rate_key_instruction(header)} Trust the page over the filename.",
+        f"Uploaded as {filename!r}. Transcribe the class list of this show bill, and its futurities and side pots. "
+        f"{_rate_key_instruction(header)} The rest of the bill has been read already: warn only about the "
+        "class list, the futurities and the side pots. Trust the page over the filename.",
         CLASSES_SCHEMA,
         filename,
         usage,
@@ -832,6 +847,8 @@ async def extract_showbill(content: bytes, mime_type: str, filename: str) -> Ext
     raw = {
         **header,
         "classes": classes.get("classes") or [],
+        "futurities": classes.get("futurities") or [],
+        "side_pots": classes.get("side_pots") or [],
         "warnings": [*(header.get("warnings") or []), *(classes.get("warnings") or [])],
     }
     return ExtractionResult(status=STATUS_SUCCEEDED, fields=normalize_showbill(raw), **usage.as_fields())

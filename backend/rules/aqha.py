@@ -147,13 +147,6 @@ class AQHARules(DefaultRules):
                 "AQHA show number is not set yet.",
             ))
 
-        if getattr(show, "aqha_approval_status", "NOT_SUBMITTED") != "APPROVED":
-            issues.append(self._issue(
-                "warning",
-                "AQHA_APPROVAL_NOT_MARKED_APPROVED",
-                "AQHA approval status is not marked APPROVED.",
-            ))
-
         qualified_staff = context.get("qualified_management_workshop_staff", [])
         if not qualified_staff:
             issues.append(self._issue(

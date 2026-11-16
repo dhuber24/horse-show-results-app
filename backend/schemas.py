@@ -129,9 +129,6 @@ class ShowCreate(BaseModel):
     show_category_id: Optional[UUID] = None
     offers_clinic: bool = False
     aqha_show_number: Optional[str] = Field(default=None, max_length=50)
-    aqha_approval_status: Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"] = "NOT_SUBMITTED"
-    aqha_approval_submitted_at: Optional[date] = None
-    aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -158,9 +155,6 @@ class ShowUpdate(BaseModel):
     show_category_id: Optional[UUID] = None
     offers_clinic: Optional[bool] = None
     aqha_show_number: Optional[str] = Field(default=None, max_length=50)
-    aqha_approval_status: Optional[Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"]] = None
-    aqha_approval_submitted_at: Optional[date] = None
-    aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
     shavings_ban_outside: Optional[bool] = None
     # When exhibitors may move into their stalls (migration 181): the venue's
     # own wall-clock day and hour. A time needs a day; `update_show` checks the
@@ -171,7 +165,7 @@ class ShowUpdate(BaseModel):
     # exhibitors; `office_notes` is the office's own and is never on ShowOut --
     # it is read through GET /shows/{id}/office-notes. Blank is stored as NULL.
     public_notes: Optional[str] = Field(default=None, max_length=5000)
-    office_notes: Optional[str] = Field(default=None, max_length=5000)
+    office_notes: Optional[str] = Field(default=None, max_length=20000)
     # Which health papers this show requires (migration 097). Coggins is
     # universal; a CVI follows from crossing a state line and vaccinations from
     # the venue, so those two are opt-in per show.
@@ -291,9 +285,6 @@ class ShowOut(BaseModel):
     show_category: Optional[ShowCategoryOut] = None
     offers_clinic: bool = False
     aqha_show_number: Optional[str] = None
-    aqha_approval_status: str = "NOT_SUBMITTED"
-    aqha_approval_submitted_at: Optional[date] = None
-    aqha_approval_notes: Optional[str] = None
     shavings_ban_outside: bool = False
     # Migration 181. Serialized in `_serialize` too -- see `showbill_source`.
     stalls_open_date: Optional[date] = None
@@ -1040,6 +1031,8 @@ class ShowFeeCreate(BaseModel):
     # early rate above the standard rate — see routers/show_fees.py.
     early_amount_cents: Optional[int] = Field(default=None, ge=0)
     early_deadline: Optional[date] = None
+    # The hour on the deadline day (migration 190), local wall-clock; display only.
+    early_deadline_time: Optional[time] = None
     # The fewest of this line an exhibitor may reserve once they reserve any
     # (migration 128). Only meaningful on a reservable unit, which the router
     # checks -- the unit families live in billing.py, not in the schema.
@@ -1060,6 +1053,8 @@ class ShowFeeUpdate(BaseModel):
     sort_order: Optional[int] = None
     early_amount_cents: Optional[int] = Field(default=None, ge=0)
     early_deadline: Optional[date] = None
+    # The hour on the deadline day (migration 190), local wall-clock; display only.
+    early_deadline_time: Optional[time] = None
     min_quantity: Optional[int] = Field(default=None, ge=0, le=999)
     # Omitted leaves the scope alone; [] clears it back to the whole
     # schedule. `exclude_unset` on the update is what makes those two
@@ -1078,6 +1073,8 @@ class ShowFeeOut(BaseModel):
     sort_order: int
     early_amount_cents: Optional[int] = None
     early_deadline: Optional[date] = None
+    # The hour on the deadline day (migration 190), local wall-clock; display only.
+    early_deadline_time: Optional[time] = None
     min_quantity: int = 0
     created_at: datetime
     # How many exhibitors have booked a quantity against this row. Filled in by
@@ -1365,6 +1362,9 @@ class ShowBillImportOut(BaseModel):
     show_id: Optional[UUID] = None
     extracted: Optional[dict] = None
     resolved: Optional[dict] = None
+    # The show notes and office notes the confirm page starts from
+    # (`showbill_draft`): `{"public_notes", "office_notes"}`.
+    drafted: Optional[dict] = None
 
 
 class ShowBillImportShow(BaseModel):
@@ -1381,6 +1381,8 @@ class ShowBillImportShow(BaseModel):
     requires_health_certificate: bool = False
     health_certificate_valid_days: int = Field(default=30, ge=1, le=365)
     requires_vaccination: bool = False
+    public_notes: Optional[str] = Field(default=None, max_length=5000)
+    office_notes: Optional[str] = Field(default=None, max_length=20000)
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -1396,6 +1398,7 @@ class ShowBillImportVenue(BaseModel):
     address: Optional[str] = Field(default=None, max_length=300)
     city: Optional[str] = Field(default=None, max_length=100)
     state: Optional[str] = Field(default=None, max_length=50)
+    zip: Optional[str] = Field(default=None, max_length=20)
 
 
 class ShowBillImportJudge(BaseModel):
@@ -1409,6 +1412,7 @@ class ShowBillImportJudge(BaseModel):
     first_name: Optional[str] = Field(default=None, max_length=100)
     last_name: Optional[str] = Field(default=None, max_length=100)
     email: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=50)
     association_ids: list[UUID] = Field(default_factory=list)
 
 
@@ -1439,11 +1443,50 @@ class ShowBillImportFee(BaseModel):
     min_quantity: int = Field(default=0, ge=0, le=999)
 
 
-class ShowBillImportApply(BaseModel):
-    """The reviewed show, exactly as the person on the review screen left it.
+class ShowBillImportFuturityTier(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    amount_cents: int = Field(default=0, ge=0)
+    sort_order: int = 0
 
-    Nothing the model read is used when this is applied -- only this payload --
-    so every value that reaches a record passed in front of somebody first.
+
+class ShowBillImportFuturity(BaseModel):
+    """A futurity the bill runs, as `FuturityCreate` takes one; its classes by
+    their index in `classes`, since none of them exists yet."""
+    name: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    entry_deadline: Optional[date] = None
+    late_fee_cents: int = Field(default=0, ge=0)
+    office_fee_member_cents: int = Field(default=0, ge=0)
+    office_fee_nonmember_cents: int = Field(default=0, ge=0)
+    entry_instructions: Optional[str] = Field(default=None, max_length=8000)
+    award_notice: Optional[str] = Field(default=None, max_length=8000)
+    rules_notice: Optional[str] = Field(default=None, max_length=8000)
+    refund_policy: Optional[str] = Field(default=None, max_length=8000)
+    fee_tiers: list[ShowBillImportFuturityTier] = Field(default_factory=list, max_length=20)
+    class_indexes: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _late_fee_needs_deadline(self):
+        if self.late_fee_cents and self.entry_deadline is None:
+            raise ValueError(f"The {self.name} futurity's late fee needs an entry deadline.")
+        return self
+
+
+class ShowBillImportSidePot(BaseModel):
+    """A side pot the bill runs, as `SidePotCreate` takes one, with the default
+    scoring and payout; its classes by their index in `classes`."""
+    name: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    entry_fee_cents: int = Field(default=1000, ge=0)
+    payback_percent: int = Field(default=100, ge=0, le=100)
+    class_indexes: list[int] = Field(min_length=1)
+
+
+class ShowBillImportApply(BaseModel):
+    """The show a read becomes, as `showbill_draft.draft_from_read` builds it.
+
+    The payload is the record `show_bill_imports.accepted` keeps of what the
+    show was made from.
     """
     show: ShowBillImportShow
     venue: Optional[ShowBillImportVenue] = None
@@ -1451,43 +1494,111 @@ class ShowBillImportApply(BaseModel):
     clubs: list[ShowBillImportClub] = Field(default_factory=list, max_length=20)
     classes: list[ShowBillImportClass] = Field(default_factory=list, max_length=1000)
     fees: list[ShowBillImportFee] = Field(default_factory=list, max_length=100)
+    futurities: list[ShowBillImportFuturity] = Field(default_factory=list, max_length=10)
+    side_pots: list[ShowBillImportSidePot] = Field(default_factory=list, max_length=30)
     attach_showbill: bool = True
 
 
+class ShowBillNewJudge(BaseModel):
+    """A judge added from the confirm page, after searching the directory for
+    them. An email or a phone is required: it is what tells two people of one
+    name apart, and a judge added with neither is the duplicate the registry
+    can never be cleaned of."""
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    email: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    association_ids: list[UUID] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _contact(self):
+        self.email = (self.email or "").strip() or None
+        self.phone = (self.phone or "").strip() or None
+        if not (self.email or self.phone):
+            raise ValueError(
+                f"Add an email or a phone for {self.first_name.strip()} {self.last_name.strip()} "
+                "-- it is how the registry tells two judges of one name apart."
+            )
+        return self
+
+
+class ShowBillJudgeChoice(BaseModel):
+    """What the confirm page settled for one judge the bill names: a registry
+    judge, a new one, or left off the show (a name misread as a judge)."""
+    judge_id: Optional[UUID] = None
+    new: Optional[ShowBillNewJudge] = None
+    leave_off: bool = False
+
+    @model_validator(mode="after")
+    def _one(self):
+        if sum((self.judge_id is not None, self.new is not None, self.leave_off)) != 1:
+            raise ValueError("Pick each judge from the directory, add them, or leave them off.")
+        return self
+
+
+class ShowBillNewVenue(BaseModel):
+    """A venue added from the confirm page, after searching the directory for
+    it. Its full address is required: a venue is shared by every show held
+    there, and its address is how the next show finds it."""
+    name: str = Field(min_length=1, max_length=200)
+    address: str = Field(min_length=1, max_length=300)
+    city: str = Field(min_length=1, max_length=100)
+    state: str = Field(min_length=1, max_length=50)
+    zip: str = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def _full_address(self):
+        for key in ("name", "address", "city", "state", "zip"):
+            setattr(self, key, getattr(self, key).strip())
+        if not all((self.name, self.address, self.city, self.state, self.zip)):
+            raise ValueError("A new venue needs its name and full address: street, city, state and ZIP.")
+        return self
+
+
+class ShowBillVenueChoice(BaseModel):
+    venue_id: Optional[UUID] = None
+    new: Optional[ShowBillNewVenue] = None
+
+    @model_validator(mode="after")
+    def _one(self):
+        if (self.venue_id is None) == (self.new is None):
+            raise ValueError("Pick the venue from the directory, or add it.")
+        return self
+
+
+class ShowBillDraftNotesIn(BaseModel):
+    """The confirm page as it stands, for redrafting its notes: the dates, which
+    of the bill's judges are left off (in the bill's order), and whether a venue
+    has been settled."""
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    leave_off: list[bool] = Field(default_factory=list, max_length=30)
+    venue_settled: bool = False
+
+
 class ShowBillImportStart(BaseModel):
-    """What a person confirms before a show is created from its read (migration
-    187): the four values a show row cannot exist without. Everything else is
-    the read, created as a DRAFT with every doubt a check on its setup step --
-    see `showbill_checks.py`."""
+    """What a person settles on the confirm page before a show is created from
+    its read: the four values a show row cannot exist without, who each judge
+    the bill names is, which venue it is held at, and the two notes drafted
+    from the read. Everything else is the read, created as a DRAFT -- see
+    `showbill_draft.py`."""
     name: str = Field(min_length=1, max_length=200)
     show_type_id: UUID
     start_date: date
     end_date: date
     attach_showbill: bool = True
+    judges: list[ShowBillJudgeChoice] = Field(default_factory=list, max_length=30)
+    venue: Optional[ShowBillVenueChoice] = None
+    public_notes: Optional[str] = Field(default=None, max_length=5000)
+    office_notes: Optional[str] = Field(default=None, max_length=20000)
 
     @model_validator(mode="after")
     def validate_date_range(self):
         if self.end_date < self.start_date:
             raise ValueError("The end date must be on or after the start date.")
+        self.public_notes = (self.public_notes or "").strip() or None
+        self.office_notes = (self.office_notes or "").strip() or None
         return self
-
-
-class ShowBillCheckOut(BaseModel):
-    """One thing read off the show bill for somebody to check (migration 187).
-
-    `state` is decided on read: `open`, `accepted`, `changed` (its field no
-    longer holds what was read) or `removed` (its row is gone). Only `open`
-    keeps the show in DRAFT."""
-    id: UUID
-    step: str
-    target_type: Optional[str] = None
-    target_id: Optional[UUID] = None
-    field: Optional[str] = None
-    message: str
-    source: Literal["bill", "app"]
-    action: Optional[dict] = None
-    state: Literal["open", "accepted", "changed", "removed"]
-    accepted_at: Optional[datetime] = None
 
 
 # ── Show companies (migration 142) ────────────────────────────────────────────
@@ -4041,31 +4152,11 @@ class AssociationValidationOut(BaseModel):
     issues: list[AssociationValidationIssue] = []
 
 
-class APHAApplicationWindowOut(BaseModel):
-    """APHA SC-090.C/D -- the approval application ladder for one show.
-
-    Structured rather than folded into an issue message, because the readiness
-    panel draws a date and a countdown from it and re-parsing a sentence to get
-    them back is how a screen and the rule behind it drift apart.
-
-    `basis` says which date the count runs to. A show with no entry deadline on
-    file is counted from its first day, which SC-090.C only permits when that is
-    the earlier of the two -- so the panel reports the basis rather than just the
-    number of days.
-    """
-    basis: Literal["start_date", "entry_deadline"]
-    basis_date: date
-    standard_deadline: date
-    days_remaining: int
-    band: Literal["standard", "late", "late_second", "closed"]
-
-
 class APHAShowMinimumsOut(BaseModel):
     """APHA SC-095.A -- what a three-or-more-judge show has to offer.
 
-    Carried beside the findings rather than folded into them, for the same reason
-    the application window is: a minimum-requirements checklist is still true when
-    nothing is wrong. Only the shortfalls that survive every reading of the rule
+    Carried beside the findings rather than folded into them: a
+    minimum-requirements checklist is still true when nothing is wrong. Only the shortfalls that survive every reading of the rule
     are raised as issues -- the rest is these lists, for a human to read.
 
     `open_halter_unclassified` is the honest half. "Open division" is not a column
@@ -4113,12 +4204,8 @@ class APHAResultsWindowOut(BaseModel):
 
 
 class APHAValidationOut(AssociationValidationOut):
-    """The APHA readiness read.
-
-    `application_window` is None once the show has an APHA show number on file:
-    APHA assigns one on approval, so the ladder is history from that moment.
-    """
-    application_window: Optional[APHAApplicationWindowOut] = None
+    """The APHA readiness read. Every show is taken as already approved, so
+    nothing here is about the approval application."""
     # SC-125.A. None until the show's last day.
     results_window: Optional[APHAResultsWindowOut] = None
     # SC-125.A and SC-125.D: what a submission consists of and what has to be

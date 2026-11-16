@@ -208,9 +208,6 @@ SHOWS = [
         "start_offset": 45,
         "days": 3,
         "aqha_show_number": "2026-114872",
-        "aqha_approval_status": "APPROVED",
-        "aqha_approval_submitted_offset": -60,
-        "aqha_approval_notes": "Approved for 3 judges over 3 days. Split combined youth classes.",
         "shavings_ban_outside": True,
         "entry_fee_cents": 4500,
         "rings": ["Main Arena", "Warm-Up Arena"],
@@ -384,7 +381,6 @@ async def seed(db: AsyncSession) -> None:
 
         start = today + timedelta(days=spec["start_offset"])
         end = start + timedelta(days=spec["days"] - 1)
-        submitted_offset = spec.get("aqha_approval_submitted_offset")
 
         show = Show(
             name=spec["name"],
@@ -395,11 +391,6 @@ async def seed(db: AsyncSession) -> None:
             status=spec["status"],
             apha_show_number=spec.get("apha_show_number"),
             aqha_show_number=spec.get("aqha_show_number"),
-            aqha_approval_status=spec.get("aqha_approval_status", "NOT_SUBMITTED"),
-            aqha_approval_submitted_at=(
-                today + timedelta(days=submitted_offset) if submitted_offset else None
-            ),
-            aqha_approval_notes=spec.get("aqha_approval_notes"),
             shavings_ban_outside=spec["shavings_ban_outside"],
             created_by_user_id=creator.id if creator else None,
         )

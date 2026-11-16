@@ -1,6 +1,6 @@
 // Globals are imported rather than declared ambiently: see `safe-next.test.ts`.
 import { describe, expect, it } from '@jest/globals';
-import { arrivesBeforeStallsOpen, formatStallsOpen, formatWallClock } from './stalls-open';
+import { arrivesBeforeStallsOpen, defaultMoveIn, formatStallsOpen, formatWallClock } from './stalls-open';
 
 describe('formatStallsOpen', () => {
   it('prints the day and the hour', () => {
@@ -39,5 +39,21 @@ describe('arrivesBeforeStallsOpen', () => {
   it('does not flag when either is unset', () => {
     expect(arrivesBeforeStallsOpen('', '2026-05-14')).toBe(false);
     expect(arrivesBeforeStallsOpen('2026-05-13', null)).toBe(false);
+  });
+});
+
+describe('defaultMoveIn', () => {
+  it('is the day before the show, at noon', () => {
+    expect(defaultMoveIn('2026-05-14')).toEqual({ date: '2026-05-13', time: '12:00' });
+  });
+
+  it('rolls back across a month and a year', () => {
+    expect(defaultMoveIn('2026-03-01')).toEqual({ date: '2026-02-28', time: '12:00' });
+    expect(defaultMoveIn('2027-01-01')).toEqual({ date: '2026-12-31', time: '12:00' });
+  });
+
+  it('has nothing to offer without a start date', () => {
+    expect(defaultMoveIn('')).toBeNull();
+    expect(defaultMoveIn(null)).toBeNull();
   });
 });

@@ -3,10 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRegisterStepAutosave } from '../_lib/StepAutosave';
-import { BillCheckField, BillCheckNotes } from '@/components/BillChecks';
 import { canHaveEarlyRate } from '@/lib/fee-units';
 import { errorMessage } from '@/lib/api-error';
-import { formatStallsOpen } from '@/lib/stalls-open';
+import { defaultMoveIn, formatStallsOpen } from '@/lib/stalls-open';
 
 export type FeeRow = {
   id: string;
@@ -17,6 +16,8 @@ export type FeeRow = {
   notes: string | null;
   early_amount_cents: number | null;
   early_deadline: string | null;
+  /** HH:MM(:SS) on the deadline day (migration 190), or null for no hour. */
+  early_deadline_time?: string | null;
   /** The fewest an exhibitor may reserve once they reserve any (migration
    *  128). 0 means no floor, which is every show that has not said otherwise. */
   min_quantity?: number;
@@ -57,6 +58,9 @@ type SlotState = {
    *  pair rather than storing a discount that would never fire. */
   earlyDollars: string;
   earlyDeadline: string;
+  /** HH:MM on the deadline day, or '' for no hour. Printed as typed, local to
+   *  the venue; the rate itself still turns on the day. */
+  earlyDeadlineTime: string;
   /** The show's minimum, as typed. Blank and "0" both mean no floor. */
   minQuantity: string;
 };
@@ -205,14 +209,18 @@ function unitIsManaged(slot: Slot, unit: string): boolean {
   return slot.units.some((u) => u.value === unit);
 }
 
-type EarlyFields = { early_amount_cents: number | null; early_deadline: string | null };
+type EarlyFields = {
+  early_amount_cents: number | null;
+  early_deadline: string | null;
+  early_deadline_time: string | null;
+};
 
 /** The early-bird half of a slot's payload, or the reason it can't be sent. */
 function earlyFields(slot: SlotState, standardCents: number): EarlyFields | { error: string } {
   const hasAmount = slot.earlyDollars.trim() !== '';
   const hasDeadline = slot.earlyDeadline.trim() !== '';
   if (!hasAmount && !hasDeadline) {
-    return { early_amount_cents: null, early_deadline: null };
+    return { early_amount_cents: null, early_deadline: null, early_deadline_time: null };
   }
   if (hasAmount !== hasDeadline) {
     return {
@@ -223,7 +231,11 @@ function earlyFields(slot: SlotState, standardCents: number): EarlyFields | { er
   if (earlyCents > standardCents) {
     return { error: 'the early rate must be lower than the standard rate.' };
   }
-  return { early_amount_cents: earlyCents, early_deadline: slot.earlyDeadline };
+  return {
+    early_amount_cents: earlyCents,
+    early_deadline: slot.earlyDeadline,
+    early_deadline_time: slot.earlyDeadlineTime || null,
+  };
 }
 
 export default function LodgingClient({
@@ -283,6 +295,7 @@ export default function LodgingClient({
         earlyDollars:
           fee?.early_amount_cents != null ? centsToDollars(fee.early_amount_cents) : '',
         earlyDeadline: fee?.early_deadline ?? '',
+        earlyDeadlineTime: (fee?.early_deadline_time ?? '').slice(0, 5),
         minQuantity: fee?.min_quantity ? String(fee.min_quantity) : '',
       };
     }
@@ -290,8 +303,12 @@ export default function LodgingClient({
   });
 
   const [banOutsideShavings, setBanOutsideShavings] = useState(initialShavingsBanOutside);
-  const [stallsOpenDate, setStallsOpenDate] = useState(initialStallsOpenDate);
-  const [stallsOpenTime, setStallsOpenTime] = useState(initialStallsOpenTime);
+  // A show with no move-in on file starts with the day before its first day,
+  // at noon — filled in rather than asked for, and changed like anything else.
+  // It differs from what is on file, so the step's save writes it.
+  const suggestedMoveIn = initialStallsOpenDate ? null : defaultMoveIn(showStartDate);
+  const [stallsOpenDate, setStallsOpenDate] = useState(suggestedMoveIn?.date ?? initialStallsOpenDate);
+  const [stallsOpenTime, setStallsOpenTime] = useState(suggestedMoveIn?.time ?? initialStallsOpenTime);
   // An hour on no day is meaningless, and the backend refuses it — so a time
   // left behind after the date is cleared is simply not sent.
   const sentStallsOpenTime = stallsOpenDate ? stallsOpenTime : '';
@@ -319,6 +336,7 @@ export default function LodgingClient({
       slot.earlyDollars !==
         (fee?.early_amount_cents != null ? centsToDollars(fee.early_amount_cents) : '') ||
       slot.earlyDeadline !== (fee?.early_deadline ?? '') ||
+      slot.earlyDeadlineTime !== (fee?.early_deadline_time ?? '').slice(0, 5) ||
       slot.minQuantity !== (fee?.min_quantity ? String(fee.min_quantity) : '')
     );
   }) || banOutsideShavings !== initialShavingsBanOutside || moveInDirty;
@@ -582,7 +600,6 @@ export default function LodgingClient({
                 {s.title}
               </h2>
               {/* What was read off the show bill about this line (migration 187). */}
-              <BillCheckNotes target="fee" id={slot.feeId} className="mt-2" />
               {!managed ? (
                 <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
                   Charged {slot.unit.replace(/_/g, ' ')}{' '}
@@ -732,19 +749,40 @@ export default function LodgingClient({
                           aria-label={`${s.title} — early rate amount`}
                         />
                       </label>
-                      <label className="block">
+                      <div>
                         <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
                           Reserve by
                         </span>
-                        <input
-                          type="date"
-                          value={slot.earlyDeadline}
-                          onChange={(e) => setSlot(s.code, { earlyDeadline: e.target.value })}
-                          className="w-full border rounded px-3 py-2"
-                          style={{ borderColor: COLORS.border }}
-                          aria-label={`${s.title} — early rate deadline`}
-                        />
-                      </label>
+                        {/* The hour is optional and printed as typed, local to
+                            the venue (migration 190). Which rate a booking
+                            pays still turns on the day. */}
+                        <div className="flex flex-wrap gap-2">
+                          <input
+                            type="date"
+                            value={slot.earlyDeadline}
+                            onChange={(e) =>
+                              setSlot(s.code, {
+                                earlyDeadline: e.target.value,
+                                // An hour on no day is refused; clearing the day clears it.
+                                ...(e.target.value ? {} : { earlyDeadlineTime: '' }),
+                              })
+                            }
+                            className="min-w-0 flex-1 border rounded px-3 py-2"
+                            style={{ borderColor: COLORS.border }}
+                            aria-label={`${s.title} — early rate deadline`}
+                          />
+                          <input
+                            type="time"
+                            value={slot.earlyDeadlineTime}
+                            disabled={!slot.earlyDeadline}
+                            title={slot.earlyDeadline ? 'Optional' : 'Pick the reserve-by date first.'}
+                            onChange={(e) => setSlot(s.code, { earlyDeadlineTime: e.target.value })}
+                            className="w-32 border rounded px-3 py-2 disabled:opacity-50"
+                            style={{ borderColor: COLORS.border }}
+                            aria-label={`${s.title} — early rate deadline time`}
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -779,7 +817,6 @@ export default function LodgingClient({
             </div>
 
             {s.code === 'shavings' && (
-              <BillCheckField target="show" field="shavings_ban_outside">
               <label
                 className="flex items-start gap-2 text-sm ml-1"
                 style={{ color: COLORS.text }}
@@ -798,7 +835,6 @@ export default function LodgingClient({
                   </span>
                 </span>
               </label>
-              </BillCheckField>
             )}
           </section>
         );

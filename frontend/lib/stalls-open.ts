@@ -47,3 +47,17 @@ export function arrivesBeforeStallsOpen(
 ): boolean {
   return Boolean(arrival && stallsOpen && arrival < stallsOpen);
 }
+
+/** The hour stalls open when the office has not said: noon. */
+export const DEFAULT_STALLS_OPEN_TIME = '12:00';
+
+/** The move-in a show starts with when nothing is on file: the day before its
+ *  first day, at noon. Read as date parts and built in UTC so no zone can move
+ *  the day, and month and year ends roll over on their own. */
+export function defaultMoveIn(showStartDate: string | null | undefined): { date: string; time: string } | null {
+  if (!showStartDate) return null;
+  const [y, mo, d] = showStartDate.split('-').map(Number);
+  if (!y || !mo || !d) return null;
+  const dayBefore = new Date(Date.UTC(y, mo - 1, d - 1));
+  return { date: dayBefore.toISOString().slice(0, 10), time: DEFAULT_STALLS_OPEN_TIME };
+}

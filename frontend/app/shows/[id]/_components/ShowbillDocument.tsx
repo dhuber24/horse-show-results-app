@@ -21,7 +21,7 @@
 
 import { groupFees, unitLabel } from '@/lib/fee-units';
 import { runsOf } from '@/lib/class-order';
-import { formatStallsOpen } from '@/lib/stalls-open';
+import { formatStallsOpen, formatWallClock } from '@/lib/stalls-open';
 import { classEntryText, signupDeadlineText } from '@/lib/registration-window';
 
 export type ShowbillClassRow = {
@@ -65,6 +65,8 @@ type Fee = {
   notes: string | null;
   early_amount_cents: number | null;
   early_deadline: string | null;
+  /** The hour on that day (migration 190), printed as typed. */
+  early_deadline_time?: string | null;
   /** The classes the fee is narrowed to (migration 137). Empty is every class,
    *  and prints nothing; a narrowed list is where an exhibitor reads which. */
   class_ids?: string[];
@@ -532,7 +534,7 @@ export default function ShowbillDocument({
                     fee.early_amount_cents != null && fee.early_deadline != null
                       ? `${formatMoney(fee.early_amount_cents)} if reserved by ${formatShortDate(
                           fee.early_deadline,
-                        )}`
+                        )}${fee.early_deadline_time ? ` at ${formatWallClock(fee.early_deadline_time)}` : ''}`
                       : null
                   }
                 />

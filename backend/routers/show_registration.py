@@ -369,6 +369,8 @@ def _fee_options_out(fees: list[ShowFee], show_entry: Optional[ShowEntry]) -> li
             "rate_cents": fee_rate_cents(f, booked_on.get(f.id)),
             "early_amount_cents": f.early_amount_cents,
             "early_deadline": f.early_deadline,
+            # The hour on that day (migration 190), printed beside it.
+            "early_deadline_time": f.early_deadline_time,
             "early_rate_open": early_rate_is_open(f),
             # The fewest of this line the exhibitor may book once they book any
             # (migration 128). Sent so the picker can start at the floor and

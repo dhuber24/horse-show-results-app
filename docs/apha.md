@@ -466,75 +466,33 @@ The pre-080 `exhibitors.apha_member_number` / `apha_member_expiry` columns are
 backfilled into the registry by 117 and left in place — some records carry a
 number only there, and the export still falls back to them.
 
-## Getting The Show Approved
+## The Show Is Already Approved
+
+**GaitDesk takes every show on the platform as already approved by its breed
+body.** Nothing in the app tracks, counts down to or warns about the approval
+application: no SC-090.C/D application ladder, no reserved-word check on the
+show's name (SC-090.L/P), no check of judges against APHA's approved list
+(SC-090.B), no "approval waits on the class list" warning (SC-090.E). That was
+all removed on 2026-11-15; the office applies to APHA outside the app, and by the
+time a show runs on GaitDesk that is done.
 
 `GET /shows/{id}/apha-validation` is the APHA twin of the AQHA readiness read, in
 the same shape and drawn by the same component. It runs
 `APHARules.validate_show_schedule` over the show, then re-runs the per-entry
-rules over every entry, and returns one list of issues plus the SC-090
-application window.
+rules over every entry, and returns one list of issues plus the SC-095 minimums,
+the SC-125 results window and the category notes. **Everything it reports is a
+warning**: an error nobody can clear is one people learn to scroll past.
 
-**Everything it reports is a warning bar one.** None of SC-090 is enforceable
-from here: the application goes to APHA on paper, the approved-judge list is
-APHA's, and whether a show is APHA-sponsored — and so entitled to the word
-"Championship" — is not a fact this app holds. What the app holds is the
-calendar, the show's name, its class list and its judge panel, which is enough to
-put each condition in front of the office while there is still time to act on it.
-Nobody should meet these rules for the first time in a rejection letter.
+What it still checks at show level:
 
-The single error is a show that has run out of time to apply at all (SC-090.D.3),
-because that is not advice. An error nobody can clear is one people learn to
-scroll past, which is the failure mode this whole panel exists to avoid.
-
-### The show number is the approval
-
-APHA assigns the show number when it approves the show, and the results export
-already refuses without one, so a number on file is the strongest evidence this
-app can hold that approval happened. The deadline ladder is therefore history the
-moment the number appears, and `application_window` comes back None.
-
-The cost of being wrong is one nag at an office that has been approved but has
-not typed the number in yet — and the fix for that is the field they already
-have. The alternative was a second set of `apha_approval_status` /
-`_submitted_at` / `_notes` columns mirroring the AQHA ones, which would have been
-the third time this repo made the same association-prefixed pair; migration 114
-exists because of the second time. See [design/associations.md](design/associations.md).
-
-### The application ladder
-
-SC-090.C wants the application postmarked at least 90 days out, and SC-090.D
-prices the bands underneath — a late penalty fee per judge under 90 days, a
-larger one under 60, and no approval at all under 30. `application_window()` in
-`rules/apha.py` returns the basis date, the 90-day deadline, the days remaining
-and the band; the panel draws a countdown from it rather than parsing a sentence.
-
-The boundaries follow the rule's own wording: "at least ninety (90) days" makes
-90 standard, and "less than thirty (30)" leaves 30 still approvable. An off-by-one
-here is a late fee somebody was told they would not be paying.
-
-**The measurement is against the entry deadline or the show date, whichever comes
-first** — which is why `shows.entry_deadline` exists (migration 123). A show that
-has not set one is counted from its first day, and the window reports
-`basis: "start_date"` so the panel can say the real cutoff may be earlier. That
-fallback is the optimistic direction, so it is stated rather than hidden.
-
-### The class list, the name, and the judges
-
-* **SC-090.E/F** — approval is not granted until the class list or show bill
-  reaches APHA, and amendments inside 30 days need written notification. The app
-  does not send that notice and says so, rather than letting the edit go through
-  quietly. The countdown stops once the show has started; a finished show does not
-  need a running clock on every screen.
-* **SC-090.L and SC-090.P** — "Champion"/"Championship" are reserved for
-  APHA-sponsored shows, and "World", "National" and "International" need APHA's
-  written permission. Checked against `shows.name`, because that string is a fact
-  the app holds. Reported and never refused: a club holding that permission is
-  entitled to the name.
-* **SC-090.B** — judges are selected from APHA's current approved list. What the
-  app checks is `judge_associations`, which is what somebody typed into the judge
-  registry, so this reports a gap in the app's **own records** and never claims a
-  judge is unapproved. The reverse holds too: a carding recorded here does not
-  make a judge approved. Only APHA's list does that, and the app does not hold it.
+* **The show number** (`APHA_SHOW_NUMBER_MISSING`) — asked for because the results
+  export refuses without it, not as evidence of approval.
+* **SC-090.E/F** — class list amendments inside 30 days need written
+  notification to APHA. The app does not send that notice and says so. The
+  countdown stops once the show has started.
+* **A judge panel** (`APHA_JUDGES_NOT_ASSIGNED`), once, with no judges at all.
+* The show category, Youth 13 & Under, the SC-095 minimums and the SC-125 results
+  deadline, below.
 
 ### What kind of show it is (SC-100, SC-105)
 

@@ -33,7 +33,7 @@ Recent and future show bills consistently show that our AQHA schedule builder ne
 
 ## AQHA Rulebook Requirements That Matter To The App
 
-- `SHW100`: AQHA show approval is annual and discretionary. The app should not imply a show is AQHA-approved merely because `show_type = AQHA`; it should store approval/show number state explicitly.
+- `SHW100`: AQHA show approval is annual and discretionary. GaitDesk takes every show on the platform as already approved, so it stores the show number (for results) but no approval state.
 - `SHW100.5`: Approved AQHA classes must be open to AQHA owners meeting age, ownership, and eligibility requirements.
 - `SHW100.5.1`: Owners/lessees of horses in AQHA approved events generally need current AQHA membership, with exceptions for EWD, youth rookie, youth Level 1, amateur rookie, and amateur Level 1.
 - `SHW100.6`: The horse must be entered with show management before the class starts.
@@ -96,7 +96,7 @@ The 2026 class-code load produced 1,589 classes: 491 Open, 451 Amateur, 626 Yout
 ## App Gap Map
 
 - AQHA rules now enforce the first practical validation slice in `backend/rules/aqha.py`: official class-code presence, horse AQHA registration, exhibitor AQHA membership number presence, youth/select DOB checks, youth/stallion restriction, junior/senior horse-age checks, ranch/VRH minimum horse age, and 2-year-old performance class timing.
-- Shows now have basic AQHA show-number and approval-status fields. Multi-judge circuits may still need one show number per judge/show identity.
+- Shows have an AQHA show-number field. Approval is not tracked: every show is taken as already approved. Multi-judge circuits may still need one show number per judge/show identity.
 - The app has per-association horse/exhibitor registrations, but no AQHA-specific membership expiration/amateur/youth/Level 1 eligibility workflow.
 - Horse records can store registrations by association, and AQHA entry validation now requires an AQHA horse registration number for AQHA classes.
 - Horse age is derivable from foaling date, and AQHA entry validation now covers junior/senior, 2-year-old performance timing, ranch/VRH minimum age, youth/stallion restrictions, youth age, and select-amateur age where current data allows.
@@ -106,16 +106,13 @@ The 2026 class-code load produced 1,589 classes: 491 Open, 451 Amateur, 626 Yout
 - Results are currently one placing per class entry. AQHA multi-judge / multi-show-number reporting likely needs judge-specific result cards or a show-number dimension.
 - DQ handling exists for APHA-ish fields, but AQHA explicitly requires DQed horses to count as entries while not receiving a placing. That rule should be represented association-neutrally.
 - AQHA show-management workshop dates are stored on users as `aqha_management_workshop_completed_at`; show validation warns when no assigned show manager or show secretary is current within 3 years of the show start date. The date is entered only on a show secretary certified with AQHA (see [design/associations.md](design/associations.md)).
-- Show-bill generation is not modeled as an approval artifact. AQHA wants a premium list/show bill/class schedule submitted with approval and containing specific required fields.
 - A read-only AQHA validation endpoint now exists at `GET /shows/{show_id}/aqha-validation` for schedule and existing-entry issues.
 
 ## Suggested Implementation Sequence
 
 1. Extend AQHA validation once new data exists for owner/lessee membership, AQHA amateur status, AQHA Level 1 eligibility, and per-judge show identities.
-2. Add a fuller AQHA pre-approval checklist for `SHW121` show-bill/premium-list fields.
-3. Add show-bill/premium-list checklist or export that includes AQHA-required fields from `SHW121`.
-4. Add optional per-judge show-number / result-card modeling if AQHA export is a goal, because one class result may need separate judge cards/show numbers.
-5. Add AQHA results export after class codes, show numbers, roster, DQ handling, and per-judge results are modeled.
+2. Add optional per-judge show-number / result-card modeling if AQHA export is a goal, because one class result may need separate judge cards/show numbers.
+3. Add AQHA results export after class codes, show numbers, roster, DQ handling, and per-judge results are modeled.
 
 ## Near-Term Safe Win
 
@@ -147,7 +144,6 @@ not accept — and the rest as warnings:
 Show-level validation currently reports:
 
 - missing AQHA show number
-- AQHA approval status not marked `APPROVED`
 - no assigned show manager or show secretary with an AQHA show-management workshop date within 3 years of show start
 - classes missing AQHA class codes
 - class codes not present in the AQHA catalog (`association_standard_classes`)

@@ -58,7 +58,6 @@ from rules import get_rules
 from rules.apha import (
     RESULTS_RETENTION_REQUIREMENTS,
     RESULTS_SUBMISSION_REQUIREMENTS,
-    application_window,
     category_requirements,
     results_window,
     show_minimums,
@@ -138,8 +137,7 @@ def _serialize(show: Show) -> dict:
         "start_date": show.start_date,
         "end_date": show.end_date,
         # The day entries close (migration 123): since migration 159 the last day
-        # to sign up online. It bills nothing; APHA SC-090.C counts the approval
-        # deadline back from it, or from start_date when it is unset.
+        # to sign up online. It bills nothing.
         "entry_deadline": show.entry_deadline,
         # How late exhibitors enter and scratch their own classes (migration 159).
         "self_entry_closes": show.self_entry_closes,
@@ -178,9 +176,6 @@ def _serialize(show: Show) -> dict:
         ),
         "offers_clinic": show.offers_clinic,
         "aqha_show_number": show.aqha_show_number,
-        "aqha_approval_status": show.aqha_approval_status,
-        "aqha_approval_submitted_at": show.aqha_approval_submitted_at,
-        "aqha_approval_notes": show.aqha_approval_notes,
         "shavings_ban_outside": show.shavings_ban_outside,
         # When exhibitors may move into their stalls (migration 181).
         "stalls_open_date": show.stalls_open_date,
@@ -629,20 +624,6 @@ async def update_show(
                 + " and ".join(missing)
                 + ", under Exhibitor registration in Step 1 (Basics & Staff).",
             )
-        # A show set up from its show bill (migration 187) leaves DRAFT only
-        # once somebody has answered every doubt about what was read: this is
-        # the one door between the read and the exhibitors.
-        from showbill_checks import open_check_count
-
-        open_checks = await open_check_count(db, show_id) if show.status == "DRAFT" else 0
-        if open_checks:
-            action = "publish" if new_status == "PUBLISHED" else "set to In Progress"
-            raise HTTPException(
-                400,
-                f"Cannot {action}: {open_checks} thing{'s' if open_checks != 1 else ''} read off the "
-                "show bill still need checking. Each setup step lists its own; accept each one, or "
-                "change what it is about.",
-            )
     # And once answered, a show exhibitors can see keeps its answers: blanking
     # one would quietly put the show back on the defaults under people who read
     # the rule on the show bill.
@@ -989,19 +970,12 @@ async def apha_validation(
             issue.setdefault("entry_id", str(entry.id))
         issues.extend(entry_issues)
 
-    # Withheld once the show has a number, for the reason `validate_show_schedule`
-    # gives: APHA assigns it on approval, so the ladder no longer applies.
-    window = None
-    if not (show.apha_show_number or "").strip():
-        window = application_window(show, today)
-
     return {
         "show_id": show_id,
         "association": "APHA",
         "error_count": sum(1 for issue in issues if issue.get("severity") == "error"),
         "warning_count": sum(1 for issue in issues if issue.get("severity") == "warning"),
         "issues": issues,
-        "application_window": window,
         "minimums": minimums,
         "category_requirements": category_requirements(show),
         "results_window": results_window(show, today),

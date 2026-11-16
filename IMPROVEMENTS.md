@@ -2,6 +2,29 @@
 
 ## November 2026
 
+### A show read off its bill is filled in, and what to look over is in its notes
+
+- **Nothing waits on an Accept any more.** The show is created as a draft with
+  everything the bill says filled in, and the office changes what looks wrong.
+  Every doubt about the read is a line of the show's office notes, under the
+  setup step that edits it; publishing is no longer held. Shows part-way
+  through the old review keep what was left to check, copied into their
+  office notes (migration 189).
+- **Futurities and side pots are set up from the bill**: a futurity with its
+  wording, deadline, late and office fees, fee tiers and classes; a side pot or
+  jackpot with its fee, payback and classes.
+- **The confirm page settles who the judges and the venue are.** One exact
+  directory match is attached on its own; anyone else is searched for in the
+  directory, or added — a judge with an email or a phone, a venue with its full
+  address — and a judge the bill names who isn't judging can be left off.
+- **Two notes are drafted from the bill**: show notes for exhibitors (awards,
+  sponsors, refund policy, grounds rules) and office notes (what to look over,
+  and the officials the bill names). Edit them, clear them or download them
+  before Create; both stay editable on Step 1.
+- **The read holds only what GaitDesk has a place for.** Show officials and a
+  judge's home town came out of it, and so did the list of things not
+  imported: what has no field is said in the notes.
+
 ### A show read off its bill is checked step by step
 
 - **The show is created as a draft straight from the read**, once somebody has

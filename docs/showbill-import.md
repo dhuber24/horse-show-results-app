@@ -1,13 +1,16 @@
 # Setting A Show Up From Its Show Bill
 
-Upload the club's own printed show bill, let the model read it, confirm the
-show's name, breed association and dates, press **Create draft show and start
-setup**. The show, its judges, club sanctioning, the class schedule with its
-prices, and the fee catalogue are made in one transaction as a **DRAFT**, and the
-PDF is put on file as the show's uploaded bill. Then the office walks the
-ordinary setup steps: every doubt about what was read is a **check** on its step,
-highlighted on the field it is about, and the show cannot be published until
-each one is answered (migration 187).
+Upload the club's own printed show bill and let the model read it. On the
+confirm page, check the show's name, breed association and dates, find each
+judge and the venue in the directories (or add them), and look over the two
+notes drafted from the bill. Then press **Create draft show and start setup**.
+The show, its judges and venue, club sanctioning, the class schedule with its
+prices, the fee catalogue, and every futurity and side pot the bill runs are
+made in one transaction as a **DRAFT**, filled in as far as the bill allows,
+and the PDF is put on file as the show's uploaded bill. Nothing afterwards
+waits on an Accept: what is worth a second look is listed in the show's
+**office notes**, and what the bill tells exhibitors that no field holds is its
+**show notes** (migration 189).
 
 ## Why
 
@@ -20,31 +23,45 @@ checked by a person.
 
 ## The rule
 
-**The model suggests. A person decides before an exhibitor sees it.** A show
-bill decides what every exhibitor at the show is charged. So:
+**The model fills in; a person decides who a name is.** A show bill decides
+what every exhibitor at the show is charged, so:
 
 - The upload creates **nothing** but a `show_bill_imports` row.
 - Create needs a person's press, with the four values a show row cannot exist
   without — name, breed association, first and last day — confirmed on the page.
-- The show is created as a **DRAFT**, and **cannot leave DRAFT while a check is
-  open** (`routers/shows.py::update_show`, mirrored in `ShowStatusControl`). That
-  is the one door between the read and the exhibitors, and it is enforced, not
-  advised.
-- **Nothing shared is written from the read alone.** Judges, venues and clubs
-  are rows every show uses, so only a confident match is attached — one
-  registry judge of exactly the bill's name, one venue of exactly its name —
-  and that match is itself a check. A judge or venue the app cannot match is a
-  check carrying what the bill printed, added with the step's own form at a
-  press; a club the registry lacks is a check, never a new club.
+- The show is created as a **DRAFT**, which no exhibitor sees. The office
+  publishes it from setup when it is right, like any other show.
+- **Nothing shared is written from the read alone.** Judges and venues are rows
+  every show uses, so only an exact match is attached on its own — one
+  directory judge of exactly the bill's name, one venue of exactly its name.
+  Anyone else the person **finds in the directory, or adds**: a judge with an
+  **email or a phone** (what tells two people of one name apart — a second row
+  for somebody already there, with nothing to tell them apart, is the outcome
+  the registry never recovers from), a venue with its **full address**. A new
+  judge's form has its own **Save judge** button, which adds them to the
+  directory there and then (`POST /judges/`) and turns the row into a settled
+  directory pick; a form left unsaved is still added when the show is created,
+  so Save settles a judge early rather than gating Create. A judge the bill
+  names who is not judging (a steward misread, say) can be left off.
+  A club the registry lacks is a line in the office notes, never a new club.
+- **Everything else is filled in, and doubts are written down, not gated.**
+  Every doubt about the read — the reader's own, and the app's (what a
+  per-judge price was multiplied by, a fee that bills everybody who enters, a
+  class moved to the first day) — is a line of the office notes, under the setup
+  step that edits it. The office changes what looks wrong.
+
+**Why nothing waits on an Accept** (2026-11-15). Migration 187 made each doubt a
+check on its setup step that held the show in DRAFT until somebody pressed
+Accept or changed the field. That made a review a round of pressing Accept on
+values the office could simply change, and it made checks of lines the bill
+printed with no field to hold them (a sponsor, the refund policy). The notes
+carry the same doubts, in the place the office already reads, and the setup
+steps are where anything is changed.
 
 **Why the show is created first** (2026-11-13). The review used to be one long
 screen with the whole show on it before anything was created. It was a second
-copy of every setup step's form — the Judges step, the Fees step, the Class
-Builder, each drawn again and drifting from the real one — and the reader's
-doubts were a list of sentences at the top, tied to nothing. Leaving the page
-lost every edit made on it. Now the setup steps are the review: each doubt sits
-on the field it is about, in the screen that edits it, and is saved with the
-show so a review survives being left.
+copy of every setup step's form, drifting from the real one, and leaving the
+page lost every edit made on it. Now the setup steps are the review.
 
 ## A paid feature
 
@@ -90,21 +107,26 @@ has it.
 
 ## Scope
 
-| Read and created | Read, listed, **not** created |
+A read holds only what the app has a place for; what has no field is said in
+one of the two notes.
+
+| Read and created | Said in the notes |
 | --- | --- |
-| Show name, dates, entry deadline, breed association (show type), APHA/AQHA show numbers, APHA zone | Show officials (managers, secretaries) — the app does not create logins from a bill |
-| Venue, when one on file has exactly its name (else a check to pick or add it on Step 1) | Side pots and jackpots |
-| Judges the registry holds exactly one of (the rest are checks to add on Step 2) | A futurity's categories, fees, deadline and Hi-Point awards |
-| Club sanctioning and each club's separate fee | Awards, sponsors, refund policies |
+| Show name, dates, entry deadline, breed association (show type), APHA/AQHA show numbers, APHA zone | Show officials (managers, secretaries, stewards) and their contacts — office notes; the app does not create logins from a bill |
+| Venue, when one on file has exactly its name; otherwise as the person finds or adds it | Awards and hi-point prizes, sponsors, refund and scratch policy, arrival and grounds rules — show notes |
+| Judges, as the person settles them on the confirm page | Every doubt about the read — office notes |
+| Club sanctioning and each club's separate fee | |
 | Every class: day, name, discipline, division, class code, price, which clubs sanction it, whether it is a Grand & Reserve call-back | |
 | Health paperwork required, the outside-shavings ban | |
 | Stalls, shavings, camping and the show's own charges, with units | |
+| Each **futurity**: its name, description, deadline, late fee, office fees, per-class fee tiers, entry instructions, award, rules and refund wording, and the classes the bill marks for it (created at $0, as a futurity class must be) | |
+| Each **side pot or jackpot**: its name, description, entry fee, payback, and the classes the bill names for it | |
 
-Futurity money is often not on the printed bill at all (MNSPHC takes it on a
-Cognito form), and a futurity is a programme — categories, tiers, divisions —
-that a review table would squash. The bill's futurity classes *are* created,
-flagged and priced at $0 (a futurity class must carry `entry_fee_cents = 0`);
-the futurity itself is set up in Step 6 and the classes added to it there.
+A side pot the bill names no class for cannot exist (a pot is over classes), so
+it is not created and the office notes say so. One whose fee or payback the bill
+does not print takes `SidePotCreate`'s defaults ($10, 100%), and the notes say
+that too. A futurity whose bill prints no fee tiers is created without them,
+and the notes say to add them.
 
 ## Flow
 
@@ -117,17 +139,20 @@ the futurity itself is set up in Step 6 and the classes added to it there.
    database session, and writes the result onto the row.
 4. `/admin/shows/new/from-showbill/[importId]` polls
    `GET /show-bill-imports/{id}` every few seconds. Once the read has
-   succeeded the response carries `extracted` (what the bill said) and
-   `resolved` (what the app matched it to), and the page summarises what
-   Create will make and asks for the name, breed association and dates — each
-   prefilled, with the reader's doubt beside the box it is about.
-5. `POST /show-bill-imports/{id}/create-show` (`ShowBillImportStart`) builds
-   the payload from the read (`showbill_checks.draft_from_read`), creates the
-   show through `apply_import`, and records its checks — one transaction. The
-   browser lands on Step 1.
-6. The office walks the steps. Each lists its own checks at the top and
-   highlights the field each is about; the tab bar, the sidebar, the hub and
-   the show dashboard count what is left.
+   succeeded the response carries `extracted` (what the bill said), `resolved`
+   (what the app matched it to) and `drafted` (the two notes). The page asks
+   for the name, breed association and dates; for each judge, a directory
+   search (the bill's same-surname candidates first), *add them*, or *leave
+   them off*; for the venue, a search or *add it*; and shows both notes to edit,
+   clear or download. A judge left off, a venue settled or the dates moved
+   redraft the office notes (`POST /show-bill-imports/{id}/draft-notes`, which
+   writes nothing) until somebody has typed in them.
+5. `POST /show-bill-imports/{id}/create-show` (`ShowBillImportStart`) refuses a
+   judge left unsettled, and — from a manager or admin, who may add one — a
+   venue the bill names left blank (`showbill_import.start_problems`). It builds
+   the payload from the read (`showbill_draft.draft_from_read`) and creates the
+   show through `apply_import` in one transaction. The browser lands on Step 1,
+   where the office notes are.
 
 ### Why the read runs in the background
 
@@ -166,27 +191,29 @@ every upload as `BadRequestError` until 2026-11-12:
 
 `test_showbill_import.py` pins the union count per schema. The grammar limit
 has no local check — the API compiles the grammar — so a field added to either
-schema should be tried against the API once before it ships.
+schema should be tried against the API once before it ships. (The 2026-11-15
+schemas were: both compiled.)
 
 No prompt caching: the output schema sits ahead of the bill in the prompt
 prefix, so the two passes share no prefix — measured, the second pass read
 nothing from the cache and both paid the 1.25× cache write. Both read the bill
 at the plain input rate.
 
-**Doubts are tagged, not fields.** The reader puts a doubt about one class on
-that class's `note`; anything else goes in `warnings`, starting with a tag that
-says what it is about — `[start_date]`, `[venue]`, `[requires_coggins]` for a
-show detail, `[judge: Jane Smith]`, `[club: WSCA]`, `[rate: apha_open]`,
-`[fee: Stall]` for one item. A line of `not_imported` about a futurity, a side
-pot or a hi-point award starts `[futurity]`, `[side_pot]` or `[high_point]`, so
-it shows on the step that sets it up. `normalize_showbill` (`route_warnings`)
-reads the tags back into `show_checks` and each item's `check`; an untagged
-line, an unknown tag, or an item it cannot find stays a warning about the
-whole bill, with the item's name kept. **Tags rather than schema fields because
-the header schema is at the API's grammar limit**: on 2026-11-13 adding even
-one `check` string to each of four item types was refused as "The compiled
-grammar is too large", while the committed schema still compiled.
-`test_doubts_cost_the_header_schema_nothing` pins it.
+**The two passes.** The header pass reads the show, judges, clubs, class
+rates, fees, and the two notes (`notes_for_exhibitors`, `notes_for_office`);
+the class pass reads the classes, each naming the futurity and side pots it
+belongs to, and the futurities and side pots themselves. The doubts are plain
+`warnings` naming what each is about, plus a class's own `note`.
+
+**A read holds only what the app has a place for** (2026-11-15). Show officials,
+a judge's home town and the old `not_imported` list came out of the schema; the
+notes say what has no field. Earlier reads still work: their tagged doubts,
+officials and `not_imported` lines are drafted into the office notes
+(`showbill_draft._legacy_doubts`, `legacy_office_lines`). The header schema has
+been refused as "The compiled grammar is too large" before (2026-11-13), and
+the limit has no local check, so a field added to either schema is tried
+against the API first; `test_the_header_holds_only_what_the_app_has_a_place_for`
+pins the header's shape.
 
 Two instructions matter more than the rest:
 
@@ -197,9 +224,9 @@ Two instructions matter more than the rest:
   a hundred and seventy.
 - **Transcribe, never multiply.** A bill quotes "$9 per judge"; the app stores
   the multiplied figure on the class. The model reports the per-judge amount and
-  says it is per judge; `showbill_checks` multiplies it by the judges the bill
-  names and says so in a check on the Fees step — because the panel is one of
-  the things the office may change.
+  says it is per judge; `showbill_draft` multiplies it by the bill's judges kept
+  on the confirm page and says so in the office notes — because the panel is
+  one of the things the office may change.
 
 When unsure whether a fee applies to everyone, the model is told to use `flat`:
 a flat fee is printed and bills nobody, so the reviewer can promote it, while a
@@ -240,52 +267,47 @@ A heading the app has never heard of is kept as a discipline of its own rather
 than dumped in "Unassigned". Against the hand transcription of the MNSPHC bill
 this agrees on all 172 classes.
 
-## Checking it, step by step
+## The notes
 
-`backend/showbill_checks.py` makes the checks; `frontend/components/BillChecks.tsx`
-shows them, inside `StepLayout`, from the list `fetchStepCounts` reads. Each
-check appears once: on its field where the step draws one (Accept and *Add …*
-beside it), or, when it has no field on the page, in the box above the form,
-which otherwise holds only the count and the answered checks. The
-confirm page before Create is `StartClient.tsx`, its state in
-`frontend/lib/showbill-import.ts`.
+`backend/showbill_draft.py` drafts both; the confirm page shows them, and what
+the person leaves is what the show gets (both stay editable on Step 1).
 
-| Step | What is checked |
+- **Show notes** (`shows.public_notes`, 5,000 characters) — what the bill tells
+  exhibitors that no field holds, as the reader wrote it. Printed on Show
+  Details and the generated show bill.
+- **Office notes** (`shows.office_notes`, 20,000 characters, never public) —
+  *To check, from the show bill*, grouped under the setup step that edits each
+  line, then *From the show bill*: what the bill told the office (its officials
+  and their contacts).
+
+| Section | What it lists |
 | --- | --- |
-| 1. Basics & Staff | The reader's doubts about the show's own fields; a venue matched in another city, or not on file (*Add …* creates it from the bill and picks it — a manager or admin); the show officials the bill names; lines not imported; doubts about the whole bill |
-| 2. Judges | Each judge attached on the name alone; each judge not attached (*Add …* fills the new-judge form from the bill, or opens the list when people of that surname are on file — adding them accepts the check) |
-| 3. Lodging | The stall, shavings and camping lines; another booked line, with a link to Boarding Fees; the outside-shavings rule |
-| 4. Class Builder | A class's note; a class whose day could not be read or fell off the show's dates (put on the first day); a class the bill prints twice on a day (only the first is created) |
-| 5. Sanctioning | A club's fee as read; a club the registry lacks, with the classes the bill marked for it |
-| 6. Futurities & Side Pots | The futurity classes, created at $0; futurity and side-pot lines not imported |
-| 7. Fees | **One check per class rate**: how many classes it priced, and the arithmetic — `$5.00 × 2 WSCA judges named on the bill = $10.00` — with a link to Entry Fees; classes the bill left unpriced; every fee that bills everybody who enters, `per_entry` said to be on top of the class price |
-| 8. Scoring | Hi-point lines not imported |
-| 9. Paperwork | Each health paper the bill never mentions, and what that left it at |
+| Basics & Staff | An entry deadline after the show starts (left blank); a venue the bill names left blank |
+| Judges | A judge the bill names who was left off |
+| Lodging | A booked line's early rate or minimum left off, a reservable line that bills oddly |
+| Class Builder | A class's note; classes with no readable day or one off the show's dates (put on the first day); a class the bill prints twice on a day (only the first is created) |
+| Sanctioning | A club's fee as read; a club the registry lacks, with the classes the bill marked for it |
+| Futurities & Side Pots | Each futurity and side pot set up, and what the bill left out of it; a side pot with no classes, not set up |
+| Fees | **One line per class rate**: how many classes it priced, and the arithmetic — `$5.00 × 2 WSCA judges = $10.00`; classes the bill left unpriced; every fee that bills everybody who enters, `per_entry` said to be on top of the class price |
+| Paperwork | The health papers the bill never mentions, and what that left them at |
+| The whole bill | The reader's own doubts |
 
-- **A check closes when it is accepted, or when what it is about changes.** A
-  check about a field stores the value the show was created with
-  (`show_bill_checks.value`); changing the field closes it (`changed`),
-  deleting its row closes it (`removed`), and changing it back reopens it — all
-  decided on read (`check_state`), never stored. A check about no field closes
-  only on Accept. An Accept can be undone.
-- **A per-judge class price is multiplied by the judges the bill names**, by the
-  carded-judge rule billing uses (`per_judge_count`): the judges carded with the
-  rate's association, or the whole panel. The class prices are worked out
-  before anybody has picked a judge, so they do not follow the panel
-  afterwards — which is why every rate is a check that says what it was
-  multiplied by.
-- **Not a paid feature.** The import is, but a company that moves off Pro must
-  still be able to answer its checks, or its show could never be published.
+- **A per-judge class price is multiplied by the judges kept**, by the
+  carded-judge rule billing uses (`per_judge_count`): those carded with the
+  rate's association, or the whole panel. The prices are worked out at Create
+  and do not follow the panel afterwards — which is why every rate is a line.
+- **Not a gate.** Nothing in the notes holds the show in DRAFT.
 
 ## Creating the show
 
 `showbill_import.create_show_from_read` builds the payload with
-`showbill_checks.draft_from_read` — pure, and what `test_showbill_checks.py`
+`showbill_draft.draft_from_read` — pure, and what `test_showbill_draft.py`
 exercises — and hands it to `apply_import`. **The payload is always creatable**:
-a value the create would refuse is left off or moved and becomes a check (a
-deadline after the show starts, a class off the show's dates, a second class of
-a name on a day, an early rate the fee editors would refuse). A first day moved
-on the confirm page moves the schedule with it, day for day.
+a value the create would refuse is left off or moved and the office notes say so
+(a deadline after the show starts, a class off the show's dates, a second class
+of a name on a day, an early rate the fee editors would refuse, a futurity's
+late fee with no deadline). A first day moved on the confirm page moves the
+schedule with it, day for day.
 
 `showbill_import.apply_import`, one transaction:
 
@@ -293,13 +315,14 @@ on the confirm page moves the schedule with it, day for day.
   `show_id` the first one made.
 - The show is created as `POST /shows` creates one, with the caller's
   `show_managers` / `show_secretaries` row.
-- No venue or judge is created from a read (`create_show_from_read` sends only
-  registry rows). `apply_import` can still create both from a payload that asks,
-  under the rules `POST /venues` and `POST /judges` keep.
+- A venue or judge is created only as the confirm page added it — a judge with
+  an email or phone, a venue with its full address — under the rules
+  `POST /venues` (manager or admin) and `POST /judges` (name + email identity)
+  keep.
 - **Classes** go through `routers/classes._create_classes_auto_routed` — the
   Class Builder's own importer — a day at a time in program order, so the
   running number it assigns is already the schedule's 1..N. The bill's printed
-  numbers ("2-3", "A") are named in a class's checks and not kept: the app
+  numbers ("2-3", "A") are named in the office notes' lines about a class and not kept: the app
   numbers sequentially and renumbers on every add, so a kept "2-3" would be gone
   the first time somebody added a class.
 - A class code is kept only at a breed show. An Open show has no catalogue to
@@ -319,9 +342,11 @@ on the confirm page moves the schedule with it, day for day.
   ticked (it is by default). `showbill_source` stays `generated`: switching the
   Show Bill button to the upload is the deliberate second press in Step 10 that
   it always is.
-- The checks are written against the rows just created
-  (`showbill_checks.check_rows`): the show, a class, a fee by id; a judge or a
-  club by the registry id the payload already carried.
+- **Futurities and side pots** are created as their own create routes make
+  them, over the classes just made (named by payload index, since none existed
+  yet): a futurity with its tiers, a side pot with the default scoring and
+  payout schedule.
+- The show takes the two notes as the confirm page left them.
 - The import row records `accepted` (the payload the show was made from) and
   `show_id`.
 
@@ -340,12 +365,9 @@ on the confirm page moves the schedule with it, day for day.
 | `model`, `input_tokens`, `output_tokens` | Which model read it, and what it cost |
 | `created_at`, `completed_at`, `applied_at` | |
 
-`show_bill_checks` (migration 187): one row per check — `step` (a wizard key),
-`target_type` / `target_id` / `field` (the record and column, or all NULL for
-one about the step), `value` (that column as created), `message`, `source`
-(`bill`: the reader said so; `app`: the app's own look at the read), `action`
-(what a one-press fix needs — the judge or venue the bill named, or a link),
-`accepted_at` / `accepted_by_user_id`. Its state is not stored; see above.
+`show_bill_checks` (migration 187) is no longer mapped. Migration 189 copied
+every check nobody accepted onto the end of its show's office notes, under
+*Left to check from the show bill:*; the table is dropped in a later release.
 
 No relationships on the import model, deliberately: `file_data` is a multi-megabyte
 BYTEA and the confirm page polls this row every four seconds, so readers
@@ -363,12 +385,15 @@ would be one global bucket and a single busy user would lock out everyone else.
 
 ## Sharp edges
 
-- **The bill's printed class numbers are not kept.** See above; a check about
+- **The bill's printed class numbers are not kept.** See above; a line about
   a class names its printed number ("bill #2-3") so it can be found on paper.
 - **Club classes a registry club does not exist for cannot be designated.** A
   club is added to the registry by an admin, or requested by a manager through
-  `sanctioned_association_requests` from the Sanctioning step; a check on that
-  step says so and names the classes the bill marked for it.
+  `sanctioned_association_requests` from the Sanctioning step; the office notes
+  say so and name the classes the bill marked for it.
+- **A secretary cannot add a venue** (`POST /venues` is manager or admin), so a
+  secretary whose venue is not in the directory leaves it blank and the office
+  notes say so.
 - **An import is applied once.** Re-running means uploading again — the row is
   the record of which show that read became.
 - **The fixture for testing without a key** is the MNSPHC seed transcription

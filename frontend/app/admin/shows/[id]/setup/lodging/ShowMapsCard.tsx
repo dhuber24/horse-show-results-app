@@ -96,8 +96,7 @@ export default function ShowMapsCard({
           Maps
         </h2>
         <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-          Where the barns and the RV spots are. Exhibitors open them from Show Details as soon
-          as they are uploaded. Both optional.
+          Attach maps that exhibitors can view or download from GaitDesk.
         </p>
       </div>
 

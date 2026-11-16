@@ -23,10 +23,7 @@ import { featureDeclined, featureStepHref } from '../_wizard/steps';
 import { fetchStepCounts } from './setup/_lib/fetchStepCounts';
 import { showSections, type ShowSection as Tile } from './sections';
 import {
-  APPLICATION_BANDS,
-  APPLICATION_BASIS_LABELS,
   RESULTS_BANDS,
-  AphaApplicationWindow,
   AphaResultsWindow,
   AphaShowMinimums,
 } from '@/lib/apha';
@@ -140,10 +137,9 @@ function AssociationExportLocked({ plan, mine }: { plan: ShowPlan | null; mine: 
 }
 
 // Both readiness endpoints return the same shape, which is why the issue list
-// is one component. APHA adds the SC-090 application window on top, because a
-// countdown is not a finding — it is still true when nothing is wrong.
+// is one component. APHA adds its checklists on top, because a checklist is not
+// a finding — it is still true when nothing is wrong.
 type AphaValidationData = ValidationResult & {
-  application_window: AphaApplicationWindow | null;
   minimums: AphaShowMinimums | null;
   category_requirements: string[];
   results_window: AphaResultsWindow | null;
@@ -197,8 +193,6 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   // Read the way the wizard reads it -- declined, and still none set up -- so a
   // tile is greyed out exactly when the setup step says the show has declined it.
   const declined = (feature: Tile['feature']) => (feature ? featureDeclined(stepCounts, feature) : false);
-  // What was read off the show bill and is still to check (migration 187).
-  const billChecksOpen = (stepCounts.billChecks ?? []).filter((c) => c.state === 'open').length;
   const session = await auth();
   const user = session?.user as { id?: string; role?: string } | undefined;
   const isAdmin = user?.role === 'ADMIN';
@@ -266,18 +260,8 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             endDate={show.end_date}
             venueId={show.venue_id ?? null}
             registrationAnswered={registrationAnswered(show)}
-            billChecksOpen={billChecksOpen}
           />
         </div>
-        {billChecksOpen > 0 && (
-          <p className="text-sm mt-2" style={{ color: 'var(--warning-strong)' }}>
-            {billChecksOpen} thing{billChecksOpen === 1 ? '' : 's'} read off the show bill still to check before
-            this show can be published.{' '}
-            <Link href={`/admin/shows/${id}/setup`} className="underline font-medium">
-              Open setup →
-            </Link>
-          </p>
-        )}
         {(isAdmin || isShowAdmin) && (
           <p className="text-sm mt-2" style={{ color: 'var(--muted)' }}>
             {scribeNames.length > 0 ? (
@@ -387,29 +371,13 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
 
       {show.show_type_code === 'AQHA' && (
         <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>AQHA Approval</h2>
-            <span className="text-xs font-mono px-2 py-1 rounded bg-amber-100 text-amber-800">
-              {show.aqha_approval_status ?? 'NOT_SUBMITTED'}
-            </span>
-          </div>
-          <div className="grid sm:grid-cols-2 gap-2 text-sm" style={{ color: 'var(--muted)' }}>
-            <p>
-              Show #: <span className="font-mono" style={{ color: 'var(--foreground)' }}>{show.aqha_show_number || 'Not assigned'}</span>
-            </p>
-            <p>
-              Submitted: <span style={{ color: 'var(--foreground)' }}>{show.aqha_approval_submitted_at || 'Not submitted'}</span>
-            </p>
-          </div>
-          {show.aqha_approval_notes && (
-            <p className="text-sm" style={{ color: 'var(--muted)' }}>{show.aqha_approval_notes}</p>
-          )}
-          <div className="rounded p-3 text-sm" style={{ backgroundColor: 'var(--background)', color: 'var(--text-deep)' }}>
-            AQHA approval readiness: venue selected, class schedule built, AQHA class codes assigned, judge/show details confirmed, and show bill submitted with approval.
-          </div>
+          <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>AQHA Show</h2>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
+            Show #: <span className="font-mono" style={{ color: 'var(--foreground)' }}>{show.aqha_show_number || 'Not set'}</span>
+          </p>
           {aqhaValidation && <ValidationIssues label="AQHA validation" data={aqhaValidation} />}
           <a href={`/admin/shows/${id}/edit`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
-            Update AQHA approval details
+            Update AQHA show details
           </a>
         </div>
       )}
@@ -417,10 +385,9 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       {show.show_type_code === 'APHA' && (
         <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center justify-between gap-3">
-            <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>APHA Approval</h2>
-            {/* APHA issues the show number on approval, and the results export
-                refuses without it, so its presence is the closest thing the app
-                holds to an approval flag. */}
+            <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>APHA Show</h2>
+            {/* Every show is taken as already approved; the number is shown
+                because the results export refuses without it. */}
             <span
               className="text-xs font-mono px-2 py-1 rounded"
               style={
@@ -439,47 +406,6 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
               : 'Kind of show not stated'}
             {show.offers_clinic ? ' · clinic alongside' : ''}
           </p>
-
-          {aphaValidation?.application_window && (
-            <div className="rounded p-3 text-sm" style={{ backgroundColor: 'var(--background)', color: 'var(--text-deep)' }}>
-              <div className="grid sm:grid-cols-3 gap-2">
-                <p>
-                  <span className="block text-xs" style={{ color: 'var(--muted)' }}>Application due</span>
-                  <span className="font-mono">{aphaValidation.application_window.standard_deadline}</span>
-                </p>
-                <p>
-                  <span className="block text-xs" style={{ color: 'var(--muted)' }}>
-                    Counted to the {APPLICATION_BASIS_LABELS[aphaValidation.application_window.basis]}
-                  </span>
-                  <span className="font-mono">{aphaValidation.application_window.basis_date}</span>
-                </p>
-                <p>
-                  <span className="block text-xs" style={{ color: 'var(--muted)' }}>Days remaining</span>
-                  <span className="font-mono">{aphaValidation.application_window.days_remaining}</span>
-                </p>
-              </div>
-              <p
-                className="mt-2 font-medium"
-                style={{
-                  color:
-                    APPLICATION_BANDS[aphaValidation.application_window.band].tone === 'bad'
-                      ? 'var(--error)'
-                      : APPLICATION_BANDS[aphaValidation.application_window.band].tone === 'warn'
-                        ? 'var(--warning)'
-                        : 'var(--success)',
-                }}
-              >
-                {APPLICATION_BANDS[aphaValidation.application_window.band].label}
-              </p>
-              {aphaValidation.application_window.basis === 'start_date' && (
-                <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-                  Counted from the show date because no entry deadline is set. SC-090.C
-                  measures from the entry deadline where that comes first, so the real
-                  cutoff may be earlier than this — set it on the show details.
-                </p>
-              )}
-            </div>
-          )}
 
           {aphaValidation?.minimums && <AphaMinimums minimums={aphaValidation.minimums} />}
 
@@ -547,9 +473,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           )}
 
           <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            Read-only. Nothing here is filed with APHA, and none of it is verified
-            against APHA&rsquo;s records — the approved-judge list and the approval
-            itself are theirs.
+            Read-only. Nothing here is filed with APHA.
           </p>
           <a href={`/admin/shows/${id}/edit`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
             Update APHA show details

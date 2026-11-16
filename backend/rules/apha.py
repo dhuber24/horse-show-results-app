@@ -359,117 +359,14 @@ def zone_individual_work_note(show, discipline_name):
     )
 
 
-# ── SC-090: getting the show approved ────────────────────────────────────────
+# ── SC-090: after approval ───────────────────────────────────────────────────
 #
-# None of what follows is enforceable, and that is why it lives here rather than
-# in a router. The application goes to APHA on paper, the approved-judge list is
-# APHA's, and whether a show is APHA-sponsored — and so entitled to the word
-# "Championship" — is not a fact this app holds. What the app does hold is the
-# calendar, the show's name, its class list and its judge panel, which is enough
-# to put each condition in front of the office while there is still time to act
-# on it. Nobody should learn these from a rejection letter.
-
-# SC-090.C — "at least ninety (90) days prior to the first day of the show".
-# SC-090.D prices the bands underneath: a late penalty fee per judge under 90
-# days, a larger one under 60, and no approval at all under 30.
-APPLICATION_STANDARD_DAYS = 90
-APPLICATION_LATE_DAYS = 60
-APPLICATION_CLOSED_DAYS = 30
-
-# What each band costs, in the terms of the rule that sets it. Kept beside the
-# thresholds because a number of days means nothing without the consequence.
-APPLICATION_BAND_NOTES = {
-    "standard": "That is inside the standard application window (SC-090.C).",
-    "late": (
-        "Under 90 days the application carries a late penalty fee per judge on "
-        "top of the application fee (SC-090.D.1)."
-    ),
-    "late_second": (
-        "Under 60 days the application carries the larger late penalty fee per "
-        "judge (SC-090.D.2)."
-    ),
-    "closed": "Under 30 days APHA will not approve the show (SC-090.D.3).",
-}
-
-# SC-090.E/F — approval waits on the class list, and amendments stop being a
-# private matter 30 days out.
+# GaitDesk takes every show on it as already approved by its breed body, so the
+# approval application — its deadline ladder, the reserved words in a show's
+# name, the approved-judge list — is not the app's business. What SC-090 still
+# asks of an approved show is that the class list stops being a private matter
+# 30 days out (SC-090.E/F): changes that close need written notice to APHA.
 CLASS_LIST_NOTICE_DAYS = 30
-
-# SC-090.L and SC-090.P — the words APHA keeps. "Champion"/"Championship" are
-# reserved for shows APHA sponsors; "World", "National" and "International" may
-# be used only with APHA's written permission.
-#
-# Reported, never refused. The app cannot tell an APHA-sponsored show from any
-# other, and a club holding that written permission is entitled to the name.
-RESERVED_SHOW_WORDS = {
-    "championship": "reserved for APHA-sponsored shows (SC-090.L)",
-    "champion": "reserved for APHA-sponsored shows (SC-090.L)",
-    "world": "needs APHA's written permission (SC-090.L, SC-090.P)",
-    "national": "needs APHA's written permission (SC-090.L, SC-090.P)",
-    "international": "needs APHA's written permission (SC-090.L, SC-090.P)",
-}
-
-# Ordered longest-first so "Championship" is reported as itself rather than as
-# "Champion" with a stray suffix. The word boundary already keeps "National"
-# from matching inside "International"; the ordering is for the pair that
-# genuinely nests.
-_RESERVED_WORD_RE = re.compile(
-    r"\b(championship|champion|international|national|world)s?\b",
-    re.IGNORECASE,
-)
-
-
-def application_window(show, as_of):
-    """SC-090.C/D — how long is left to apply for approval, and at what cost.
-
-    `basis` is which date the count runs to, and it is reported rather than
-    folded away because the two answers differ by weeks. SC-090.C measures
-    against "the show or contest entry deadline or show date, whichever comes
-    first"; a show with no entry deadline on file can only be counted from its
-    first day, which is the *later* of the two and therefore the optimistic
-    answer. Callers say so — see `validate_show_schedule`.
-
-    Returns None for a show with no start date. The database does not allow that
-    shape; a half-built object in a test does.
-    """
-    start = getattr(show, "start_date", None)
-    if start is None or as_of is None:
-        return None
-
-    closes = getattr(show, "entry_deadline", None)
-    if closes is not None and closes < start:
-        basis, basis_date = "entry_deadline", closes
-    else:
-        basis, basis_date = "start_date", start
-
-    days = (basis_date - as_of).days
-    if days >= APPLICATION_STANDARD_DAYS:
-        band = "standard"
-    elif days >= APPLICATION_LATE_DAYS:
-        band = "late"
-    elif days >= APPLICATION_CLOSED_DAYS:
-        band = "late_second"
-    else:
-        band = "closed"
-
-    return {
-        "basis": basis,
-        "basis_date": basis_date,
-        "standard_deadline": basis_date - timedelta(days=APPLICATION_STANDARD_DAYS),
-        "days_remaining": days,
-        "band": band,
-    }
-
-
-def show_name_reservations(name):
-    """Reserved words in a show's name, as {word: why}. Empty is the usual answer."""
-    found: dict[str, str] = {}
-    for match in _RESERVED_WORD_RE.finditer(name or ""):
-        word = re.sub(r"s$", "", match.group(0).lower())
-        reason = RESERVED_SHOW_WORDS.get(word)
-        if reason and word not in found:
-            found[word] = reason
-    return found
 
 
 # ── SC-095: the minimum a show must offer ────────────────────────────────────
@@ -1100,69 +997,36 @@ class APHARules(DefaultRules):
         return getattr(cls, "score_type", None) in ("pattern", "time")
 
     def validate_show_schedule(self, show, classes, context=None):
-        """SC-090 — what has to be true before APHA will approve the show.
+        """What an APHA show has to get right on the app's side.
 
-        Read-only and almost entirely warnings. Nothing here refuses anything:
-        the application goes to APHA on paper, the approved-judge list is theirs,
-        and the app cannot see a show bill in the post. The single error is a
-        show that has run out of time to apply at all, which is not advice.
-
-        **The APHA show number is treated as the approval.** APHA assigns one when
-        the show is approved and the results export already refuses without it, so
-        a number on file is the strongest evidence this app can hold — and the
-        deadline ladder becomes history the moment it appears. The cost of being
-        wrong is one nag at an office that has been approved but has not typed the
-        number in yet, and the fix for that is the field they already have.
+        Read-only and all warnings. Every show on GaitDesk is taken as already
+        approved by APHA, so nothing here is about the approval application —
+        its deadlines, the show's name, the approved-judge list. What is left is
+        what the office runs: the schedule, the panel, and filing the results.
         """
         context = context or {}
         as_of = context.get("as_of") or date.today()
         issues: list[dict[str, Any]] = []
 
-        if not (getattr(show, "apha_show_number", None) or "").strip():
-            issues.extend(self._check_application_window(show, as_of))
-
+        issues.extend(self._check_show_number(show))
         issues.extend(self._check_show_category(show))
         issues.extend(self._check_youth_thirteen_and_under(show, classes))
         issues.extend(self._check_results_deadline(show, as_of))
         issues.extend(self._check_class_list(show, classes, as_of))
         issues.extend(self._check_show_minimums(show, classes, context))
-        issues.extend(self._check_show_name(show))
-        issues.extend(self._check_judge_carding(show))
+        issues.extend(self._check_judges_assigned(show))
         return issues
 
-    def _check_application_window(self, show, as_of):
-        """SC-090.C/D — the application ladder, for a show with no number yet."""
-        issues = [self._issue(
+    def _check_show_number(self, show):
+        """The APHA show number the results export is filed under."""
+        if (getattr(show, "apha_show_number", None) or "").strip():
+            return []
+        return [self._issue(
             "warning",
             "APHA_SHOW_NUMBER_MISSING",
-            "No APHA show number on file. APHA assigns one when the show is "
-            "approved, so this show reads as not yet approved — and the results "
-            "export needs it.",
+            "No APHA show number on file. The results export needs it — add it "
+            "on the show details.",
         )]
-
-        window = application_window(show, as_of)
-        if window is None:
-            return issues
-
-        if window["basis"] == "entry_deadline":
-            basis_label = "the entry deadline"
-            caveat = ""
-        else:
-            basis_label = "the first day of the show"
-            caveat = (
-                " Counted from the show date because no entry deadline is set: "
-                "SC-090.C measures from the entry deadline where that comes "
-                "first, so the real cutoff may be earlier than this."
-            )
-
-        issues.append(self._issue(
-            "error" if window["band"] == "closed" else "warning",
-            "APHA_APPLICATION_DEADLINE",
-            f"Approval application due {window['standard_deadline']} — 90 days "
-            f"before {window['basis_date']} ({basis_label}). "
-            f"{APPLICATION_BAND_NOTES[window['band']]}{caveat}",
-        ))
-        return issues
 
     def _check_results_deadline(self, show, as_of):
         """SC-125.A — ten calendar days from the last scheduled day of the show.
@@ -1412,17 +1276,8 @@ class APHARules(DefaultRules):
         return issues
 
     def _check_class_list(self, show, classes, as_of):
-        """SC-090.E/F — approval waits on the class list, and it stops being a
-        private matter 30 days out."""
+        """SC-090.E/F — the class list stops being a private matter 30 days out."""
         issues = []
-        if not classes:
-            issues.append(self._issue(
-                "warning",
-                "APHA_CLASS_LIST_EMPTY",
-                "No classes on the schedule. APHA does not grant approval until "
-                "the show bill or premium list reaches them (SC-090.E).",
-            ))
-
         start = getattr(show, "start_date", None)
         if start is None:
             return issues
@@ -1439,63 +1294,15 @@ class APHARules(DefaultRules):
             ))
         return issues
 
-    def _check_show_name(self, show):
-        """SC-090.L and SC-090.P — words APHA keeps for its own shows."""
-        reserved = show_name_reservations(getattr(show, "name", None))
-        if not reserved:
+    def _check_judges_assigned(self, show):
+        """A show with no judge on it has nobody to put on the results."""
+        if list(getattr(show, "judges", None) or []):
             return []
-        listed = "; ".join(f'"{word}" is {why}' for word, why in reserved.items())
         return [self._issue(
             "warning",
-            "APHA_SHOW_NAME_RESERVED",
-            f"The show name uses words APHA reserves: {listed}. Confirm APHA "
-            "sponsorship or written permission before applying.",
+            "APHA_JUDGES_NOT_ASSIGNED",
+            "No judge assigned.",
         )]
-
-    def _check_judge_carding(self, show):
-        """SC-090.B — judges are selected from APHA's current approved list.
-
-        This reports a gap in the app's *own* records and never claims a judge is
-        unapproved: what it reads is `judge_associations`, which is what somebody
-        typed into the judge registry. The reverse holds too — a carding recorded
-        here does not make a judge approved. Only APHA's list does that, and the
-        app does not hold it.
-        """
-        assignments = list(getattr(show, "judges", None) or [])
-        if not assignments:
-            return [self._issue(
-                "warning",
-                "APHA_JUDGES_NOT_ASSIGNED",
-                "No judge assigned. Judges are selected from APHA's current "
-                "approved list (SC-090.B), and the approval application is priced "
-                "per judge.",
-            )]
-
-        issues = []
-        for assignment in assignments:
-            judge = getattr(assignment, "judge", None)
-            if judge is None:
-                continue
-            codes = {
-                (getattr(a, "code", None) or "").upper()
-                for a in (getattr(judge, "associations", None) or [])
-            }
-            if "APHA" in codes:
-                continue
-            name = " ".join(
-                part for part in (
-                    getattr(judge, "first_name", None),
-                    getattr(judge, "last_name", None),
-                ) if part
-            ) or "This judge"
-            issues.append(self._issue(
-                "warning",
-                "APHA_JUDGE_NOT_CARDED",
-                f"{name} has no APHA carding recorded in the judge registry. "
-                "SC-090.B requires judges from APHA's current approved list, and "
-                "the app holds the registry rather than that list.",
-            ))
-        return issues
 
     def validate_entry(self, entry, show, cls, context=None):
         if not self.entry_is_active(entry):

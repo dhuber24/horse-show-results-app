@@ -6,30 +6,30 @@
   the breed body -- against what the app already *holds*, and routes every
   class to a discipline the way the Class Builder would. Every match is a
   suggestion, and every one carries the reason it was made.
-* **`create_show_from_read`** (migration 187) creates the show as a DRAFT from
-  the read and the four values a person confirmed, with every doubt recorded
-  as a check on its setup step (`showbill_checks.py`). The show cannot leave
-  DRAFT until each one is answered, so nothing read off a bill reaches an
-  exhibitor before a person has looked at it.
+* **`create_show_from_read`** creates the show as a DRAFT from the read and
+  what a person settled on the confirm page -- name, type, dates, who each
+  judge is, which venue -- filled in as far as the bill allows, futurities and
+  side pots included (`showbill_draft.py` builds it). Nothing waits on an
+  Accept; every doubt about the read is in the show's office notes.
 * **`apply_import`** creates a show from a payload in one transaction: the show
-  and its staff row, venue, judges, club sanctioning, classes, fees, and the
-  bill itself on file. `create_show_from_read` builds that payload.
+  and its staff row, venue, judges, club sanctioning, classes, fees,
+  futurities, side pots, and the bill itself on file.
 
 Three rules worth stating, because each was a real mistake before this existed:
 
-* **A name is not an identity.** A judge on the bill is matched to the registry
-  only when first and last name agree exactly, and that match is a check saying
-  so. Nobody the registry lacks is created from the read: a second registry row
-  for somebody already in it, with no email to tell them apart, is the worse
-  outcome, so adding a judge is a press on the Judges step.
+* **A name is not an identity.** A judge on the bill is attached on its own
+  only when one registry judge has exactly that name. Anybody else is the
+  person's to find in the directory, or to add with an email or a phone --
+  a second registry row for somebody already in it, with nothing to tell
+  them apart, is the outcome the registry never recovers from.
 * **An existing judge's cards are not edited from here.** The registry is shared
   by every show that judge ever worked and editing it is admin-only
   (`routers/judges.py`); the bill's "APHA/WSCA" beside a judge is used only
   when the judge is being created.
 * **One class of a name per show day**, the Class Builder's own rule
   (`routers/classes.py::_assert_name_free`). `apply_import` refuses a payload
-  that breaks it; `create_show_from_read` creates the first and makes the
-  second a check, since the bill printing a class twice is not the office's
+  that breaks it; `create_show_from_read` creates the first and says so in
+  the office notes, since the bill printing a class twice is not the office's
   mistake to be refused over.
 
 The pure functions are tested without a database (`tests/test_showbill_import.py`);
@@ -52,6 +52,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import (
     Association,
     ClassSanctioning,
+    Futurity,
+    FuturityClass,
+    FuturityFeeTier,
     Judge,
     Show,
     ShowBillImport,
@@ -62,8 +65,11 @@ from models import (
     ShowSanctioning,
     ShowSecretary,
     ShowType,
+    SidePot,
+    SidePotClass,
     Venue,
 )
+from schemas import DEFAULT_SIDE_POT_PAYOUT_SCHEDULE, ShowBillImportApply
 from rules.disciplines import DISCIPLINE_KEYWORDS, classify_class_name, entered_by_qualification
 from show_companies import show_setup_company_for
 
@@ -383,6 +389,14 @@ def apply_problems(body: Any) -> list[str]:
     if venue is not None and venue.venue_id is None and not (venue.name or "").strip():
         problems.append("A new venue needs a name.")
 
+    n = len(body.classes)
+    for program in [*body.futurities, *body.side_pots]:
+        if any(not 0 <= i < n for i in program.class_indexes):
+            problems.append(f"{program.name} names a class the show doesn't have.")
+    names = [f.name.strip().lower() for f in body.futurities]
+    if len(names) != len(set(names)):
+        problems.append("Two futurities have the same name.")
+
     return problems
 
 
@@ -492,13 +506,11 @@ async def apply_import(
     user_id: UUID,
     user_role: str,
     db: AsyncSession,
-    checks: Optional[list[Any]] = None,
 ) -> UUID:
     """Create the show in one transaction and return its id.
 
     The import row is locked first, so a double press creates one show and the
-    second press is told which show the first one made. `checks` are
-    `showbill_checks.CheckSpec`s, recorded against the rows this creates.
+    second press is told which show the first one made.
     """
     imp = (
         await db.execute(
@@ -608,6 +620,7 @@ async def apply_import(
             address=(body.venue.address or "").strip() or None,
             city=(body.venue.city or "").strip() or None,
             state=(body.venue.state or "").strip() or None,
+            zip=(body.venue.zip or "").strip() or None,
             created_by_user_id=user_id,
         )
         db.add(venue)
@@ -634,6 +647,8 @@ async def apply_import(
         requires_health_certificate=s.requires_health_certificate,
         health_certificate_valid_days=s.health_certificate_valid_days,
         requires_vaccination=s.requires_vaccination,
+        public_notes=s.public_notes,
+        office_notes=s.office_notes,
         created_by_user_id=user_id,
         company_id=company_id,
     )
@@ -655,6 +670,7 @@ async def apply_import(
                 first_name=pick.first_name.strip(),
                 last_name=pick.last_name.strip(),
                 email=(pick.email or "").strip() or None,
+                phone=(pick.phone or "").strip() or None,
                 created_by_user_id=user_id,
             )
             judge.associations = [assoc_by_id[aid] for aid in dict.fromkeys(pick.association_ids)]
@@ -687,7 +703,8 @@ async def apply_import(
     for cls in body.classes:
         by_day.setdefault(cls.class_date, []).append(cls)
     # Created a day at a time, so the ids come back in that order; put them
-    # back in payload order for the checks, which point at a payload index.
+    # back in payload order for the futurities and side pots, which name their
+    # classes by payload index.
     made_classes: list[Any] = []
     payload_order = [i for day in sorted(by_day) for i, c in enumerate(body.classes) if c.class_date == day]
     for day in sorted(by_day):
@@ -742,22 +759,52 @@ async def apply_import(
     db.add_all(fee_rows)
     await db.flush()
 
-    if checks:
-        from showbill_checks import check_rows
+    # Read after the flush above: a class's id is assigned when it is written.
+    class_ids = [UUID(int=0)] * len(body.classes)
+    for made, i in zip(made_classes, payload_order):
+        class_ids[i] = made.id
 
-        # Read after the flush above: a class's id is assigned when it is written.
-        by_payload = [UUID(int=0)] * len(body.classes)
-        for made, i in zip(made_classes, payload_order):
-            by_payload[i] = made.id
-        db.add_all(
-            check_rows(
-                checks,
-                show_id=show.id,
-                import_id=import_id,
-                class_ids=by_payload,
-                fee_ids=[f.id for f in fee_rows],
-            )
+    # --- Futurities and side pots, as their own create routes make them ---
+    for fut in body.futurities:
+        futurity = Futurity(
+            show_id=show.id,
+            name=fut.name.strip(),
+            description=fut.description,
+            entry_deadline=fut.entry_deadline,
+            late_fee_cents=fut.late_fee_cents,
+            office_fee_member_cents=fut.office_fee_member_cents,
+            office_fee_nonmember_cents=fut.office_fee_nonmember_cents,
+            entry_instructions=fut.entry_instructions,
+            award_notice=fut.award_notice,
+            rules_notice=fut.rules_notice,
+            refund_policy=fut.refund_policy,
         )
+        db.add(futurity)
+        await db.flush()
+        for i in dict.fromkeys(fut.class_indexes):
+            db.add(FuturityClass(futurity_id=futurity.id, class_id=class_ids[i]))
+        for tier in fut.fee_tiers:
+            db.add(
+                FuturityFeeTier(
+                    futurity_id=futurity.id,
+                    name=tier.name,
+                    amount_cents=tier.amount_cents,
+                    sort_order=tier.sort_order,
+                )
+            )
+    for p in body.side_pots:
+        pot = SidePot(
+            show_id=show.id,
+            name=p.name.strip(),
+            description=p.description,
+            entry_fee_cents=p.entry_fee_cents,
+            payback_percent=p.payback_percent,
+            payout_schedule=dict(DEFAULT_SIDE_POT_PAYOUT_SCHEDULE),
+        )
+        db.add(pot)
+        await db.flush()
+        for i in dict.fromkeys(p.class_indexes):
+            db.add(SidePotClass(side_pot_id=pot.id, class_id=class_ids[i]))
 
     # --- The bill itself, on file. `showbill_source` stays 'generated':
     # switching the Show Bill button to the upload is its own deliberate press
@@ -792,7 +839,7 @@ async def apply_import(
 
 
 async def resolve_read(db: AsyncSession, extracted: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """`prepare_draft` against what the app holds now, and those rows by id."""
+    """`prepare_draft` against what the app holds now, and the clubs by id."""
     show_types = (await db.execute(select(ShowType))).scalars().all()
     associations = (
         await db.execute(select(Association).where(Association.is_active.is_(True)))
@@ -806,12 +853,85 @@ async def resolve_read(db: AsyncSession, extracted: dict[str, Any]) -> tuple[dic
         judges=judges,
         venues=venues,
     )
-    rows = {
-        "registry_judges": {j.id: j for j in judges},
-        "venues": {v.id: v for v in venues},
-        "clubs": {a.id: a for a in associations if a.association_type == "club"},
+    clubs = {a.id: a for a in associations if a.association_type == "club"}
+    return resolved, clubs
+
+
+def _bill_dates(extracted: dict[str, Any]) -> tuple[date, date]:
+    """The show's days as the bill gives them, for drafting notes before a
+    person has confirmed them: its own dates, else its classes' days."""
+    from showbill_draft import _as_date
+
+    show = extracted.get("show") or {}
+    start, end = _as_date(show.get("start_date")), _as_date(show.get("end_date"))
+    if start and end and start <= end:
+        return start, end
+    days = sorted(d for d in (_as_date(c.get("date")) for c in extracted.get("classes") or []) if d)
+    if days:
+        return days[0], days[-1]
+    today = date.today()
+    return today, today
+
+
+def drafted_notes(
+    extracted: dict[str, Any],
+    resolved: dict[str, Any],
+    clubs: dict[Any, Any],
+    *,
+    filename: Optional[str],
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    judge_choices: Optional[list[dict[str, Any]]] = None,
+    venue_choice: Optional[dict[str, Any]] = None,
+) -> dict[str, Optional[str]]:
+    """The show notes and office notes the confirm page starts from, for the
+    dates and judges as they stand on it (the bill's, until somebody changes
+    them: a judge left off changes what a per-judge price came to)."""
+    from showbill_draft import default_judge_choices, draft_from_read, office_notes_text, public_notes_text
+
+    bill_start, bill_end = _bill_dates(extracted)
+    start, end = start_date or bill_start, end_date or bill_end
+    if end < start:
+        end = start
+    judges = extracted.get("judges") or []
+    draft = draft_from_read(
+        extracted,
+        resolved,
+        name=(extracted.get("show") or {}).get("name") or "",
+        show_type_id=None,
+        start_date=start,
+        end_date=end,
+        judge_choices=judge_choices if judge_choices is not None else default_judge_choices(resolved, len(judges)),
+        venue_choice=venue_choice if venue_choice is not None else (
+            {"venue_id": resolved["venue_id"]} if resolved.get("venue_id") else None
+        ),
+        clubs=clubs,
+    )
+    return {
+        "public_notes": public_notes_text(extracted),
+        "office_notes": office_notes_text(draft, extracted, filename),
     }
-    return resolved, rows
+
+
+def start_problems(start: Any, extracted: dict[str, Any], user_role: str) -> list[str]:
+    """What the confirm page must settle before Create: who every judge the
+    bill names is, and -- for somebody who may add a venue -- which venue."""
+    problems = []
+    judges = extracted.get("judges") or []
+    if len(start.judges) != len(judges):
+        problems.append(
+            f"The bill names {len(judges)} judge{'s' if len(judges) != 1 else ''}: pick each one from the "
+            "directory, add them, or leave them off."
+        )
+    show = extracted.get("show") or {}
+    if show.get("venue_name") and start.venue is None and user_role in ("ADMIN", "SHOW_MANAGER"):
+        problems.append(f"Pick the venue, {show['venue_name']}, from the directory, or add it.")
+    if start.venue is not None and start.venue.new is not None and user_role not in ("ADMIN", "SHOW_MANAGER"):
+        problems.append("Only a show manager or an admin can add a venue. Pick one from the directory, or leave it blank.")
+    picked = [c.judge_id for c in start.judges if c.judge_id is not None]
+    if len(picked) != len(set(picked)):
+        problems.append("The same judge is picked twice.")
+    return problems
 
 
 async def create_show_from_read(
@@ -822,9 +942,9 @@ async def create_show_from_read(
     user_role: str,
     db: AsyncSession,
 ) -> UUID:
-    """Create the DRAFT show from a read and the four values a person confirmed
-    (`ShowBillImportStart`), with every doubt a check on its setup step."""
-    from showbill_checks import draft_from_read
+    """Create the DRAFT show from a read and what a person settled on the
+    confirm page (`ShowBillImportStart`), filled in as far as the bill allows."""
+    from showbill_draft import draft_from_read
 
     row = (
         await db.execute(
@@ -846,7 +966,8 @@ async def create_show_from_read(
     if row.status != STATUS_SUCCEEDED or not row.extracted:
         raise HTTPException(409, "This show bill has not been read successfully, so there is nothing to create.")
 
-    resolved, rows = await resolve_read(db, row.extracted)
+    _reject(start_problems(start, row.extracted, user_role))
+    resolved, clubs = await resolve_read(db, row.extracted)
     draft = draft_from_read(
         row.extracted,
         resolved,
@@ -854,12 +975,18 @@ async def create_show_from_read(
         show_type_id=start.show_type_id,
         start_date=start.start_date,
         end_date=start.end_date,
-        attach_showbill=start.attach_showbill,
-        **rows,
+        judge_choices=[c.model_dump(exclude_none=True) for c in start.judges],
+        venue_choice=start.venue.model_dump(exclude_none=True) if start.venue else None,
+        clubs=clubs,
     )
-    return await apply_import(
-        import_id, draft.payload, user_id=user_id, user_role=user_role, db=db, checks=draft.checks
+    payload = ShowBillImportApply.model_validate(
+        draft.payload(
+            attach_showbill=start.attach_showbill,
+            public_notes=start.public_notes,
+            office_notes=start.office_notes,
+        )
     )
+    return await apply_import(import_id, payload, user_id=user_id, user_role=user_role, db=db)
 
 
 # --- The background read -------------------------------------------------------

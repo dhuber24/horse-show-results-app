@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 
 import type { CancellationWindow, ProfileStatus } from '../register/types';
 import type { RegistrationWindow } from '@/lib/registration-window';
-import { arrivesBeforeStallsOpen, formatStallsOpen } from '@/lib/stalls-open';
+import { arrivesBeforeStallsOpen, formatStallsOpen, formatWallClock } from '@/lib/stalls-open';
 
 /**
  * Stalls, shavings, camping, arrival dates and a note to the office — the whole
@@ -38,6 +38,8 @@ export type FeeOption = {
   rate_cents: number;
   early_amount_cents: number | null;
   early_deadline: string | null;
+  /** The hour on that day (migration 190), local to the venue; printed only. */
+  early_deadline_time?: string | null;
   /** Whether a booking made today would still get the early rate. */
   early_rate_open: boolean;
   /** The fewest of this line the show will take once you book any of it
@@ -199,12 +201,13 @@ function formatMoney(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
-function formatDeadline(dateStr: string): string {
+function formatDeadline(dateStr: string, time?: string | null): string {
   const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+  const date = new Date(year, month - 1, day).toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',
   });
+  return time ? `${date} at ${formatWallClock(time)}` : date;
 }
 
 /**
@@ -223,7 +226,7 @@ function EarlyRateNote({ fee, noun }: { fee: FeeOption; noun: string }) {
     return (
       <div className="text-xs mt-0.5 font-medium" style={{ color: 'var(--success)' }}>
         {formatMoney(fee.early_amount_cents)} per {noun} until{' '}
-        {formatDeadline(fee.early_deadline)}.
+        {formatDeadline(fee.early_deadline, fee.early_deadline_time)}.
       </div>
     );
   }
@@ -236,7 +239,7 @@ function EarlyRateNote({ fee, noun }: { fee: FeeOption; noun: string }) {
   }
   return (
     <div className="text-xs mt-0.5" style={{ color: 'var(--text-dimmed)' }}>
-      Early rate ended {formatDeadline(fee.early_deadline)}.
+      Early rate ended {formatDeadline(fee.early_deadline, fee.early_deadline_time)}.
     </div>
   );
 }

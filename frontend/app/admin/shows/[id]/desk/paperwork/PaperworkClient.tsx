@@ -2,7 +2,6 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BillCheckField } from '@/components/BillChecks';
 import { useRegisterUnsavedChanges } from '../../setup/_lib/StepAutosave';
 
 /**
@@ -303,7 +302,6 @@ export default function PaperworkClient({
         hint="Select the health record documents required for this show."
       >
         <div className="space-y-3">
-          <BillCheckField target="show" field="requires_coggins">
           <label className="flex items-start gap-2 text-sm" style={{ color: COLORS.text }}>
             <input
               type="checkbox"
@@ -322,10 +320,8 @@ export default function PaperworkClient({
               </span>
             </span>
           </label>
-          </BillCheckField>
 
           <div className="pt-2 border-t" style={{ borderColor: COLORS.borderSoft }}>
-            <BillCheckField target="show" field={['requires_health_certificate', 'health_certificate_valid_days']}>
             <label className="flex items-start gap-2 text-sm" style={{ color: COLORS.text }}>
               <input
                 type="checkbox"
@@ -366,11 +362,9 @@ export default function PaperworkClient({
                 days from issue
               </label>
             )}
-            </BillCheckField>
           </div>
 
           <div className="pt-2 border-t" style={{ borderColor: COLORS.borderSoft }}>
-            <BillCheckField target="show" field="requires_vaccination">
             <label className="flex items-start gap-2 text-sm" style={{ color: COLORS.text }}>
               <input
                 type="checkbox"
@@ -390,7 +384,6 @@ export default function PaperworkClient({
                 </span>
               </span>
             </label>
-            </BillCheckField>
             {req.requires_vaccination && (
               <div className="ml-6 mt-2 space-y-2">
                 <label className="flex items-center gap-2 text-sm" style={{ color: COLORS.text }}>

@@ -12,7 +12,7 @@ passes vacuously against a stub.
 """
 import pytest
 
-from datetime import date, timedelta
+from datetime import date
 from types import SimpleNamespace
 
 from rules import get_rules
@@ -31,7 +31,6 @@ from rules.apha import (
     THREE_YEAR_OLD_DISCIPLINES,
     OVER_FENCES_SCORE_AVERAGE,
     OVER_FENCES_SCORE_MAX,
-    application_window,
     bracket_age_cap,
     novice_amateur_category,
     symbol_system_guidance,
@@ -40,7 +39,6 @@ from rules.apha import (
     youth_age,
     category_requirements,
     show_minimums,
-    show_name_reservations,
     zone_individual_work_note,
 )
 from tests.factories import (
@@ -446,177 +444,51 @@ def test_a_non_apha_show_does_not_get_apha_rules():
     assert get_rules("OPEN").validate_entry(entry, make_show(), cls) == []
 
 
-# ── SC-090: getting the show approved ────────────────────────────────────────
+# ── SC-090: after approval ───────────────────────────────────────────────────
 
 
 def _codes(issues):
     return [issue["code"] for issue in issues]
 
 
-@pytest.mark.parametrize("days_out,band", [
-    (365, "standard"),
-    (91, "standard"),
-    (90, "standard"),      # "at least ninety (90) days" — 90 is still standard
-    (89, "late"),
-    (60, "late"),
-    (59, "late_second"),
-    (30, "late_second"),   # "less than thirty (30)" — 30 can still be approved
-    (29, "closed"),
-    (0, "closed"),
-    (-14, "closed"),
-])
-def test_the_application_ladder_bands_on_the_rules_own_numbers(days_out, band):
-    """SC-090.C/D. The boundaries are the whole point: the rule says "at least
-    ninety" and "less than sixty", so 90 and 30 fall on the generous side, and an
-    off-by-one here is a late fee somebody was told they would not be paying."""
-    as_of = date(2026, 1, 1)
-    window = application_window(make_show(start_date=as_of + timedelta(days=days_out)), as_of)
-    assert window["band"] == band
-    assert window["days_remaining"] == days_out
-
-
-def test_the_window_counts_to_the_entry_deadline_when_that_comes_first():
-    """SC-090.C measures against "the show or contest entry deadline or show
-    date, whichever comes first", and it is the earlier one that sets the fee."""
-    window = application_window(
-        make_show(start_date=date(2026, 6, 1), entry_deadline=date(2026, 3, 1)),
-        date(2026, 1, 1),
+def test_no_approval_application_findings_are_raised():
+    """Every show on GaitDesk is taken as already approved, so a show months out
+    with no number, a reserved word in its name and an uncarded judge says
+    nothing about applying, its name or the approved-judge list."""
+    show = make_show(
+        name="World Championship Show",
+        start_date=date(2026, 1, 10),
+        apha_show_number=None,
+        judges=[make_show_judge(codes=("AQHA",))],
     )
-    assert window["basis"] == "entry_deadline"
-    assert window["basis_date"] == date(2026, 3, 1)
-    assert window["band"] == "late_second"
+    codes = _codes(APHARules().validate_show_schedule(show, [], {"as_of": date(2026, 1, 1)}))
+    for gone in (
+        "APHA_APPLICATION_DEADLINE",
+        "APHA_SHOW_NAME_RESERVED",
+        "APHA_JUDGE_NOT_CARDED",
+        "APHA_CLASS_LIST_EMPTY",
+    ):
+        assert gone not in codes
 
 
-def test_an_entry_deadline_after_the_show_is_ignored():
-    """Whichever comes *first*. A deadline later than the show is a typo, and
-    counting from it would hand the office more time than the rule allows."""
-    window = application_window(
-        make_show(start_date=date(2026, 6, 1), entry_deadline=date(2026, 9, 1)),
-        date(2026, 1, 1),
-    )
-    assert window["basis"] == "start_date"
-    assert window["basis_date"] == date(2026, 6, 1)
-
-
-def test_the_standard_deadline_is_ninety_days_before_the_basis():
-    window = application_window(make_show(start_date=date(2026, 6, 1)), date(2026, 1, 1))
-    assert window["standard_deadline"] == date(2026, 3, 3)
-
-
-def test_a_show_with_no_start_date_has_no_window():
-    """Not a shape the database allows. It is a shape a half-built object has,
-    and the alternative is a TypeError inside a readiness panel."""
-    assert application_window(make_show(start_date=None), date(2026, 1, 1)) is None
-
-
-def test_a_show_number_on_file_ends_the_deadline_ladder():
-    """APHA assigns the number on approval, so it is the approval as far as this
-    app can see. Nagging an approved show about its application window is how a
-    readiness panel teaches the office to ignore it."""
-    show = make_show(start_date=date(2026, 1, 10), apha_show_number="26-1234")
+def test_a_missing_show_number_is_asked_for_the_export_not_the_approval():
+    show = make_show(apha_show_number=None)
     issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
-    assert "APHA_APPLICATION_DEADLINE" not in _codes(issues)
+    issue = next(i for i in issues if i["code"] == "APHA_SHOW_NUMBER_MISSING")
+    assert "export" in issue["message"]
+    assert "approv" not in issue["message"].lower()
+
+
+def test_a_show_number_on_file_is_not_asked_for():
+    show = make_show(apha_show_number="26-1234")
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
     assert "APHA_SHOW_NUMBER_MISSING" not in _codes(issues)
 
 
-def test_a_show_inside_thirty_days_with_no_number_is_an_error():
-    """SC-090.D.3 — APHA will not approve it. That is not advice, which is why it
-    is the one thing on this panel that is not a warning."""
-    show = make_show(start_date=date(2026, 1, 20), apha_show_number=None)
-    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
-    deadline = next(i for i in issues if i["code"] == "APHA_APPLICATION_DEADLINE")
-    assert deadline["severity"] == "error"
-    assert "SC-090.D.3" in deadline["message"]
-
-
-def test_a_show_with_no_entry_deadline_says_its_count_may_be_optimistic():
-    """Counting from the show date is the *later* of SC-090.C's two dates, so the
-    app reports more time than the rule may allow. Saying so is the whole
-    mitigation — the alternative is a green panel and a rejected application."""
-    show = make_show(start_date=date(2026, 6, 1), entry_deadline=None, apha_show_number=None)
-    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
-    deadline = next(i for i in issues if i["code"] == "APHA_APPLICATION_DEADLINE")
-    assert "no entry deadline is set" in deadline["message"]
-
-
-def test_an_entry_deadline_on_file_drops_the_caveat():
-    show = make_show(
-        start_date=date(2026, 6, 1), entry_deadline=date(2026, 5, 1), apha_show_number=None
-    )
-    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
-    deadline = next(i for i in issues if i["code"] == "APHA_APPLICATION_DEADLINE")
-    assert "no entry deadline is set" not in deadline["message"]
-    assert "the entry deadline" in deadline["message"]
-
-
-@pytest.mark.parametrize("name,word", [
-    ("Lone Star Championship Show", "championship"),
-    ("Midwest Champions Classic", "champion"),
-    ("World of Color Paint Show", "world"),
-    ("National Paint Futurity", "national"),
-    ("International Paint Spectacular", "international"),
-])
-def test_reserved_words_in_a_show_name_are_reported(name, word):
-    """SC-090.L and SC-090.P."""
-    assert word in show_name_reservations(name)
-
-
-def test_championship_is_reported_as_itself_not_as_champion():
-    """The pattern is ordered longest-first. Reporting both would send somebody
-    looking for a second problem that is the same word."""
-    assert list(show_name_reservations("Paint-O-Rama Championship")) == ["championship"]
-
-
-def test_international_does_not_also_report_national():
-    """The word boundary does this rather than the ordering, and it is the case
-    that breaks first if anybody loosens the pattern to a substring match."""
-    assert list(show_name_reservations("International Paint Show")) == ["international"]
-
-
-def test_an_ordinary_show_name_reserves_nothing():
-    assert show_name_reservations("MNSPHC Paint-O-Rama") == {}
-    assert show_name_reservations(None) == {}
-
-
-def test_a_judge_with_no_apha_carding_is_reported_by_name():
-    """SC-090.B. Reported and never refused: this reads `judge_associations`,
-    which is what somebody typed into the registry, not APHA's approved list."""
-    show = make_show(apha_show_number="26-1", judges=[make_show_judge(codes=("AQHA",))])
-    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
-    issue = next(i for i in issues if i["code"] == "APHA_JUDGE_NOT_CARDED")
-    assert "Dale Rogers" in issue["message"]
-    assert issue["severity"] == "warning"
-
-
-def test_an_apha_carded_judge_is_not_reported():
-    show = make_show(apha_show_number="26-1", judges=[make_show_judge(codes=("APHA", "AQHA"))])
-    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
-    assert "APHA_JUDGE_NOT_CARDED" not in _codes(issues)
-
-
 def test_a_panel_with_no_judges_is_reported_once():
-    """Once, not once per missing carding — there are no judges to iterate over.
-    The application is also priced per judge, so the count is not cosmetic."""
     show = make_show(apha_show_number="26-1", judges=[])
     issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
     assert _codes(issues).count("APHA_JUDGES_NOT_ASSIGNED") == 1
-
-
-def test_a_billing_style_judge_panel_produces_no_carding_noise():
-    """`make_judges` builds the assignment rows billing counts, with no registry
-    judge behind them. That is also the shape a caller who forgot to eager-load
-    `ShowJudge.judge` hands over, and inventing a finding from it would report
-    every judge at the show as uncarded."""
-    show = make_show(apha_show_number="26-1", judges=make_judges(3))
-    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
-    assert "APHA_JUDGE_NOT_CARDED" not in _codes(issues)
-
-
-def test_an_empty_class_list_blocks_approval_and_says_so():
-    """SC-090.E — approval is not granted until the show bill reaches APHA."""
-    show = make_show(apha_show_number="26-1")
-    issues = APHARules().validate_show_schedule(show, [], {"as_of": date(2026, 1, 1)})
-    assert "APHA_CLASS_LIST_EMPTY" in _codes(issues)
 
 
 def test_class_changes_inside_thirty_days_need_written_notice():
@@ -636,9 +508,8 @@ def test_the_class_list_notice_stops_once_the_show_has_started():
     assert "APHA_CLASS_LIST_NOTICE" not in _codes(issues)
 
 
-def test_only_a_closed_application_window_is_an_error():
-    """Everything else here is something the office can still act on, and an
-    error nobody can clear is one they learn to scroll past."""
+def test_every_schedule_finding_is_a_warning():
+    """An error nobody can clear is one the office learns to scroll past."""
     show = make_show(
         name="World Championship Show",
         start_date=date(2026, 6, 1),

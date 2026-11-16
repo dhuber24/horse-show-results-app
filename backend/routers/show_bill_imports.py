@@ -1,10 +1,11 @@
 """Setting a show up from its own printed show bill.
 
 Upload the bill, wait while the model reads it, confirm the show's name, type
-and dates, press Create: the show is made as a DRAFT and every doubt about the
-read is a check on its setup step (migration 187). The reading lives in
-`extraction/showbill.py`, the matching and the creating in `showbill_import.py`,
-the checks in `showbill_checks.py`; this router is the doors onto them.
+and dates, settle who its judges are and where it is held, look over the notes
+drafted from it, press Create: the show is made as a DRAFT, filled in as far as
+the bill allows. The reading lives in `extraction/showbill.py`, the matching
+and the creating in `showbill_import.py`, the draft and its notes in
+`showbill_draft.py`; this router is the doors onto them.
 
 Show-office tier only (ADMIN, SHOW_MANAGER, SHOW_SECRETARY) -- the roles that
 can create a show at `/admin/shows/new` today. An import belongs to whoever
@@ -33,7 +34,7 @@ from dependencies import require_admin_or_show_admin, safe_uuid
 from extraction import extraction_available
 from models import ShowBillImport
 from routers.show_documents import MAX_SHOWBILL_BYTES, _detect_mime
-from schemas import ShowBillImportOut, ShowBillImportStart
+from schemas import ShowBillDraftNotesIn, ShowBillImportOut, ShowBillImportStart
 from show_companies import SHOWBILL_IMPORT, enabled_features, require_feature
 from showbill_import import (
     INTERRUPTED_MESSAGE,
@@ -41,6 +42,7 @@ from showbill_import import (
     STATUS_PENDING,
     STATUS_SUCCEEDED,
     create_show_from_read,
+    drafted_notes,
     effective_status,
     resolve_read,
     start_read,
@@ -208,8 +210,50 @@ async def get_import(
         return out
 
     out.extracted = row.extracted
-    out.resolved, _rows = await resolve_read(db, row.extracted)
+    out.resolved, clubs = await resolve_read(db, row.extracted)
+    out.drafted = drafted_notes(row.extracted, out.resolved, clubs, filename=row.original_filename)
     return out
+
+
+@router.post("/{import_id}/draft-notes", dependencies=_PAID)
+async def redraft_notes(
+    import_id: UUID,
+    body: ShowBillDraftNotesIn,
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The notes again, for the dates, judges and venue as they now stand on
+    the confirm page -- a judge left off changes what a per-judge class price
+    came to, and the office notes say what it came to. Writes nothing."""
+    row = (
+        await db.execute(
+            select(
+                ShowBillImport.created_by_user_id,
+                ShowBillImport.status,
+                ShowBillImport.original_filename,
+                ShowBillImport.extracted,
+            ).where(ShowBillImport.id == import_id)
+        )
+    ).one_or_none()
+    if row is None or (x_user_role != "ADMIN" and row.created_by_user_id != safe_uuid(x_user_id)):
+        raise HTTPException(404, "Show bill import not found")
+    if row.status != STATUS_SUCCEEDED or not row.extracted:
+        raise HTTPException(409, "This show bill has not been read successfully.")
+    resolved, clubs = await resolve_read(db, row.extracted)
+    count = len(row.extracted.get("judges") or [])
+    choices = [{"leave_off": True} if off else {"judge_id": "kept"} for off in body.leave_off[:count]]
+    choices += [{"judge_id": "kept"}] * (count - len(choices))
+    return drafted_notes(
+        row.extracted,
+        resolved,
+        clubs,
+        filename=row.original_filename,
+        start_date=body.start_date,
+        end_date=body.end_date,
+        judge_choices=choices,
+        venue_choice={"venue_id": "picked"} if body.venue_settled else None,
+    )
 
 
 @router.post("/{import_id}/create-show", status_code=201, dependencies=_PAID)
@@ -220,9 +264,9 @@ async def create_show_from_bill(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create the show as a DRAFT from the read, in one transaction (migration
-    187). Every doubt about what was read is a check on its setup step, and the
-    show cannot leave DRAFT until each is answered."""
+    """Create the show as a DRAFT from the read, in one transaction: the show,
+    its judges and venue as the confirm page settled them, clubs, classes,
+    fees, futurities and side pots, with the two notes the person kept."""
     show_id = await create_show_from_read(
         import_id,
         body,

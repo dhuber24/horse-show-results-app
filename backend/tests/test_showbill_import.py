@@ -61,19 +61,22 @@ def raw_read(**overrides):
             "venue_address": None,
             "venue_city": "Hinckley",
             "venue_state": "MN",
+            "venue_zip": None,
             "shavings_ban_outside": True,
             "requires_coggins": True,
             "requires_health_certificate": None,
             "health_certificate_valid_days": None,
             "requires_vaccination": None,
-            "staff": [],
         },
         "judges": [],
         "clubs": [],
         "class_rates": [],
         "classes": [],
         "fees": [],
-        "not_imported": [],
+        "futurities": [],
+        "side_pots": [],
+        "notes_for_exhibitors": "",
+        "notes_for_office": "",
         "warnings": [],
     }
     base.update(overrides)
@@ -91,7 +94,8 @@ def a_class(**overrides):
         "rate_key": None,
         "club_codes": [],
         "is_championship": False,
-        "is_futurity": False,
+        "futurity": "",
+        "side_pots": [],
         "note": None,
     }
     base.update(overrides)
@@ -150,11 +154,28 @@ def test_the_schema_stays_under_the_union_limit():
 def test_the_two_passes_split_the_bill_between_them():
     """One schema for the whole bill compiles to a grammar the API refuses as
     too large; the class list is read on its own pass. Every top-level section
-    must be read by exactly one pass, except the reviewer's warnings."""
+    must be read by exactly one pass, except the reviewer's warnings. The
+    futurities and side pots go with the classes, which name them."""
     header, classes = SHOWBILL_SCHEMAS
-    assert "classes" in classes["properties"] and "classes" not in header["properties"]
+    for key in ("classes", "futurities", "side_pots"):
+        assert key in classes["properties"] and key not in header["properties"]
     shared = set(header["properties"]) & set(classes["properties"])
     assert shared == {"warnings"}
+
+
+def test_the_header_holds_only_what_the_app_has_a_place_for():
+    """A read holds what the app can set up or show: anything else on the bill
+    is said in the two notes, never in a field of its own. Every field added
+    here must be tried against the API before it ships -- the header pass
+    has been refused as "The compiled grammar is too large" before
+    (docs/showbill-import.md)."""
+    header, _classes = SHOWBILL_SCHEMAS
+    assert set(header["properties"]) == {
+        "show", "judges", "clubs", "class_rates", "fees",
+        "notes_for_exhibitors", "notes_for_office", "warnings",
+    }
+    assert "staff" not in header["properties"]["show"]["properties"]
+    assert set(header["properties"]["judges"]["items"]["properties"]) == {"first_name", "last_name", "associations"}
 
 
 class _FakeStream:
@@ -210,15 +231,18 @@ def test_the_class_pass_is_told_the_header_pass_rate_keys(monkeypatch):
              "association_code": "", "printed_text": "$9 per judge"}
         ],
         "fees": [],
-        "not_imported": [],
+        "notes_for_exhibitors": "",
+        "notes_for_office": "",
         "warnings": ["Year inferred."],
     }
     classes = {
         "classes": [
             {"date": "", "number": "1", "name": "Trail", "discipline": "Trail", "bracket": "Open",
              "association_class_code": "", "rate_key": "apha_open", "club_codes": [],
-             "is_championship": False, "is_futurity": False, "note": ""}
+             "is_championship": False, "futurity": "", "side_pots": [], "note": ""}
         ],
+        "futurities": [],
+        "side_pots": [{"name": "Novice Jackpot", "description": "", "entry_fee_cents": 2500, "payback_percent": None}],
         "warnings": ["Page 3 is faint."],
     }
     client = _FakeClient([header, classes])
@@ -238,6 +262,8 @@ def test_the_class_pass_is_told_the_header_pass_rate_keys(monkeypatch):
     assert "apha_open ($9 per judge)" in second["messages"][0]["content"][1]["text"]
     assert result.fields["classes"][0]["rate_key"] == "apha_open"
     assert result.fields["warnings"] == ["Year inferred.", "Page 3 is faint."]
+    # The class pass's futurities and side pots reach the read.
+    assert result.fields["side_pots"][0]["name"] == "Novice Jackpot"
     assert (result.input_tokens, result.output_tokens) == (220, 10)
 
 
@@ -247,7 +273,7 @@ def test_a_failed_class_pass_fails_the_read(monkeypatch):
     from extraction import showbill
 
     client = _FakeClient([{"show": {}, "judges": [], "clubs": [], "class_rates": [], "fees": [],
-                           "not_imported": [], "warnings": []}])
+                           "notes_for_exhibitors": "", "notes_for_office": "", "warnings": []}])
 
     def stream(**kwargs):
         if client.calls:
@@ -271,7 +297,7 @@ def test_a_blank_text_field_reads_as_not_printed():
     fields = normalize_showbill(
         {
             "show": {"name": "", "venue_city": "  ", "start_date": "", "breed_association": None},
-            "judges": [{"first_name": "Pat", "last_name": "Lee", "location": "", "associations": []}],
+            "judges": [{"first_name": "Pat", "last_name": "Lee", "associations": []}],
             "clubs": [{"code": "WSCA", "name": "", "fee_amount_cents": None, "fee_unit": None, "fee_text": ""}],
             "class_rates": [
                 {"key": "open", "label": "Open", "amount_cents": 900, "per_judge": True,
@@ -280,20 +306,21 @@ def test_a_blank_text_field_reads_as_not_printed():
             "classes": [
                 {"date": "", "number": "", "name": "Trail", "discipline": "", "bracket": "",
                  "association_class_code": "", "rate_key": "", "club_codes": [],
-                 "is_championship": False, "is_futurity": False, "note": ""}
+                 "is_championship": False, "futurity": "", "side_pots": [], "note": ""}
             ],
             "fees": [
                 {"label": "Stall", "amount_cents": 9000, "unit": "per_stall", "notes": "",
                  "early_amount_cents": None, "early_deadline": "", "min_quantity": None}
             ],
-            "not_imported": [],
+            "notes_for_exhibitors": "  ",
+            "notes_for_office": "",
             "warnings": [],
         }
     )
     assert fields["show"]["name"] is None
+    assert (fields["notes_for_exhibitors"], fields["notes_for_office"]) == (None, None)
     assert fields["show"]["venue_city"] is None
     assert fields["show"]["start_date"] is None
-    assert fields["judges"][0]["location"] is None
     assert fields["clubs"][0]["name"] is None
     assert fields["class_rates"][0]["association_code"] is None
     cls = fields["classes"][0]

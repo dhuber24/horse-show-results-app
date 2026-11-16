@@ -1,37 +1,22 @@
 /**
- * A show read off its own show bill, between the read and the show (migration 187).
+ * A show read off its own show bill, between the read and the show.
  *
- * The backend reads the bill (`extraction/showbill.py`) and matches it against
- * the app (`showbill_import.prepare_draft`). Once the read is in, the person
- * confirms the four values a show row cannot exist without — name, breed
- * association, dates — and presses Create: the show is made as a DRAFT and
- * every doubt about the read becomes a check on its setup step
- * (`showbill_checks.py`, `lib/bill-checks.ts`). This module is that page's
- * state: what the read said, and what pressing Create will make of it.
+ * The backend reads the bill (`extraction/showbill.py`), matches it against the
+ * app (`showbill_import.prepare_draft`) and drafts two notes from it
+ * (`showbill_draft.py`). The confirm page settles what a read cannot: the four
+ * values a show row cannot exist without, who each judge the bill names *is*,
+ * which venue it is held at, and the notes themselves. Create then makes the
+ * show as a DRAFT, filled in as far as the bill allows — futurities and side
+ * pots included — with nothing left to Accept: what to look at is in its
+ * office notes.
  *
- * Kept apart from the component so the form's starting values and the summary
- * are testable without rendering anything.
+ * Kept apart from the component so the form's starting values, what it refuses
+ * to send and what it sends are testable without rendering anything.
  */
 
 import type { ClubSanctionUnit, FeeUnit } from '@/lib/fee-units';
 
 // ── What the backend returns ────────────────────────────────────────────────
-
-/** A field of the show the reader named in a doubt (`SHOW_CHECK_FIELDS`). */
-export type ShowCheckField =
-  | 'name'
-  | 'start_date'
-  | 'end_date'
-  | 'entry_deadline'
-  | 'breed_association'
-  | 'apha_show_number'
-  | 'aqha_show_number'
-  | 'apha_zone'
-  | 'venue'
-  | 'requires_coggins'
-  | 'requires_health_certificate'
-  | 'requires_vaccination'
-  | 'shavings_ban_outside';
 
 export type ExtractedShow = {
   name: string | null;
@@ -46,20 +31,19 @@ export type ExtractedShow = {
   venue_address: string | null;
   venue_city: string | null;
   venue_state: string | null;
+  /** Missing on a read from before 2026-11-15. */
+  venue_zip?: string | null;
   shavings_ban_outside: boolean | null;
   requires_coggins: boolean | null;
   requires_health_certificate: boolean | null;
   health_certificate_valid_days: number | null;
   requires_vaccination: boolean | null;
-  staff: { role: string; name: string }[];
 };
 
 export type ExtractedJudge = {
   first_name: string;
   last_name: string;
-  location: string | null;
   associations: string[];
-  check?: string | null;
 };
 
 export type ExtractedClub = {
@@ -68,7 +52,6 @@ export type ExtractedClub = {
   fee_amount_cents: number | null;
   fee_unit: ClubSanctionUnit | null;
   fee_text: string | null;
-  check?: string | null;
 };
 
 export type ExtractedRate = {
@@ -78,7 +61,6 @@ export type ExtractedRate = {
   per_judge: boolean;
   association_code: string | null;
   printed_text: string | null;
-  check?: string | null;
 };
 
 export type ExtractedClass = {
@@ -92,6 +74,9 @@ export type ExtractedClass = {
   club_codes: string[];
   is_championship: boolean;
   is_futurity: boolean;
+  /** The futurity it is part of. Missing on a read from before 2026-11-15. */
+  futurity?: string | null;
+  side_pots?: string[];
   note: string | null;
 };
 
@@ -103,7 +88,6 @@ export type ExtractedFee = {
   early_amount_cents: number | null;
   early_deadline: string | null;
   min_quantity: number | null;
-  check?: string | null;
 };
 
 export type ExtractedShowbill = {
@@ -113,10 +97,9 @@ export type ExtractedShowbill = {
   class_rates: ExtractedRate[];
   classes: ExtractedClass[];
   fees: ExtractedFee[];
-  /** Missing on a read from before migration 187. */
-  show_checks?: { field: ShowCheckField; message: string }[];
-  /** A bare string on a read from before migration 187. */
-  not_imported: ({ topic: string; text: string } | string)[];
+  /** Missing on a read from before 2026-11-15. */
+  futurities?: { name: string }[];
+  side_pots?: { name: string }[];
   warnings: string[];
 };
 
@@ -139,6 +122,8 @@ export type ResolvedShowbill = {
   }[];
 };
 
+export type DraftedNotes = { public_notes: string | null; office_notes: string | null };
+
 export type ShowBillImport = {
   id: string;
   status: 'pending' | 'succeeded' | 'failed' | 'unsupported_media';
@@ -149,9 +134,49 @@ export type ShowBillImport = {
   show_id: string | null;
   extracted: ExtractedShowbill | null;
   resolved: ResolvedShowbill | null;
+  drafted?: DraftedNotes | null;
 };
 
-// ── The four values a show cannot be created without ────────────────────────
+/** The directories the confirm page searches. */
+export type DirectoryJudge = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  associations: { id: string; code: string }[];
+};
+
+export type DirectoryVenue = {
+  id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip?: string | null;
+};
+
+// ── What the confirm page settles ───────────────────────────────────────────
+
+export type NewJudge = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  association_ids: string[];
+};
+
+/** Who one judge the bill names is: somebody in the directory, somebody to
+ *  add, nobody (a name misread as a judge), or not settled yet. */
+export type JudgeChoice =
+  | { kind: 'directory'; judge_id: string }
+  | ({ kind: 'new' } & NewJudge)
+  | { kind: 'leave_off' }
+  | { kind: 'unsettled' };
+
+export type NewVenue = { name: string; address: string; city: string; state: string; zip: string };
+
+export type VenueChoice = { kind: 'directory'; venue_id: string } | ({ kind: 'new' } & NewVenue) | { kind: 'none' };
 
 export type StartForm = {
   name: string;
@@ -159,34 +184,205 @@ export type StartForm = {
   start_date: string;
   end_date: string;
   attach_showbill: boolean;
+  judges: JudgeChoice[];
+  venue: VenueChoice;
+  public_notes: string;
+  office_notes: string;
 };
 
+export const PUBLIC_NOTES_MAX = 5000;
+export const OFFICE_NOTES_MAX = 20000;
+
+/** A new judge filled in from what the bill printed: the name, and the cards
+ *  the bill names that the app knows. */
+export function newJudgeFromBill(imp: ShowBillImport, index: number): NewJudge {
+  const j = imp.extracted?.judges[index];
+  return {
+    first_name: j?.first_name ?? '',
+    last_name: j?.last_name ?? '',
+    email: '',
+    phone: '',
+    association_ids: imp.resolved?.judges[index]?.association_ids ?? [],
+  };
+}
+
+/** A new venue filled in from what the bill printed. */
+export function newVenueFromBill(imp: ShowBillImport): NewVenue {
+  const s = imp.extracted?.show;
+  return {
+    name: s?.venue_name ?? '',
+    address: s?.venue_address ?? '',
+    city: s?.venue_city ?? '',
+    state: s?.venue_state ?? '',
+    zip: s?.venue_zip ?? '',
+  };
+}
+
 /** What the bill said, with the breed body matched — or Open, when the bill
- *  names none, since an open show is what a bill without one is. */
+ *  names none, since an open show is what a bill without one is. A judge or a
+ *  venue starts settled only where exactly one directory entry has its name. */
 export function startDefaults(imp: ShowBillImport, openShowTypeId: string | null): StartForm {
   const s = imp.extracted?.show;
+  const judges = imp.extracted?.judges ?? [];
   return {
     name: s?.name ?? '',
     show_type_id: imp.resolved?.show_type_id ?? openShowTypeId ?? '',
     start_date: s?.start_date ?? '',
     end_date: s?.end_date ?? '',
     attach_showbill: true,
+    judges: judges.map((_, i) => {
+      const id = imp.resolved?.judges[i]?.suggested_judge_id;
+      return id ? { kind: 'directory', judge_id: id } : { kind: 'unsettled' };
+    }),
+    venue: imp.resolved?.venue_id ? { kind: 'directory', venue_id: imp.resolved.venue_id } : { kind: 'none' },
+    public_notes: imp.drafted?.public_notes ?? '',
+    office_notes: imp.drafted?.office_notes ?? '',
   };
 }
 
-/** Every reason the form cannot be sent yet, in the order the boxes appear. */
-export function startProblems(form: StartForm): string[] {
+/** Whether the bill names a venue somebody has to settle. */
+export function billNamesVenue(imp: ShowBillImport): boolean {
+  return Boolean(imp.extracted?.show.venue_name);
+}
+
+/** Every reason the form cannot be sent yet, in the order the page shows them.
+ *  `canAddVenue` is a show manager or an admin: only they may add a venue, so
+ *  only they are held to settling one — a secretary may leave it blank. */
+export function startProblems(form: StartForm, imp: ShowBillImport, canAddVenue: boolean): string[] {
   const problems: string[] = [];
   if (!form.name.trim()) problems.push('The show needs a name.');
   if (!form.show_type_id) problems.push('Pick the breed association the show runs under (or Open).');
   if (!form.start_date || !form.end_date) problems.push('The show needs a start and an end date.');
   else if (form.end_date < form.start_date) problems.push('The end date is before the start date.');
+
+  const billJudges = imp.extracted?.judges ?? [];
+  form.judges.forEach((choice, i) => {
+    const printed = billJudges[i] ? `${billJudges[i].first_name} ${billJudges[i].last_name}` : `Judge ${i + 1}`;
+    if (choice.kind === 'unsettled') {
+      problems.push(`Find ${printed} in the judge directory, add them, or leave them off.`);
+    } else if (choice.kind === 'new') {
+      if (!choice.first_name.trim() || !choice.last_name.trim()) problems.push(`A new judge needs a first and last name.`);
+      if (!choice.email.trim() && !choice.phone.trim()) {
+        problems.push(`Add an email or a phone for ${printed}: it is how the directory tells two judges of one name apart.`);
+      }
+    }
+  });
+  const picked = form.judges.flatMap((c) => (c.kind === 'directory' ? [c.judge_id] : []));
+  if (new Set(picked).size !== picked.length) problems.push('The same judge is picked twice.');
+
+  if (form.venue.kind === 'none' && billNamesVenue(imp) && canAddVenue) {
+    problems.push(`Find ${imp.extracted?.show.venue_name} in the venue directory, or add it.`);
+  } else if (form.venue.kind === 'new') {
+    const v = form.venue;
+    if (![v.name, v.address, v.city, v.state, v.zip].every((x) => x.trim())) {
+      problems.push('A new venue needs its name and full address: street, city, state and ZIP.');
+    }
+  }
+
+  if (form.public_notes.length > PUBLIC_NOTES_MAX) {
+    problems.push(`The show notes are over ${PUBLIC_NOTES_MAX.toLocaleString()} characters.`);
+  }
+  if (form.office_notes.length > OFFICE_NOTES_MAX) {
+    problems.push(`The office notes are over ${OFFICE_NOTES_MAX.toLocaleString()} characters. Download them, then shorten them.`);
+  }
   return problems;
 }
 
-/** The reader's doubts about one of the boxes on the page, word for word. */
-export function readerDoubts(imp: ShowBillImport, field: ShowCheckField): string[] {
-  return (imp.extracted?.show_checks ?? []).filter((c) => c.field === field).map((c) => c.message);
+/** The body of `POST /show-bill-imports/{id}/create-show`. */
+export function startBody(form: StartForm) {
+  return {
+    name: form.name.trim(),
+    show_type_id: form.show_type_id,
+    start_date: form.start_date,
+    end_date: form.end_date,
+    attach_showbill: form.attach_showbill,
+    judges: form.judges.map((c) => {
+      if (c.kind === 'directory') return { judge_id: c.judge_id };
+      if (c.kind === 'leave_off') return { leave_off: true };
+      if (c.kind === 'new') {
+        return {
+          new: {
+            first_name: c.first_name.trim(),
+            last_name: c.last_name.trim(),
+            email: c.email.trim() || null,
+            phone: c.phone.trim() || null,
+            association_ids: c.association_ids,
+          },
+        };
+      }
+      return {};
+    }),
+    venue:
+      form.venue.kind === 'directory'
+        ? { venue_id: form.venue.venue_id }
+        : form.venue.kind === 'new'
+          ? { new: { name: form.venue.name, address: form.venue.address, city: form.venue.city, state: form.venue.state, zip: form.venue.zip } }
+          : null,
+    public_notes: form.public_notes.trim() || null,
+    office_notes: form.office_notes.trim() || null,
+  };
+}
+
+/** What the notes are drafted from, so the page can redraft them when it
+ *  changes: the dates, the judges left off, whether a venue is settled. */
+export function draftInputs(form: StartForm) {
+  return {
+    start_date: form.start_date || null,
+    end_date: form.end_date || null,
+    leave_off: form.judges.map((c) => c.kind === 'leave_off'),
+    venue_settled: form.venue.kind !== 'none',
+  };
+}
+
+// ── Searching the directories ───────────────────────────────────────────────
+
+function fold(value: string | null | undefined): string {
+  return (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** Directory judges for a search box, best first: the bill's own candidates
+ *  (the same surname) lead while the box is empty; typed words must each
+ *  appear in the name, email or phone. */
+export function searchJudges(
+  directory: DirectoryJudge[],
+  query: string,
+  candidateIds: string[] = [],
+  limit = 8,
+): DirectoryJudge[] {
+  const words = fold(query).split(' ').filter(Boolean);
+  if (words.length === 0) {
+    return candidateIds.flatMap((id) => directory.filter((j) => j.id === id)).slice(0, limit);
+  }
+  return directory
+    .filter((j) => {
+      const hay = fold(`${j.first_name} ${j.last_name} ${j.email ?? ''} ${j.phone ?? ''}`);
+      return words.every((w) => hay.includes(w));
+    })
+    .sort((a, b) => Number(candidateIds.includes(b.id)) - Number(candidateIds.includes(a.id)))
+    .slice(0, limit);
+}
+
+/** Directory venues for a search box: typed words must each appear in the
+ *  name, street or city. */
+export function searchVenues(directory: DirectoryVenue[], query: string, limit = 8): DirectoryVenue[] {
+  const words = fold(query).split(' ').filter(Boolean);
+  if (words.length === 0) return [];
+  return directory
+    .filter((v) => {
+      const hay = fold(`${v.name} ${v.address ?? ''} ${v.city ?? ''} ${v.state ?? ''}`);
+      return words.every((w) => hay.includes(w));
+    })
+    .slice(0, limit);
+}
+
+// ── The notes, to keep ──────────────────────────────────────────────────────
+
+/** Both notes as one text file, for whoever wants a copy kept off the show. */
+export function notesFile(form: StartForm, filename: string): string {
+  const parts = [`${form.name.trim() || 'Show'} — notes from the show bill (${filename})`];
+  if (form.public_notes.trim()) parts.push('', 'SHOW NOTES (exhibitors see these)', '', form.public_notes.trim());
+  if (form.office_notes.trim()) parts.push('', 'OFFICE NOTES (only the show office)', '', form.office_notes.trim());
+  return parts.join('\n') + '\n';
 }
 
 // ── What Create will make ───────────────────────────────────────────────────
@@ -195,18 +391,12 @@ export type ReadSummary = {
   classes: number;
   days: number;
   judges: number;
-  /** Judges on the bill the registry holds exactly one of — attached, and
-   *  still a check. The rest are left for the Judges step. */
-  judgesMatched: number;
   clubs: number;
   /** Clubs the registry lacks, which cannot be attached. */
   clubsUnknown: number;
   fees: number;
-  venueMatched: boolean;
-  venueNamed: boolean;
-  /** Things the reader itself was unsure of. The app adds its own checks on
-   *  top when the show is created, so this is a floor, not the count. */
-  readerDoubts: number;
+  futurities: number;
+  sidePots: number;
 };
 
 export function readSummary(imp: ShowBillImport): ReadSummary | null {
@@ -218,16 +408,10 @@ export function readSummary(imp: ShowBillImport): ReadSummary | null {
     classes: x.classes.length,
     days: new Set(x.classes.map((c) => c.date).filter(Boolean)).size,
     judges: x.judges.length,
-    judgesMatched: r.judges.filter((j) => j.suggested_judge_id).length,
     clubs: notBreed.length,
     clubsUnknown: notBreed.filter((c) => !c.association_id).length,
     fees: x.fees.length,
-    venueMatched: Boolean(r.venue_id),
-    venueNamed: Boolean(x.show.venue_name),
-    readerDoubts:
-      x.warnings.length +
-      (x.show_checks?.length ?? 0) +
-      x.classes.filter((c) => c.note).length +
-      [...x.judges, ...x.clubs, ...x.class_rates, ...x.fees].filter((i) => i.check).length,
+    futurities: x.futurities?.length ?? 0,
+    sidePots: x.side_pots?.length ?? 0,
   };
 }

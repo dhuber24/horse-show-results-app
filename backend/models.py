@@ -151,10 +151,7 @@ class Show(Base):
     # The day entries close (migration 123) -- since migration 159 the last day
     # an exhibitor may sign up online, after which the office signs them up at
     # the desk (`self_entry.signup_open`). It still does not fire the
-    # `post_entry` fee. APHA SC-090.C measures the approval-application deadline
-    # against this or the show's first day, whichever comes first, and without it
-    # the app could only count from the later of the two -- which is the
-    # optimistic direction on a deadline.
+    # `post_entry` fee.
     entry_deadline = Column(Date, nullable=True)
     # How late an exhibitor may enter and scratch their own classes (migration
     # 159): `class_start`, `show_start` or `office_only` (never; migration 185).
@@ -184,9 +181,6 @@ class Show(Base):
     # guessed at would be wrong at exactly the shows that sit near a border.
     apha_zone = Column(Integer, nullable=True)
     aqha_show_number = Column(Text, nullable=True)
-    aqha_approval_status = Column(Text, nullable=False, default="NOT_SUBMITTED")
-    aqha_approval_submitted_at = Column(Date, nullable=True)
-    aqha_approval_notes = Column(Text, nullable=True)
     shavings_ban_outside = Column(Boolean, nullable=False, server_default="false")
     # When exhibitors may arrive and move into their stalls (migration 181).
     # Wall-clock values at the venue, printed as typed -- not an instant, so not
@@ -1478,39 +1472,11 @@ class ShowBillImport(Base):
     applied_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
 
-class ShowBillCheck(Base):
-    """One thing a show created from its show bill still has to have checked
-    (migration 187) -- the reader's doubt or the app's, on the setup step and
-    the field it is about. Open until accepted, or until its field changes or
-    its row is deleted, which is decided on read; a show cannot leave DRAFT
-    while one is open. See `backend/showbill_checks.py`."""
-    __tablename__ = "show_bill_checks"
-    __table_args__ = (
-        CheckConstraint("source IN ('bill', 'app')", name="show_bill_checks_source_check"),
-        CheckConstraint(
-            "target_type IS NULL OR target_type IN ('show', 'class', 'fee', 'judge', 'sanctioning')",
-            name="show_bill_checks_target_check",
-        ),
-        Index("ix_show_bill_checks_show", "show_id", "sort_order"),
-    )
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
-    import_id = Column(UUID(as_uuid=True), ForeignKey("show_bill_imports.id", ondelete="SET NULL"), nullable=True)
-    # A wizard step key (`_wizard/steps.ts`): basic, judges, lodging, classes,
-    # sanctioning, futurities, fees, judgecards, paperwork, showbill.
-    step = Column(Text, nullable=False)
-    target_type = Column(Text, nullable=True)
-    target_id = Column(UUID(as_uuid=True), nullable=True)
-    field = Column(Text, nullable=True)
-    value = Column(JSONB, nullable=True)
-    message = Column(Text, nullable=False)
-    source = Column(Text, nullable=False)
-    action = Column(JSONB, nullable=True)
-    sort_order = Column(Integer, nullable=False)
-    accepted_at = Column(TIMESTAMP(timezone=True), nullable=True)
-    accepted_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+# `show_bill_checks` (migration 187) is no longer mapped: a show set up from its
+# show bill no longer waits on an Accept for each doubt about the read, which is
+# written into its office notes instead (`showbill_draft.py`). Migration 189
+# copied every unaccepted check into its show's office notes; the table is
+# dropped in a later release, once no running build maps it.
 
 
 class ShowCompany(Base):
@@ -2345,6 +2311,10 @@ class ShowFee(Base):
     # directly — see RESERVABLE_FEE_UNITS for what an early rate can apply to.
     early_amount_cents = Column(Integer, nullable=True)
     early_deadline = Column(Date, nullable=True)
+    # The hour on that day (migration 190), printed as typed, local to the
+    # venue. Display precision only, like `Futurity.entry_deadline_time`: the
+    # rate is still decided by the day.
+    early_deadline_time = Column(Time, nullable=True)
     # The floor under a reservable line (migration 128). A show that bans
     # outside shavings is telling exhibitors to buy bedding here, and "buy some"
     # with no number is a stall bedded with two bags at a show that wanted four.
