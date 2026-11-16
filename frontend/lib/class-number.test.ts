@@ -1,13 +1,18 @@
 // Globals are imported rather than declared ambiently: see `safe-next.test.ts`.
 import { describe, expect, it } from '@jest/globals';
 
-import { compareClassNumbers, dashLabel, hashLabel, hashNumber } from './class-number';
+import { compareClassNumbers, dashLabel, dotLabel, hashLabel, hashNumber, hashOrName } from './class-number';
 
 describe('a class with no number', () => {
   it('prints no bare "#" — a Grand & Reserve class is unnumbered', () => {
     expect(hashNumber('')).toBe('');
     expect(hashLabel({ class_number: '', class_name: 'Grand & Reserve Mares' })).toBe('Grand & Reserve Mares');
     expect(dashLabel({ class_number: '', class_name: 'Grand & Reserve Mares' })).toBe('Grand & Reserve Mares');
+    expect(dotLabel({ class_number: '', class_name: 'Grand & Reserve Mares' })).toBe('Grand & Reserve Mares');
+    // In a list of numbers, the name stands in for the missing one.
+    expect([{ class_number: '5', class_name: 'A' }, { class_number: '', class_name: 'G&R' }].map(hashOrName).join(', ')).toBe(
+      '#5, G&R',
+    );
   });
 
   it('prints a bill number as the bill printed it', () => {

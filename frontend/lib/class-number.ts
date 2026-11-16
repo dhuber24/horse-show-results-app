@@ -26,6 +26,22 @@ export function hashLabel(cls: Numbered): string {
   return n ? `#${n} ${cls.class_name}` : cls.class_name;
 }
 
+/** "#12" where a class has a number, its name where it has none — for a
+ *  list of classes ("#4, #5") that must still say which one is meant. */
+export function hashOrName(cls: {
+  class_number?: string | number | null;
+  class_name?: string | null;
+}): string {
+  const n = numberOf(cls.class_number);
+  return n ? `#${n}` : (cls.class_name ?? '');
+}
+
+/** "#12 · Western Pleasure", or just the name for a class with no number. */
+export function dotLabel(cls: Numbered): string {
+  const n = numberOf(cls.class_number);
+  return n ? `#${n} · ${cls.class_name}` : cls.class_name;
+}
+
 /** "12 — Western Pleasure", or just the name for a class with no number. */
 export function dashLabel(cls: Numbered): string {
   const n = numberOf(cls.class_number);

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import { patternFileHref } from '@/lib/patterns';
 import { errorMessage } from '@/lib/api-error';
-import { hashLabel, hashNumber } from '@/lib/class-number';
+import { hashLabel, hashNumber, hashOrName } from '@/lib/class-number';
 
 type GateClassStatus = 'pending' | 'ready' | 'in_progress' | 'done';
 
@@ -92,7 +92,7 @@ function ringKey(c: GateClassRow): string {
 }
 
 function numbers(classes: GateClassRow[]): string {
-  return classes.map(c => `#${c.class_number}`).join(' & ');
+  return classes.map(hashOrName).join(' & ');
 }
 
 function riderState(e: GateEntry): RiderState {
@@ -653,7 +653,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                 : `${counts.checkedIn} of ${counts.entries} checked in` +
                   (counts.noShow > 0 ? ` · ${counts.noShow} no-show` : '') +
                   (!isStarted && stillToCome > 0 ? ` · ${stillToCome} still to come` : '')}
-              {upNextInLane && ` · Up next: #${upNextInLane.class_number} ${upNextInLane.class_name}`}
+              {upNextInLane && ` · Up next: ${hashLabel(upNextInLane)}`}
             </p>
 
             {/* Not started, nobody to ride it: only skipping clears it, and
@@ -776,7 +776,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
               >
                 <p className="text-sm" style={{ color: 'var(--success-strong)' }}>
                   In the ring{runningWith.length > 0 ? `, running with ${numbers(runningWith)}` : ''}.
-                  {upNextInLane ? ` Starting #${upNextInLane.class_number} closes it.` : ''}
+                  {upNextInLane ? ` Starting ${hashOrName(upNextInLane)} closes it.` : ''}
                 </p>
                 <span className="flex gap-2 shrink-0">
                   {canUndoStart && (

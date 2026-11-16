@@ -338,6 +338,12 @@ def draft_from_read(
     priced_by: dict[str, list[str]] = {}
     unpriced: list[str] = []
     moved: list[str] = []
+    # Club classes the bill runs alongside a breed class of the same name --
+    # "5. Amateur Performance Stallions / 5N. NSBA" -- as (club class, the
+    # class it runs with).
+    alongside: list[tuple[str, str]] = []
+    label_by_key: dict[tuple[date, str], str] = {}
+    number_by_key: dict[tuple[date, str], str] = {}
     for i, cls in enumerate(extracted_classes):
         routed = resolved_classes[i] if i < len(resolved_classes) else {}
         label = _class_label(cls)
@@ -346,7 +352,24 @@ def draft_from_read(
         if day is None or not (start_date <= day <= end_date):
             moved.append(label + (f" ({day.isoformat()})" if day else ""))
             day = start_date
-        key = (day, " ".join(cls["name"].lower().split()))
+        name = cls["name"]
+        key = (day, " ".join(name.lower().split()))
+        clubs = [c.upper() for c in cls.get("club_codes") or [] if c]
+        base_key = key
+        if key in seen and clubs:
+            # A club's class judged concurrently with the breed class of the
+            # same name: the same horses in the ring, but its own entry fee,
+            # its own judges' cards and its own placings, so its own class. Named
+            # for the club, since a show runs one class of a name a day.
+            name = f"{cls['name']} ({clubs[0]})"
+            key = (day, " ".join(name.lower().split()))
+            if key not in seen:
+                mine, theirs = (cls.get("number") or "").strip(), number_by_key[base_key]
+                alongside.append(
+                    (f"#{mine}", f"#{theirs}")
+                    if mine and theirs
+                    else (_class_label({**cls, "name": name}), label_by_key[base_key])
+                )
         if key in seen:
             note(
                 CLASSES,
@@ -355,6 +378,8 @@ def draft_from_read(
             )
             continue
         seen.add(key)
+        label_by_key[key] = label
+        number_by_key[key] = (cls.get("number") or "").strip()
         payload_index[i] = len(classes_payload)
         rate_key = None if cls.get("is_futurity") or cls.get("is_championship") else cls.get("rate_key")
         cents = rate_totals.get(rate_key, 0) if rate_key else 0
@@ -371,7 +396,7 @@ def draft_from_read(
             {
                 "class_date": day,
                 "class_number": printed_number,
-                "class_name": _cut(cls["name"], 200),
+                "class_name": _cut(name, 200),
                 "discipline": _cut(routed.get("discipline") or cls.get("discipline"), 100),
                 "bracket": _cut(cls.get("bracket"), 100),
                 "association_class_code": _cut(cls.get("association_class_code"), 50),
@@ -384,6 +409,14 @@ def draft_from_read(
         )
         if cls.get("note"):
             note(CLASSES, f"{label}: {cls['note']}")
+    if alongside:
+        note(
+            CLASSES,
+            f"{_plural(len(alongside), 'club class', 'club classes')} run alongside the class before "
+            f"{'it' if len(alongside) == 1 else 'them'} on the bill, so each was created as its own class, named "
+            f"for its club: {_names([f'{club} with {base}' for club, base in alongside])}. At the gate, start "
+            "each with Run with, after the class it runs alongside.",
+        )
     if moved:
         note(
             CLASSES,

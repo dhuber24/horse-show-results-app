@@ -438,7 +438,19 @@ Green Horse). Use the bill's own words.
 - `date`: bills usually group classes under a day heading. Use the show's dates \
 to fill in a year the heading leaves out, and say so in `warnings`.
 - Grand & Reserve / Grand Champion classes are ones horses are called back into \
-from earlier classes. Mark `is_championship` and leave `rate_key` empty.
+from earlier classes. Mark `is_championship` and leave `rate_key` empty. Bills \
+usually print them with no class number: leave `number` empty then -- never \
+invent one or borrow the class beside it.
+- A club class judged at the same time as a breed class is its own class. Bills \
+print it beside the breed class with its own number -- "5. Amateur Performance \
+Stallions / 5N. NSBA", "12 / 12N", "AQHA 30 / NSBA 30N". It is one ring and one \
+go, but the club class has its own entries, its own fee (usually the club's own \
+per-class or per-judge rate, often outside any flat fee), its own judges' cards \
+and its own placings. So list it as a separate entry straight after the breed \
+class: `number` exactly as printed ("5N"), the same `name` as the class it runs \
+with, `club_codes` naming the club, and `rate_key` pointing at the club's rate. \
+Never fold it into the breed class or add its price to the breed class's rate. \
+This is the normal reading, so it needs no warning.
 - Classes the bill marks as part of a futurity: set `futurity` to that \
 futurity's name and leave `rate_key` empty -- the futurity prices them.
 - A class that counts toward a side pot or jackpot lists it in `side_pots`. A \

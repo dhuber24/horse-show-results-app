@@ -23,6 +23,7 @@ import { groupFees, unitLabel } from '@/lib/fee-units';
 import { runsOf } from '@/lib/class-order';
 import { formatStallsOpen, formatWallClock } from '@/lib/stalls-open';
 import { classEntryText, signupDeadlineText } from '@/lib/registration-window';
+import { hashOrName } from '@/lib/class-number';
 
 export type ShowbillClassRow = {
   /** Optional so a caller building rows by hand still type-checks; without it
@@ -671,7 +672,7 @@ export default function ShowbillDocument({
                       ` (${[division.award_name, division.reserve_award_name]
                         .filter(Boolean)
                         .join(' / ')})`}
-                    : {division.classes.map((c) => `#${c.class_number}`).join(', ')}
+                    : {division.classes.map(hashOrName).join(', ')}
                     {division.classes.some((c) => c.scoring === 'best_of_group') &&
                       ' (best one of the grouped classes counts)'}
                   </li>

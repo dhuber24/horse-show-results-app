@@ -9,6 +9,7 @@ import {
   futurityCrumbs,
   type Standings,
 } from '../../futurity-shared';
+import { hashOrName } from '@/lib/class-number';
 
 /**
  * Hi-Point standings, one table per division.
@@ -98,7 +99,7 @@ export default async function FuturityStandingsPage({
                         <td className="py-2 text-xs">
                           {row.counted.length > 0 && (
                             <span style={{ color: COLORS.muted }}>
-                              {row.counted.map((c) => `#${c.class_number}`).join(', ')}
+                              {row.counted.map(hashOrName).join(', ')}
                             </span>
                           )}
                           {row.missing_class_numbers.length > 0 && (

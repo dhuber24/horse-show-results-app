@@ -18,7 +18,7 @@ import { BoardSetupPage, HubHeading, ScreenPicker, segmentStyle } from '../_comp
 import { useBoxSize } from '../_components/hooks';
 import { U_VH, c, u, wrap, type SizeKey } from '../_components/units';
 import { useBoardScreen } from '../_components/useBoardScreen';
-import { hashLabel, hashNumber } from '@/lib/class-number';
+import { dotLabel, hashLabel, hashNumber } from '@/lib/class-number';
 
 /* ── The gate board ──────────────────────────────────────────────────────────
    For the riders who are not in the ring yet: one ring's gate, on a TV by the
@@ -124,7 +124,7 @@ function dayLabel(date: string, today: string): string {
   );
 }
 
-const classLabel = (cls: BoardClass) => `#${cls.class_number} · ${cls.class_name}`;
+const classLabel = (cls: BoardClass) => dotLabel(cls);
 
 /** The classes whose riders the board shows: on deck and in the hole. */
 function calledIds(lane: GateLane | null): string[] {

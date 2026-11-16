@@ -389,10 +389,20 @@ would be one global bucket and a single busy user would lock out everyone else.
 
 ## Sharp edges
 
-- **A class the bill prints twice under one name is created once.** A bill
-  that runs a companion class under the same name — "5" and "5N", Amateur
-  Performance Stallions both — loses the second to the one-name-per-day rule,
-  and the office notes say so. A line about a class names its printed number
+- **A club's concurrent class is its own class, named for the club.** A bill
+  that prints "5. Amateur Performance Stallions / 5N. NSBA" runs the NSBA class
+  in the ring with class 5 — the same horses, but NSBA's own fee
+  ($/class/judge, outside the flat fee), its own judges' cards and its own
+  placings. The reader is told to split it into its own entry carrying the
+  club code and the club's rate (the class-schedule rules in
+  `extraction/showbill.py`, which also say a Grand & Reserve class the bill
+  leaves unnumbered stays unnumbered); the
+  draft creates it as "Amateur Performance Stallions (NSBA)", number "5N",
+  rather than dropping it to the one-name-per-day rule, and one office-notes
+  line lists them ("#5N with #5") and says to start each at the gate with *Run
+  with*. Nothing links the pair: the gate's concurrent start is how they run
+  together. A repeat with **no** club code is still a duplicate — the first is
+  created and the notes say so. A line about a class names its printed number
   ("bill #5N") so it can be found on paper.
 - **Club classes a registry club does not exist for cannot be designated.** A
   club is added to the registry by an admin, or requested by a manager through

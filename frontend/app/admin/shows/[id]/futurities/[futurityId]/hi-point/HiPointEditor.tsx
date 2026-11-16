@@ -11,7 +11,7 @@ import {
   type DivisionScoring,
   type Futurity,
 } from '../../futurity-shared';
-import { hashNumber } from '@/lib/class-number';
+import { hashNumber, hashOrName } from '@/lib/class-number';
 
 type ClassRow = {
   class_id: string;
@@ -198,7 +198,7 @@ function DivisionForm({
     if (missingGroup) {
       const cls = classById.get(missingGroup.class_id);
       setError(
-        `#${cls?.class_number} is set to "best of group" but has no group name — the name is what ties the competing classes together.`,
+        `${cls ? hashOrName(cls) : 'A class'} is set to "best of group" but has no group name — the name is what ties the competing classes together.`,
       );
       return;
     }

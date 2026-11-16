@@ -67,3 +67,29 @@ def test_the_draft_keeps_the_bill_number_and_a_blank_for_a_championship():
     )
     numbers = [c.class_number for c in payload(draft).classes]
     assert numbers == ["4", "", "5N"]
+
+
+def test_an_nsba_class_run_alongside_is_its_own_class_named_for_the_club():
+    """'5. Amateur Performance Stallions / 5N. NSBA': the same horses in the
+    ring, but NSBA's own fee, cards and placings -- not a duplicate to drop."""
+    from showbill_draft import CLASSES
+    from tests.test_showbill_draft import said
+
+    draft, _x = build(
+        raw_read(
+            classes=[
+                a_class(name="Amateur Performance Stallions", number="5"),
+                a_class(name="Amateur Performance Stallions", number="5N", club_codes=["NSBA"]),
+                a_class(name="Amateur Performance Stallions", number="5X"),
+            ]
+        )
+    )
+    made = [(c.class_number, c.class_name) for c in payload(draft).classes]
+    assert made == [
+        ("5", "Amateur Performance Stallions"),
+        ("5N", "Amateur Performance Stallions (NSBA)"),
+    ]
+    lines = said(draft, CLASSES)
+    assert any("#5N with #5" in t and "Run with" in t for t in lines)
+    # A plain repeat with no club is still the duplicate it always was.
+    assert any("twice" in t for t in lines)

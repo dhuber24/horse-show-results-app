@@ -21,7 +21,7 @@ import { BoardSetupPage, HubHeading, ScreenPicker } from '../_components/BoardSe
 import { useBoxSize } from '../_components/hooks';
 import { U_VH, clamp, c, u, wrap, type SizeKey } from '../_components/units';
 import { useBoardScreen } from '../_components/useBoardScreen';
-import { hashNumber } from '@/lib/class-number';
+import { dotLabel, hashLabel, hashNumber } from '@/lib/class-number';
 
 /* Sizing — the two units, the three presets and why the size is asked rather
    than measured — is shared by every board: `../_components/units.ts`. So is
@@ -416,7 +416,7 @@ function ClassHeader({ block, split = false }: { block: Block; split?: boolean }
     return (
       <SplitHeader
         heading="Class Results"
-        name={`#${cls.class_number} · ${cls.class_name}`}
+        name={dotLabel(cls)}
         badge={placed}
         aside={turn}
       />
@@ -458,7 +458,7 @@ function ClassHeader({ block, split = false }: { block: Block; split?: boolean }
             overflow: 'hidden',
           }}
         >
-          {cls.class_number ? `${hashNumber(cls.class_number)} · ${cls.class_name}` : cls.class_name}
+          {dotLabel(cls)}
         </h2>
 
         {/* Said on every screen, so somebody who placed sixth reads it as the
@@ -1542,7 +1542,7 @@ export default function LiveBoard({
   const resultLines = useMemo(() => {
     const items: string[] = [];
     postedToday.forEach((cls, ci) => {
-      const head = `#${cls.class_number} ${cls.class_name}`;
+      const head = hashLabel(cls);
       const cardsFor = groups[ci] ?? [];
       if (cardsFor.length === 0) {
         items.push(`${head}: no placings yet`);
