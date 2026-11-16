@@ -16,6 +16,7 @@ import { auth } from '@/auth';
 import { patternFileHref } from '@/lib/patterns';
 import { cardPhotoHref, photoJudgeName } from '@/lib/card-photos';
 import PlacingsTable, { type CardColumn, type PlacingRow } from './PlacingsTable';
+import { horseLabel, riderLabel } from '@/lib/teams';
 
 const NO_JUDGE = '__none__';
 
@@ -59,8 +60,9 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
       ]);
       return {
         ...entry,
-        exhibitorName: exhibitor.full_name,
-        horseName: horse?.name ?? '—',
+        // A team as its riders and the horses they rode (migration 192).
+        exhibitorName: riderLabel(exhibitor.full_name, entry.team_members),
+        horseName: horseLabel(horse?.name, entry.team_members) ?? '—',
       };
     })
   );

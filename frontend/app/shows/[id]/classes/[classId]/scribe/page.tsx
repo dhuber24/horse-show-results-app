@@ -12,6 +12,7 @@ import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import { CARD_PHOTOS, fetchMyFeatures, fetchShowPlan, showHasFeature } from '@/lib/show-companies';
 import { isShowOfficeRole, mayScore } from '@/lib/scoring-access';
 import ProLockedPanel from '@/components/ProLockedPanel';
+import { horseLabel, riderLabel } from '@/lib/teams';
 import ScribeForm from './ScribeForm';
 import ScoredScribeForm from './ScoredScribeForm';
 
@@ -113,8 +114,9 @@ export default async function ScribePage({ params }: { params: Promise<{ id: str
         entry.status === 'WITHDRAWN' ? ' (scratched)' : entry.gate_no_show ? ' (no-show at the gate)' : '';
       return {
         ...entry,
-        exhibitorName: `${exhibitor.full_name}${offCard}`,
-        horseName: horse?.name ?? '—',
+        // A team is scored as its riders (migration 192).
+        exhibitorName: `${riderLabel(exhibitor.full_name, entry.team_members)}${offCard}`,
+        horseName: horseLabel(horse?.name, entry.team_members) ?? '—',
         is_disqualified: entry.is_disqualified ?? false,
       };
     })

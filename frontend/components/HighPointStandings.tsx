@@ -6,6 +6,7 @@ import {
   type DivisionStandings,
   type PointSystem,
 } from '@/lib/high-point';
+import type { ClubStandings } from '@/lib/clubs';
 
 /**
  * High-point standings, one table per division — its points added up across
@@ -18,10 +19,16 @@ import {
  */
 export default function HighPointStandings({
   divisions,
+  team = null,
+  clubs = null,
   pointSystem,
   showShowCount = false,
 }: {
   divisions: DivisionStandings[];
+  /** Team High Point (migration 192): riders, no horses. */
+  team?: DivisionStandings | null;
+  /** Saddle Club High Point (migration 193). */
+  clubs?: ClubStandings | null;
   pointSystem: PointSystem;
   /** On a circuit, how many of its shows each pair earned points at. */
   showShowCount?: boolean;
@@ -73,6 +80,88 @@ export default function HighPointStandings({
           </div>
         </section>
       ))}
+
+      {team && team.standings.length > 0 && (
+        <section>
+          <h3 className="text-base font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+            {team.name}
+          </h3>
+          <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
+            From the team classes. Every rider on a placed team earns its points, whoever they rode
+            with; a rider on two teams in one class keeps the better placing.
+          </p>
+          <div className="rounded-lg border overflow-x-auto" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="text-left" style={{ color: 'var(--accent)' }}>
+                  <th className="font-semibold py-2 pl-3 pr-2 w-12">#</th>
+                  <th className="font-semibold py-2 pr-3">Rider</th>
+                  <th className="font-semibold py-2 pr-3 text-right">Points</th>
+                  <th className="font-semibold py-2 pr-3 text-right whitespace-nowrap">
+                    {showShowCount ? 'Shows' : 'Classes'}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {team.standings.map((row) => (
+                  <tr key={row.exhibitor_id} className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <td className="py-2 pl-3 pr-2 font-semibold" style={{ color: 'var(--foreground)' }}>
+                      {row.rank}
+                    </td>
+                    <td className="py-2 pr-3" style={{ color: 'var(--text-deep)' }}>{row.exhibitor_name}</td>
+                    <td className="py-2 pr-3 text-right font-semibold" style={{ color: 'var(--foreground)' }}>
+                      {formatPoints(row.points)}
+                    </td>
+                    <td className="py-2 pr-3 text-right" style={{ color: 'var(--muted)' }}>
+                      {showShowCount ? row.show_count : row.class_count}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {clubs && clubs.standings.length > 0 && (
+        <section>
+          <h3 className="text-base font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+            {clubs.name}
+          </h3>
+          <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
+            Each placing counts for the club its rider rides for here — a rider&rsquo;s primary club for their own
+            classes, never split between two.
+          </p>
+          <div className="rounded-lg border overflow-x-auto" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="text-left" style={{ color: 'var(--accent)' }}>
+                  <th className="font-semibold py-2 pl-3 pr-2 w-12">#</th>
+                  <th className="font-semibold py-2 pr-3">Club</th>
+                  <th className="font-semibold py-2 pr-3 text-right">Points</th>
+                  <th className="font-semibold py-2 pr-3 text-right whitespace-nowrap">
+                    {showShowCount ? 'Shows' : 'Classes'}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {clubs.standings.map((row) => (
+                  <tr key={row.club_id} className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <td className="py-2 pl-3 pr-2 font-semibold" style={{ color: 'var(--foreground)' }}>{row.rank}</td>
+                    <td className="py-2 pr-3" style={{ color: 'var(--text-deep)' }}>{row.club_name}</td>
+                    <td className="py-2 pr-3 text-right font-semibold" style={{ color: 'var(--foreground)' }}>
+                      {formatPoints(row.points)}
+                    </td>
+                    <td className="py-2 pr-3 text-right" style={{ color: 'var(--muted)' }}>
+                      {showShowCount ? row.show_count : row.class_count}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <details className="rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}>
         <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium" style={{ color: 'var(--accent)' }}>

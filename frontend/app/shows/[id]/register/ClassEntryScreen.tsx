@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import BackNumberRequest from './BackNumberRequest';
@@ -11,6 +11,11 @@ import SignupClosedNotice from '../_components/SignupClosedNotice';
 import { formatMoney, healthWarnings, type HorseNumber, type PreviewData } from './types';
 import type { BillClassLine } from '@/lib/my-shows';
 import { numbersEachHorse } from '@/lib/back-numbers';
+import TeamEditor, { type SeatClubChoices, type TeamCandidate, type TeamHorseOption } from '@/components/TeamEditor';
+import RiderClubs from '@/components/RiderClubs';
+import type { ClubPointsSetup, RiderClubs as RiderClubsData } from '@/lib/clubs';
+import { errorMessage } from '@/lib/api-error';
+import { isTeamClass, riderLabel, teamShortLabel, teamSizeLabel, type TeamSeat } from '@/lib/teams';
 
 /**
  * Class registration: the classes an exhibitor is entered in, the picker that
@@ -61,6 +66,7 @@ function EnteredRow({
   onConfirm,
   lockedReason,
   live,
+  teamSlot,
 }: {
   line: BillClassLine;
   isConfirming: boolean;
@@ -73,6 +79,8 @@ function EnteredRow({
   lockedReason: string | null;
   /** The show is running, where the word at the gate is "scratch". */
   live: boolean;
+  /** Who is on the team, in a team class (migration 192). */
+  teamSlot?: React.ReactNode;
 }) {
   const verb = live ? 'Scratch' : 'Remove';
   return (
@@ -80,6 +88,7 @@ function EnteredRow({
       <td className="py-1.5 pr-3" style={{ color: 'var(--foreground)' }}>
         <span className="font-mono" style={{ color: 'var(--accent)' }}>{line.class_number}</span>{' '}
         {line.class_name}
+        {teamSlot}
       </td>
       <td className="py-1.5 pr-3" style={{ color: 'var(--foreground)' }}>
         {line.horse_name ?? '(horse removed)'}
@@ -217,6 +226,77 @@ export default function ClassEntryScreen({
     }
   };
 
+  // ── Teams (migration 192) ───────────────────────────────────────────────
+  // A team class is entered like any other; whoever entered names the rest of
+  // the team here, from the riders at this show, until the class goes in.
+  const entryById = useMemo(() => new Map(existing_entries.map((e) => [e.id, e])), [existing_entries]);
+  const teamSizeByClass = useMemo(
+    () => new Map(classes.map((c) => [c.id, c.team_size ?? null])),
+    [classes],
+  );
+  const [editingTeam, setEditingTeam] = useState<string | null>(null);
+
+  const findTeammates = async (query: string): Promise<TeamCandidate[]> => {
+    const res = await fetch(`/api/shows/${showId}/register/teammates?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    return (await res.json().catch(() => [])) ?? [];
+  };
+
+  const teammateHorses = async (exhibitorId: string): Promise<TeamHorseOption[]> => {
+    const res = await fetch(`/api/shows/${showId}/register/teammates/${exhibitorId}/horses`);
+    if (!res.ok) return [];
+    return (await res.json().catch(() => [])) ?? [];
+  };
+
+  // ── Saddle club (migration 193) ─────────────────────────────────────────
+  // Which club(s) they ride for here, where the show keeps club standings.
+  const [myClubs, setMyClubs] = useState<(ClubPointsSetup & { held: RiderClubsData['held']; declared: Omit<RiderClubsData, 'held'> | null }) | null>(null);
+  const loadClubs = () =>
+    fetch(`/api/shows/${showId}/register/clubs`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setMyClubs)
+      .catch(() => setMyClubs(null));
+  useEffect(() => {
+    if (signedUp) loadClubs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showId, signedUp]);
+  const saveMyClubs = async (clubIds: string[], primaryId: string | null): Promise<string | null> => {
+    const res = await fetch(`/api/shows/${showId}/register/clubs`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ club_ids: clubIds, primary_id: primaryId }),
+    });
+    if (!res.ok) return errorMessage(await res.json().catch(() => null), 'Could not save your club.');
+    setMyClubs(await res.json());
+    return null;
+  };
+  /** Their own declared clubs, for "rides for" on a team they enter. */
+  const myClubChoices = (exhibitorId: string): SeatClubChoices | null => {
+    if (exhibitorId !== exhibitor.id || !myClubs?.declared) return null;
+    const names = new Map(myClubs.held.map((c) => [c.id, c.name]));
+    return {
+      primaryId: myClubs.declared.primary_id,
+      clubs: myClubs.declared.club_ids.map((id) => ({ id, name: names.get(id) ?? 'Club' })),
+    };
+  };
+
+  const saveTeam = async (entryId: string, seats: TeamSeat[], entrantClubId: string | null): Promise<string | null> => {
+    const res = await fetch(`/api/shows/${showId}/register/entries/${entryId}/team`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ members: seats, entrant_club_id: entrantClubId }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      return errorMessage(body, 'Could not save your team.');
+    }
+    setEditingTeam(null);
+    router.refresh();
+    return null;
+  };
+
+  const teamRides = preview.team_rides ?? [];
+
   const entered = bill.class_lines;
 
   return (
@@ -349,10 +429,39 @@ export default function ClassEntryScreen({
                         </tr>
                       </thead>
                       <tbody>
-                        {entered.map((line) => (
+                        {entered.map((line) => {
+                          const teamSize = teamSizeByClass.get(line.class_id) ?? null;
+                          const existing = entryById.get(line.entry_id);
+                          const team = existing?.team_members ?? [];
+                          const teamShort = existing?.team_short ?? 0;
+                          // The class doors, and the class not yet in the ring.
+                          const teamLocked = !classEntryOpen || Boolean(existing?.team_locked);
+                          return (
+                          <Fragment key={line.entry_id}>
                           <EnteredRow
-                            key={line.entry_id}
                             line={line}
+                            teamSlot={
+                              isTeamClass(teamSize) ? (
+                                <span className="block text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+                                  {teamSizeLabel(teamSize)}: {riderLabel('You', team)}
+                                  {teamShort > 0 && (
+                                    <span className="ml-1 font-medium" style={{ color: 'var(--warning-strong)' }}>
+                                      · {teamShortLabel(teamShort)}
+                                    </span>
+                                  )}{' '}
+                                  {!teamLocked && editingTeam !== line.entry_id && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingTeam(line.entry_id)}
+                                      className="ml-1 hover:underline"
+                                      style={{ color: 'var(--accent)' }}
+                                    >
+                                      {team.length > 0 ? 'Change your team' : 'Name your team'}
+                                    </button>
+                                  )}
+                                </span>
+                              ) : undefined
+                            }
                             isConfirming={confirmWithdrawEntryId === line.entry_id}
                             isRemoving={withdrawingEntryId === line.entry_id}
                             onAsk={() => {
@@ -373,7 +482,29 @@ export default function ClassEntryScreen({
                             }
                             live={live}
                           />
-                        ))}
+                          {isTeamClass(teamSize) && editingTeam === line.entry_id && (
+                            <tr>
+                              <td colSpan={5} className="pb-2">
+                                <TeamEditor
+                                  teamSize={teamSize}
+                                  entrantName="You"
+                                  teamHorseName={line.horse_name}
+                                  members={team}
+                                  findRiders={findTeammates}
+                                  loadHorses={teammateHorses}
+                                  onSave={(seats, entrantClubId) => saveTeam(line.entry_id, seats, entrantClubId)}
+                                  clubChoices={myClubChoices}
+                                  entrantId={exhibitor.id}
+                                  entrantClubId={existing?.entrant_club_id ?? null}
+                                  onCancel={() => setEditingTeam(null)}
+                                  notFoundHint="Every rider on a team signs up for the show first — or ask the show office to add them."
+                                />
+                              </td>
+                            </tr>
+                          )}
+                          </Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                     {/* Said once under the table rather than per row, because a
@@ -385,6 +516,55 @@ export default function ClassEntryScreen({
                         out of it now.
                       </p>
                     )}
+                  </div>
+                )}
+
+                {/* The saddle club(s) they ride for (migration 193), from the
+                    club memberships on their profile, which the desk verifies. */}
+                {myClubs?.enabled && (
+                  <div className="mb-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--accent)' }}>
+                      Your saddle club
+                    </h3>
+                    <RiderClubs
+                      key={`${myClubs.declared?.club_ids.join(',')}-${myClubs.declared?.primary_id}`}
+                      clubs={{
+                        held: myClubs.held,
+                        club_ids: myClubs.declared?.club_ids ?? [],
+                        primary_id: myClubs.declared?.primary_id ?? null,
+                        derived: myClubs.declared?.derived ?? false,
+                      }}
+                      clubsPerRider={myClubs.clubs_per_rider}
+                      onSave={saveMyClubs}
+                      noClubHint="Add your club to the memberships on your profile — the show office checks it at the desk."
+                    />
+                  </div>
+                )}
+
+                {/* Teams another rider entered with this exhibitor on them
+                    (migration 192): their entry and their fee, so not in the
+                    table above — but a class this rider rides in all the same. */}
+                {teamRides.length > 0 && (
+                  <div className="mb-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--accent)' }}>
+                      Teams you ride on
+                    </h3>
+                    <ul className="space-y-1 text-sm">
+                      {teamRides.map((ride) => (
+                        <li key={ride.entry_id} style={{ color: 'var(--foreground)' }}>
+                          <span className="font-mono" style={{ color: 'var(--accent)' }}>{ride.class_number}</span>{' '}
+                          {ride.class_name}
+                          <span className="block text-xs" style={{ color: 'var(--muted)' }}>
+                            On {ride.entrant_name ?? 'another rider'}&rsquo;s team
+                            {ride.horse_name ?? ride.team_horse_name
+                              ? `, riding ${ride.horse_name ?? ride.team_horse_name}`
+                              : ''}
+                            {ride.class_date ? ` — ${formatDay(ride.class_date)}` : ''}. They entered it and
+                            pay its fee; ask them to change the team.
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
 

@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import (
     Entry,
+    EntryTeamMember,
     Exhibitor,
     ExhibitorCompetitionCard,
     ExhibitorDocument,
@@ -535,6 +536,45 @@ async def _fold_pair_numbers(db: AsyncSession, keep_id: UUID, remove_id: UUID) -
     return folded
 
 
+async def _fold_team_seats(db: AsyncSession, keep_id: UUID, remove_id: UUID) -> int:
+    """Move the removed record's seats on teams onto the survivor (migration 192).
+
+    `entry_team_members.exhibitor_id` cascades, so a seat left behind would go
+    with the record. A seat is dropped instead of moved where it would put the
+    survivor on the same team twice, or on a team they entered themselves --
+    the class entries moved across before this, so a team one record entered
+    with the other on it now has the survivor as both. Returns how many went.
+    """
+    incoming = (
+        await db.execute(select(EntryTeamMember).where(EntryTeamMember.exhibitor_id == remove_id))
+    ).scalars().all()
+    if not incoming:
+        return 0
+    entry_ids = {seat.entry_id for seat in incoming}
+    held = {
+        entry_id
+        for (entry_id,) in (
+            await db.execute(
+                select(EntryTeamMember.entry_id).where(
+                    EntryTeamMember.exhibitor_id == keep_id,
+                    EntryTeamMember.entry_id.in_(entry_ids),
+                )
+            )
+        ).all()
+    }
+    entrants = dict(
+        (await db.execute(select(Entry.id, Entry.exhibitor_id).where(Entry.id.in_(entry_ids)))).all()
+    )
+    dropped = 0
+    for seat in incoming:
+        if seat.entry_id in held or entrants.get(seat.entry_id) in (keep_id, remove_id):
+            await db.delete(seat)
+            dropped += 1
+        else:
+            seat.exhibitor_id = keep_id
+    return dropped
+
+
 def _futurity_entry_model():
     # Imported lazily: `models` imports cleanly either way, but keeping the
     # futurity tables out of this module's import list makes the dependency
@@ -621,6 +661,7 @@ async def merge_exhibitors(
 
     duplicates = 0
     duplicates += await _fold_pair_numbers(db, keep.id, remove.id)
+    duplicates += await _fold_team_seats(db, keep.id, remove.id)
     duplicates += await _move_unique_children(db, ExhibitorHorse, ("horse_id",), keep.id, remove.id)
     duplicates += await _move_unique_children(
         db, ExhibitorRegistration, ("association_id",), keep.id, remove.id

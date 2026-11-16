@@ -17,6 +17,7 @@ from backnumbers import (
     show_number_kind,
 )
 from cancellations import is_on_roster
+from teams import horse_label, load_teammates, rider_label
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY, safe_uuid
 from models import (
@@ -397,6 +398,10 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
 
     # The exhibitor's number, or the horse's where the show numbers horses.
     numbers = await back_numbers_for_show(show_id, db)
+    rows = rows.all()
+    # A team entry is read out as its riders, "Bella Drevlow / Jennifer
+    # Peterson" (migration 192), so a teammate is found by name here too.
+    teams = await load_teammates(db, (row[5] for row in rows))
     by_class: dict[str, list[dict]] = {}
     for (
         class_id,
@@ -413,6 +418,10 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         judge_first,
         judge_last,
     ) in rows:
+        team = teams.get(entry_id, [])
+        if team:
+            exhibitor_name = rider_label(exhibitor_name, team)
+            horse_name = horse_label(horse_name, team)
         by_class.setdefault(str(class_id), []).append(
             {
                 "place": place,
@@ -491,6 +500,10 @@ async def get_program_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
     )
 
     numbers = await back_numbers_for_show(show_id, db)
+    rows = rows.all()
+    # A team is listed as its riders and the horses they ride (migration 192);
+    # the owner and pedigree stay the team's own horse's.
+    teams = await load_teammates(db, (row[1] for row in rows))
     by_class: dict[str, list[dict]] = {}
     for (
         class_id,
@@ -507,6 +520,10 @@ async def get_program_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         dam_name,
         owner_full_name,
     ) in rows:
+        team = teams.get(entry_id, [])
+        if team:
+            exhibitor_name = rider_label(exhibitor_name, team)
+            horse_name = horse_label(horse_name, team)
         by_class.setdefault(str(class_id), []).append(
             {
                 "id": str(entry_id),

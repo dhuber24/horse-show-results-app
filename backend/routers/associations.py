@@ -15,7 +15,7 @@ router = APIRouter(prefix="/associations", tags=["Associations"])
 @router.get("/", response_model=list[AssociationOut], dependencies=[Depends(require_authenticated)])
 async def list_associations(
     association_type: Optional[str] = Query(
-        None, alias="type", pattern="^(breed|club)$",
+        None, alias="type", pattern="^(breed|club|saddle_club)$",
         description="Filter to breed registries or club bodies; omit for both.",
     ),
     include_inactive: bool = False,

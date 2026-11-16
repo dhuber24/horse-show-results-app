@@ -29,6 +29,16 @@ The decisions, settled once so the two cannot disagree:
 * **A class the office left out earns nothing** (`classes.high_point_eligible`,
   migration 167). Its placings stand and are posted like any other; they are
   simply not added in -- at the show, and in every circuit it counts toward.
+* **Team classes have a standing of their own** (migration 192, `tally_team`).
+  A team's riders span divisions and ride different horses -- or one horse
+  between two -- so a team class adds nothing to the division standings.
+  Instead every rider on a placed team earns that placing's points in one Team
+  High Point standing, ranked by rider: the way WSCA's own Championship results
+  list every rider against one placing's points, and the way gymkhana scoring
+  (Gymkhana America) credits each team member. Same chart, read for the number
+  of teams in the class. A rider on two teams in one class (a timed class
+  allows it) keeps the better placing on each judge's card -- one class, one
+  placing.
 * **What a class is worth is the same chart, read for that class**
   (`class_points`): the band for its size, one card per judge on the panel.
   The leaderboard and the High Point page print it beside each class, so the
@@ -47,6 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Class, Division, Entry, Exhibitor, Horse, Result, ShowJudge
 from placings import is_placed
+from teams import TEAM_SIZE_MIN, load_teammates
 
 Chart = dict[int, dict[int, Decimal]]
 
@@ -197,6 +208,18 @@ class Card:
     place: Optional[int]
     outcome: str
     class_size: int
+    # Whose card (`results.judge_id`), so a rider on two teams in one class
+    # keeps one placing per card -- None is the unattributed card.
+    judge_id: Optional[UUID] = None
+    # A team class's card (migration 192): it earns Team High Point, not the
+    # division standings, and every rider on the team earns it.
+    team_class: bool = False
+    # The rest of the team, as `(exhibitor_id, name)` -- the entrant is the
+    # card's own exhibitor.
+    teammates: tuple = ()
+    # The entry the card is for -- a team seat may ride for a club of its own
+    # (`club_points.ClubContext.seat`).
+    entry_id: Optional[UUID] = None
 
 
 @dataclass
@@ -229,7 +252,8 @@ def tally(cards: Iterable[Card], chart: Chart) -> list[dict]:
     discipline they run in."""
     divisions: dict[str, dict] = {}
     for card in cards:
-        if not is_placed(card):
+        # Team classes earn Team High Point instead (`tally_team`).
+        if card.team_class or not is_placed(card):
             continue
         earned = points_for(chart, card.place, card.class_size)
         if earned <= 0:
@@ -247,30 +271,70 @@ def tally(cards: Iterable[Card], chart: Chart) -> list[dict]:
         pair.class_ids.add(card.class_id)
         pair.show_ids.add(card.show_id)
 
-    out = []
-    for division in sorted(divisions.values(), key=lambda d: (d["sort"], d["name"].lower())):
-        pairs = sorted(
-            division["pairs"].values(),
-            key=lambda p: (-p.points, p.exhibitor_name.lower(), (p.horse_name or "").lower()),
-        )
-        ranks = rank([p.points for p in pairs])
-        out.append({
-            "name": division["name"],
-            "standings": [
-                {
-                    "rank": r,
-                    "exhibitor_id": str(p.exhibitor_id),
-                    "exhibitor_name": p.exhibitor_name,
-                    "horse_id": str(p.horse_id) if p.horse_id else None,
-                    "horse_name": p.horse_name,
-                    "points": float(p.points),
-                    "class_count": len(p.class_ids),
-                    "show_count": len(p.show_ids),
-                }
-                for r, p in zip(ranks, pairs)
-            ],
-        })
-    return out
+    return [
+        {"name": division["name"], "standings": _ranked(division["pairs"].values())}
+        for division in sorted(divisions.values(), key=lambda d: (d["sort"], d["name"].lower()))
+    ]
+
+
+def _ranked(pairs: Iterable["_Pair"]) -> list[dict]:
+    """A standings table: highest points first, ties ranked alike."""
+    ordered = sorted(
+        pairs,
+        key=lambda p: (-p.points, p.exhibitor_name.lower(), (p.horse_name or "").lower()),
+    )
+    ranks = rank([p.points for p in ordered])
+    return [
+        {
+            "rank": r,
+            "exhibitor_id": str(p.exhibitor_id),
+            "exhibitor_name": p.exhibitor_name,
+            "horse_id": str(p.horse_id) if p.horse_id else None,
+            "horse_name": p.horse_name,
+            "points": float(p.points),
+            "class_count": len(p.class_ids),
+            "show_count": len(p.show_ids),
+        }
+        for r, p in zip(ranks, ordered)
+    ]
+
+
+# What the Team High Point table is called wherever it is shown.
+TEAM_STANDINGS_NAME = "Team High Point"
+
+
+def tally_team(cards: Iterable[Card], chart: Chart) -> Optional[dict]:
+    """The Team High Point standing, or None until a team class earns a point.
+
+    Every rider on a placed team -- whoever entered it and each teammate --
+    earns the placing's points, ranked by rider alone: a tandem team rides one
+    horse between two riders, and a rider's points from a tandem and a rescue
+    race add up whoever they rode with. A rider on two teams in one class keeps
+    the better placing on each judge's card.
+    """
+    best: dict[tuple, tuple[Decimal, UUID]] = {}
+    names: dict[UUID, str] = {}
+    for card in cards:
+        if not card.team_class or not is_placed(card):
+            continue
+        earned = points_for(chart, card.place, card.class_size)
+        if earned <= 0:
+            continue
+        for rider_id, rider_name in ((card.exhibitor_id, card.exhibitor_name), *card.teammates):
+            names.setdefault(rider_id, rider_name)
+            key = (rider_id, card.class_id, card.judge_id)
+            held = best.get(key)
+            if held is None or earned > held[0]:
+                best[key] = (earned, card.show_id)
+    if not best:
+        return None
+    riders: dict[UUID, _Pair] = {}
+    for (rider_id, class_id, _judge_id), (earned, show_id) in best.items():
+        rider = riders.setdefault(rider_id, _Pair(rider_id, names[rider_id], None, None))
+        rider.points += earned
+        rider.class_ids.add(class_id)
+        rider.show_ids.add(show_id)
+    return {"name": TEAM_STANDINGS_NAME, "standings": _ranked(riders.values())}
 
 
 # A division with no sort order sorts after every one that has one.
@@ -320,6 +384,9 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
             Horse.name,
             Result.place,
             Result.outcome,
+            Result.judge_id,
+            Entry.id,
+            Class.team_size,
         )
         .join(Result, Result.class_id == Class.id)
         .join(Entry, Entry.id == Result.entry_id)
@@ -329,6 +396,11 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
         # A class the office left out of high point (migration 167) is posted
         # and on every results page; it adds nothing here.
         .where(*posted, Class.high_point_eligible.is_(True), Entry.status != "WITHDRAWN")
+    )
+    rows = rows.all()
+    # The rest of each team, in a team class (migration 192).
+    teams = await load_teammates(
+        db, (row[11] for row in rows if (row[12] or 0) >= TEAM_SIZE_MIN)
     )
     cards = [
         Card(
@@ -343,11 +415,16 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
             place=place,
             outcome=outcome or "placed",
             class_size=sizes.get(class_id, 0),
+            judge_id=judge_id,
+            team_class=(team_size or 0) >= TEAM_SIZE_MIN,
+            teammates=tuple((t.exhibitor_id, t.name) for t in teams.get(entry_id, [])),
+            entry_id=entry_id,
         )
         for (
             show_id, class_id, division_name, division_sort, exhibitor_id,
-            exhibitor_name, horse_id, horse_name, place, outcome,
-        ) in rows.all()
+            exhibitor_name, horse_id, horse_name, place, outcome, judge_id,
+            entry_id, team_size,
+        ) in rows
     ]
     return cards, len(sizes)
 
@@ -403,6 +480,7 @@ async def load_class_summaries(
             Class.high_point_eligible,
             Division.name,
             size.label("size"),
+            Class.team_size,
         )
         .outerjoin(Division, Division.id == Class.division_id)
         .where(*conditions)
@@ -428,7 +506,7 @@ async def load_class_summaries(
     out = []
     for (
         class_id, class_number, class_name, class_date, status,
-        published_at, eligible, division_name, class_size,
+        published_at, eligible, division_name, class_size, team_size,
     ) in rows.all():
         cards = max(panel, filed.get(class_id, 0), 1)
         row = {
@@ -439,6 +517,9 @@ async def load_class_summaries(
             "division_name": division_name,
             "posted": published_at is not None and status != "DRAFT",
             "eligible": bool(eligible),
+            # A team class earns Team High Point, not its division's (migration
+            # 192); its entries are teams.
+            "team": (team_size or 0) >= TEAM_SIZE_MIN,
             "entries": class_size or 0,
             "cards": cards,
         }

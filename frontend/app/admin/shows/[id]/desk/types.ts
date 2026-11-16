@@ -5,6 +5,8 @@
  * with a queue behind it: clicking down the roster must not fire five requests
  * per exhibitor.
  */
+import type { TeamMember } from '@/lib/teams';
+import type { ClubPointsSetup, RiderClubs } from '@/lib/clubs';
 import type { VerificationCheck } from './CheckRow';
 import type { Bill, BillFuturityLine } from '@/lib/my-shows';
 import {
@@ -136,6 +138,8 @@ export interface DeskClass {
    *  than asking. Null at a non-APHA show, and where the class does not say. */
   apha_division: string | null;
   entry_count: number;
+  /** Ridden by a team of this many riders (migration 192); null for one. */
+  team_size?: number | null;
 }
 
 export interface DeskSidePot {
@@ -166,6 +170,41 @@ export interface DeskEntry {
   dam_name: string | null;
   apha_division: string | null;
   is_disqualified: boolean;
+  /** The rest of the team, in a team class (migration 192). `?? []` at every
+   *  use, for a desk payload from before the field. */
+  team_members?: TeamMember[];
+  /** Riders still to be named on it — a flag, never a refusal. */
+  team_short?: number;
+  /** Riders on this team who also ride on another team in the class — only
+   *  possible in a timed or pattern class, which runs one team at a time. */
+  team_overlaps?: DeskTeamOverlap[];
+  /** The club the entrant rides for on this team, where not their primary. */
+  entrant_club_id?: string | null;
+}
+
+export interface DeskTeamOverlap {
+  exhibitor_id: string;
+  exhibitor_name: string;
+  /** The other team's entry, and who entered it. */
+  entry_id: string;
+  entrant_name: string;
+  /** The rider entered that other team themselves. */
+  own_entry: boolean;
+}
+
+/** A team somebody else entered with this exhibitor on it (migration 192). The
+ *  entry and its fee are the other rider's; this is how their row says so. */
+export interface DeskTeamRide {
+  entry_id: string;
+  class_id: string;
+  class_number: string | null;
+  class_name: string | null;
+  class_date: string | null;
+  entrant_id: string;
+  entrant_name: string;
+  /** The horse this exhibitor rides on the team — null for the team's horse. */
+  horse_name: string | null;
+  team_horse_name: string | null;
 }
 
 export interface DeskExhibitor {
@@ -196,6 +235,11 @@ export interface DeskExhibitor {
   arrival_date: string | null;
   departure_date: string | null;
   entries: DeskEntry[];
+  /** Teams somebody else entered with this exhibitor on them (migration 192). */
+  team_rides?: DeskTeamRide[];
+  /** Their saddle club(s) here (migration 193); null where the show keeps no
+   *  club standings. */
+  clubs?: RiderClubs | null;
   side_pot_ids: string[];
   memberships: VerificationCheck[];
   horses: DeskHorse[];
@@ -238,6 +282,8 @@ export interface Desk {
   show_name: string;
   show_status: string;
   show_type_code: string | null;
+  /** Saddle-club high point setup (migration 193). */
+  club_points?: ClubPointsSetup | null;
   /** Who a back number belongs to here (migrations 161, 178). Unset reads as
    *  `exhibitor`, through `numbersHorses`, for a payload from before it. */
   back_number_per?: BackNumberPer;

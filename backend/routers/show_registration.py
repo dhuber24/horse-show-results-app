@@ -119,6 +119,7 @@ from models import (
     Class,
     ClassAssociation,
     Entry,
+    EntryTeamMember,
     Exhibitor,
     ExhibitorRegistration,
     Futurity,
@@ -135,7 +136,7 @@ from models import (
     ShowRegistrationMembership,
 )
 from routers.futurities import load_billable_futurities, missing_horse_details
-from routers.people import _exhibitor_reg_out, _require_expiry_for_breed
+from routers.people import _exhibitor_reg_out, _member_number, _require_expiry_for_breed
 from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules, refusing_issues
@@ -182,7 +183,21 @@ from side_pot_membership import (
     requirement_detail,
     unmet_pots,
 )
-from schemas import EntryOut, ExhibitorRegistrationCreate, ExhibitorRegistrationUpdate
+from schemas import EntryOut, ExhibitorRegistrationCreate, ExhibitorRegistrationUpdate, TeamReplace
+from club_points import save_team_clubs, seat_clubs_for
+from teams import (
+    TeammateRequest,
+    already_riding,
+    at_show,
+    horses_at_show,
+    is_team_class,
+    reload_entry,
+    replace_team,
+    riders_in_class,
+    rides_together,
+    team_out,
+    teammates_of,
+)
 import standard_classes
 
 router = APIRouter(prefix="/shows/{show_id}/register", tags=["Show Registration"])
@@ -1156,7 +1171,7 @@ async def add_registration_membership(
         ShowRegistrationMembership(
             id=uuid.uuid4(),
             association_id=body.association_id,
-            member_number=body.member_number.strip(),
+            member_number=await _member_number(body.association_id, body.member_number, db),
             expires_at=body.expires_at,
         )
     )
@@ -1682,6 +1697,9 @@ async def preview_registration(
     )
     existing = existing_result.scalars().all()
 
+    # The clubs team seats ride for, where not the rider's primary (migration 193).
+    seat_clubs = await seat_clubs_for(db, [e.id for e in existing])
+
     # Which of those already have a placing or a score on a judge's card, so the
     # screen can say which it will no longer scratch. One query for the lot.
     with_results: set[UUID] = set()
@@ -1777,6 +1795,9 @@ async def preview_registration(
                 # a dropdown is offering something nobody can accept, and the
                 # POST refuses it anyway.
                 "entered_by_qualification": c.entered_by_qualification,
+                # Ridden by a team of this many riders (migration 192), or None.
+                # Whoever enters it names the rest of the team afterwards.
+                "team_size": c.team_size if is_team_class(c) else None,
                 # Which APHA divisions this class is actually run for, read off
                 # its bracket. None means the class does not say, and every
                 # division stays on offer -- see `divisions_for_bracket`, which
@@ -1907,9 +1928,24 @@ async def preview_registration(
                     if e.class_ is not None
                     else None
                 ),
+                # The rest of the team in a team class (migration 192), how many
+                # riders are still to be named, and why the team can no longer
+                # be changed here, if it cannot -- the class doors' own rule.
+                **(
+                    {
+                        **team_out(e.class_, teammates_of(e), seat_clubs, e),
+                        "team_locked": (entry_refusal(e.class_) or {}).get("message"),
+                    }
+                    if e.class_ is not None and is_team_class(e.class_)
+                    else {}
+                ),
             }
             for e in existing
         ],
+        # Teams somebody else entered with this exhibitor on them (migration
+        # 192). Their entry, their bill -- listed so the class page says this
+        # rider rides in the class too.
+        "team_rides": await _team_rides(show_id, exhibitor.id, db),
         # What this show costs so far, straight from `billing.build_bill` — the
         # same call behind the My Shows bill and the office's account screen.
         # Entries commit one at a time now, so there is always a real bill to
@@ -2141,6 +2177,13 @@ async def register_for_show(
                 )
             batch_non_pattern_classes.add(cls.id)
 
+        # A rail team class has every team in the ring at once (migration 192):
+        # somebody already named on another team in it cannot enter one too.
+        if is_team_class(cls) and rides_together(cls):
+            whose_team = (await riders_in_class(db, cls.id)).get(exhibitor.id)
+            if whose_team:
+                raise already_riding(cls, None, whose_team)
+
         # A class the show has bundled into an open side pot comes with the
         # buy-in. `join_pots` above has already put this batch's choices on the
         # loaded pots, so this reads the state after them — and refuses a class
@@ -2333,6 +2376,176 @@ async def withdraw_entry(
         show_id, exhibitor.id, scratched_horse_id, scratched_class_id, db
     )
     await db.commit()
+
+
+# ── Teams, exhibitor side ─────────────────────────────────────────────────────
+#
+# Whoever enters a team class names the rest of the team (migration 192), from
+# the riders at this show; the office can change it at the desk. The rules are
+# `backend/teams.py`'s, shared with the desk's door -- this side only adds who
+# may ask (the entry's own exhibitor) and until when (the class doors, and the
+# class not yet in the ring).
+
+# Below this a search would list most of the show for one letter.
+TEAMMATE_QUERY_MIN = 2
+TEAMMATE_RESULTS_MAX = 20
+
+
+async def _caller_at_show(show_id: UUID, user_id: str, db: AsyncSession) -> Exhibitor:
+    """The calling exhibitor, refused unless they are at this show themselves.
+
+    Finding teammates is for somebody entering a team here: a stranger with an
+    account has no team to name, and no reason to look through who is coming.
+    """
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(user_id), db)
+    if not at_show(await _load_show_entry(show_id, exhibitor.id, db)):
+        raise HTTPException(403, "Sign up for this show before naming a team.")
+    return exhibitor
+
+
+async def _team_rides(show_id: UUID, exhibitor_id: UUID, db: AsyncSession) -> list[dict]:
+    """The team entries at this show that name this exhibitor as a teammate."""
+    rows = await db.execute(
+        select(Entry)
+        .join(EntryTeamMember, EntryTeamMember.entry_id == Entry.id)
+        .join(Class, Class.id == Entry.class_id)
+        .options(selectinload(Entry.class_), selectinload(Entry.exhibitor), selectinload(Entry.horse))
+        .where(Class.show_id == show_id, EntryTeamMember.exhibitor_id == exhibitor_id)
+        .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
+    )
+    rides = []
+    for entry in rows.scalars().all():
+        mine = next((t for t in teammates_of(entry) if t.exhibitor_id == exhibitor_id), None)
+        rides.append(
+            {
+                "entry_id": str(entry.id),
+                "class_id": str(entry.class_id),
+                "class_number": entry.class_.class_number,
+                "class_name": entry.class_.class_name,
+                "class_date": entry.class_.class_date,
+                "entrant_name": entry.exhibitor.full_name if entry.exhibitor else None,
+                "team_horse_name": entry.horse.name if entry.horse else None,
+                "horse_name": mine.horse_name if mine else None,
+            }
+        )
+    return rides
+
+
+@router.get("/teammates")
+async def find_teammates(
+    show_id: UUID,
+    q: str = "",
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Riders at this show whose name contains `q`, to put on a team.
+
+    Names only -- the same names the public class schedule prints for anybody
+    entered. Everybody at the show is offered, the office's own additions
+    included: the second rider of a tandem team often shows nothing else and is
+    put on the roster by the office for exactly this.
+    """
+    await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
+    caller = await _caller_at_show(show_id, user_id, db)
+    needle = " ".join(q.split())
+    if len(needle) < TEAMMATE_QUERY_MIN:
+        return []
+    # Matched as typed: a "%" or "_" in a name is a character, not a wildcard.
+    pattern = "%" + needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    rows = await db.execute(
+        select(Exhibitor.id, Exhibitor.full_name)
+        .join(ShowEntry, ShowEntry.exhibitor_id == Exhibitor.id)
+        .where(
+            ShowEntry.show_id == show_id,
+            ShowEntry.cancelled_at.is_(None),
+            Exhibitor.id != caller.id,
+            Exhibitor.full_name.ilike(pattern, escape="\\"),
+        )
+        .order_by(func.lower(Exhibitor.full_name))
+        .limit(TEAMMATE_RESULTS_MAX)
+    )
+    return [{"exhibitor_id": str(eid), "full_name": name} for eid, name in rows.all()]
+
+
+@router.get("/teammates/{exhibitor_id}/horses")
+async def teammate_horses(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """The horses a teammate has at this show, for the horse they ride on the team.
+
+    Names only, and only for somebody at the show -- the same horses the public
+    schedule names once they are entered.
+    """
+    await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
+    await _caller_at_show(show_id, user_id, db)
+    if not at_show(await _load_show_entry(show_id, exhibitor_id, db)):
+        raise HTTPException(404, "That rider is not at this show.")
+    horse_ids = await horses_at_show(db, show_id, exhibitor_id)
+    if not horse_ids:
+        return []
+    rows = await db.execute(
+        select(Horse.id, Horse.name).where(Horse.id.in_(horse_ids)).order_by(Horse.name)
+    )
+    return [{"id": str(hid), "name": name} for hid, name in rows.all()]
+
+
+@router.put("/entries/{entry_id}/team")
+async def name_my_team(
+    show_id: UUID,
+    entry_id: UUID,
+    body: TeamReplace,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Name the rest of the team on the caller's own entry (migration 192).
+
+    The whole team but the caller, in order, every time. Open while the class
+    doors are and the class has not gone into the ring -- the team that rode is
+    the office's to correct after that, the same moment a scratch becomes theirs.
+    """
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+
+    await _load_entry_window_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+    entry_result = await db.execute(
+        select(Entry).options(selectinload(Entry.class_)).where(Entry.id == entry_id)
+    )
+    entry = entry_result.scalar_one_or_none()
+    if not entry or not entry.class_ or entry.class_.show_id != show_id:
+        raise HTTPException(404, "Entry not found")
+    if entry.exhibitor_id != exhibitor.id:
+        raise HTTPException(403, "Only the rider who entered a team can name it.")
+    refusal = entry_refusal(entry.class_)
+    if refusal:
+        raise HTTPException(409, refusal)
+
+    class_ = entry.class_
+    await replace_team(
+        db,
+        show_id,
+        entry,
+        class_,
+        [TeammateRequest(m.exhibitor_id, m.horse_id) for m in body.members],
+    )
+    await save_team_clubs(db, show_id, entry, body)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            409,
+            {
+                "code": "TEAM_CHANGED",
+                "message": "Your team was changed somewhere else while it saved. Reload and try again.",
+            },
+        )
+    entry = await reload_entry(db, entry_id)
+    return team_out(class_, teammates_of(entry), await seat_clubs_for(db, [entry.id]), entry)
 
 
 # ── Futurities, exhibitor side ────────────────────────────────────────────────

@@ -117,6 +117,9 @@ interface ClassItem {
    *  board does not set a class the office left out beside a division's
    *  standings it adds nothing to. Optional for an older backend: counts. */
   high_point_eligible?: boolean;
+  /** Ridden by a team (migration 192): it earns Team High Point, so the split
+   *  board sets it beside that table, not its division's. */
+  team_size?: number | null;
 }
 
 interface Placing {
@@ -702,6 +705,9 @@ type SplitTurn = {
  *  key, which is a division name made lower case. */
 const NOT_COUNTED = '\u0000not-counted';
 
+/** The group team classes go in, beside the Team High Point table. */
+const TEAM_GROUP = '\u0000team';
+
 /** The split board's rotation, a division at a time. Divisions come in the
  *  show's own order — the order the standings arrive in — then any division
  *  whose classes have earned no points yet, in the order its classes were
@@ -717,7 +723,7 @@ const NOT_COUNTED = '\u0000not-counted';
  *  standings, which it adds nothing to — a room would read its winner as
  *  having earned the points in the table. Those classes come last of all,
  *  beside a notice saying they do not count. */
-function buildSplitTurns(blocks: Block[], panes: DivisionPane[]): SplitTurn[] {
+function buildSplitTurns(blocks: Block[], panes: DivisionPane[], teamPane: DivisionPane | null = null): SplitTurn[] {
   type Group = { key: string; name: string | null; pane: DivisionPane | null; blocks: Block[] };
   const groups: Group[] = [];
   const byKey = new Map<string, Group>();
@@ -727,16 +733,20 @@ function buildSplitTurns(blocks: Block[], panes: DivisionPane[]): SplitTurn[] {
     return group;
   };
   for (const pane of panes) add({ key: divisionKey(pane.name), name: pane.name, pane, blocks: [] });
+  // Team classes earn Team High Point by rider, not their division's points
+  // (migration 192), so they turn beside that table after the divisions.
+  if (teamPane) add({ key: TEAM_GROUP, name: teamPane.name, pane: teamPane, blocks: [] });
   for (const block of blocks) {
     const counts = block.cls.high_point_eligible !== false;
-    const key = counts ? divisionKey(block.cls.division_name) : NOT_COUNTED;
-    const name = counts ? block.cls.division_name?.trim() || null : null;
+    const team = (block.cls.team_size ?? 0) >= 2;
+    const key = !counts ? NOT_COUNTED : team ? TEAM_GROUP : divisionKey(block.cls.division_name);
+    const name = !counts ? null : team ? 'Team High Point' : block.cls.division_name?.trim() || null;
     const group = byKey.get(key) ?? add({ key, name, pane: null, blocks: [] });
     group.blocks.push(block);
   }
   // Every division, then classes in no division, then the classes that do not
   // count (a stable sort keeps the rest in order).
-  const last = (key: string) => (key === NOT_COUNTED ? 2 : key === '' ? 1 : 0);
+  const last = (key: string) => (key === NOT_COUNTED ? 3 : key === '' ? 2 : key === TEAM_GROUP ? 1 : 0);
   groups.sort((a, b) => last(a.key) - last(b.key));
   return groups.flatMap((group, division) =>
     (group.blocks.length ? group.blocks : [null]).map((block) => ({
@@ -757,7 +767,7 @@ function buildSplitTurns(blocks: Block[], panes: DivisionPane[]): SplitTurn[] {
 function highPointLines(leaderboard: ShowLeaderboard | null): string[] {
   if (!leaderboard?.point_system) return [];
   const pts = (points: number) => `${formatPoints(points)} ${points === 1 ? 'pt' : 'pts'}`;
-  return leaderboard.divisions.map((division) => {
+  return [...leaderboard.divisions, ...(leaderboard.team ? [leaderboard.team] : [])].map((division) => {
     const summary = topStandings(division.standings, TOP_PLACES, STANDING_ROWS)
       .map((line) => {
         if (line.kind === 'tied') return `${line.count} tied for ${placeOrdinal(line.rank)} (${pts(line.points)})`;
@@ -767,7 +777,7 @@ function highPointLines(leaderboard: ShowLeaderboard | null): string[] {
         return `${placeOrdinal(s.rank)} ${back}${who} (${pts(s.points)})`;
       })
       .join('  ·  ');
-    return `High Point · ${division.name}: ${summary}`;
+    return division === leaderboard.team ? `${division.name}: ${summary}` : `High Point · ${division.name}: ${summary}`;
   });
 }
 
@@ -1513,7 +1523,10 @@ export default function LiveBoard({
           (d): DivisionPane => ({ name: d.name, lines: topStandings(d.standings, TOP_PLACES, STANDING_ROWS) }),
         )
       : [];
-    return buildSplitTurns(slides, panes);
+    const team = leaderboard?.point_system && leaderboard.team
+      ? { name: leaderboard.team.name, lines: topStandings(leaderboard.team.standings, TOP_PLACES, STANDING_ROWS) }
+      : null;
+    return buildSplitTurns(slides, panes, team);
   }, [split, slides, leaderboard]);
 
   const turns = split ? splitTurns.length : slides.length;

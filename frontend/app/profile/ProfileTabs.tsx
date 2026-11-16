@@ -14,7 +14,7 @@ import ShowHistoryPanel from './ShowHistoryPanel';
 import type { MyShow } from '@/lib/my-shows';
 
 interface User { first_name: string; last_name: string; full_name: string; email: string; role: string; created_at: string; }
-interface Registration { id: string; association_id: string; association_code: string; association_name: string; association_type?: 'breed' | 'club' | null; member_number: string; expires_at: string | null; }
+interface Registration { id: string; association_id: string; association_code: string; association_name: string; association_type?: 'breed' | 'club' | 'saddle_club' | null; member_number: string | null; expires_at: string | null; }
 interface Document {
   id: string; document_type: string; original_filename: string;
   issue_date: string | null; expiry_date: string | null; association_id: string | null;

@@ -31,6 +31,7 @@ from database import get_db
 from dependencies import require_admin_or_show_admin
 from high_point import _shown
 from registration_profile import ShowExhibitorView, exhibitor_views, load_copies_for_show
+from teams import horse_label, is_team_class, rider_label, teammates_of
 from judging import effective_score, is_overridden
 from models import (
     Association,
@@ -168,6 +169,8 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
             "pattern_posted_at": c.pattern_posted_at,
             "association_class_code": class_code(c),
             "entry_count": entry_counts.get(c.id, 0),
+            # Ridden by a team of this many (migration 192), or None.
+            "team_size": c.team_size if is_team_class(c) else None,
         }
         for c in class_rows
     ]
@@ -224,14 +227,33 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
     entries = []
     for e in entry_rows:
         member_number, member_expires = member(views.get(e.exhibitor_id) or e.exhibitor)
+        exhibitor_name = (e.exhibitor.full_name if e.exhibitor else None) or "(unnamed)"
+        horse_name = e.horse.name if e.horse else None
+        team = teammates_of(e)
         entries.append({
             "id": e.id,
             "class_id": e.class_id,
             "exhibitor_id": e.exhibitor_id,
-            "exhibitor_name": (e.exhibitor.full_name if e.exhibitor else None) or "(unnamed)",
+            # The person who entered -- the compliance sheet and the export's
+            # exhibitor columns are about them. `rider_label` and `horse_label`
+            # are the entry as it is read out, a team as its riders (migration
+            # 192), which is what an entry-level report prints.
+            "exhibitor_name": exhibitor_name,
+            "rider_label": rider_label(exhibitor_name, team) if team else exhibitor_name,
             "back_number": numbers.resolve(e.exhibitor_id, e.horse_id),
             "horse_id": e.horse_id,
-            "horse_name": e.horse.name if e.horse else None,
+            "horse_name": horse_name,
+            "horse_label": horse_label(horse_name, team) if team else horse_name,
+            # The rest of the team, in order, for the export's team columns.
+            "team_members": [
+                {
+                    "exhibitor_id": t.exhibitor_id,
+                    "name": t.name,
+                    "horse_id": t.horse_id,
+                    "horse_name": t.horse_name,
+                }
+                for t in team
+            ],
             "registration_number": registration(e.horse),
             "member_number": member_number,
             "member_expires_at": member_expires,

@@ -57,12 +57,12 @@ export default async function ShowLeaderboardPage({ params }: { params: Promise<
           The show office has not chosen a points system for this show. Class-by-class placings
           are on the <Link href={`/shows/${id}/results`} className="underline" style={{ color: 'var(--accent)' }}>Results</Link> page.
         </Notice>
-      ) : board.divisions.length === 0 ? (
+      ) : board.divisions.length === 0 && !board.team?.standings.length && !board.clubs?.standings.length ? (
         <Notice title="No points yet">
           Standings appear here as soon as the first class is judged and its placings are posted.
         </Notice>
       ) : (
-        <HighPointStandings divisions={board.divisions} pointSystem={board.point_system} />
+        <HighPointStandings divisions={board.divisions} team={board.team ?? null} clubs={board.clubs ?? null} pointSystem={board.point_system} />
       )}
 
       {/* The classes the standings are added up from: how many each was shown

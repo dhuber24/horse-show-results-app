@@ -77,6 +77,7 @@ from routers.card_photos import router as card_photos_router
 from routers.show_bill_imports import router as show_bill_imports_router
 from routers.show_companies import router as show_companies_router
 from routers.high_point import router as high_point_router
+from routers.club_points import router as club_points_router
 from routers.my_company import router as my_company_router
 from routers.show_company_staff import router as show_company_staff_router
 from routers.company_billing import admin_router as company_invoices_router
@@ -248,6 +249,7 @@ app.include_router(card_photos_router)
 app.include_router(show_bill_imports_router)
 app.include_router(show_companies_router)
 app.include_router(high_point_router)
+app.include_router(club_points_router)
 app.include_router(my_company_router)
 app.include_router(show_company_staff_router)
 app.include_router(company_invoices_router)

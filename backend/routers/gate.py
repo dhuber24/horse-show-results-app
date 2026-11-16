@@ -33,6 +33,7 @@ from models import (
 from routers.classes import list_classes
 from show_access import works_show
 from show_companies import ALL_FEATURE_ROLES, show_freeze
+from teams import horse_label, rider_label, teammates_of
 from schemas import (
     ClassPatternPost,
     ClassPatternStatus,
@@ -81,14 +82,22 @@ async def _get_class_or_404(show_id: UUID, class_id: UUID, db: AsyncSession) -> 
 
 
 def _serialize_entry(e: Entry, numbers: ShowBackNumbers | None = None) -> dict:
+    exhibitor_name = e.exhibitor.full_name if e.exhibitor else ""
+    horse_name = e.horse.name if e.horse else None
+    # A team is called as its riders (migration 192): the steward checks the
+    # team in, and needs to know who the second rider is to ask for them.
+    team = teammates_of(e)
+    if team:
+        exhibitor_name = rider_label(exhibitor_name, team)
+        horse_name = horse_label(horse_name, team)
     return {
         "id": e.id,
         # From show_entries, not the entry row — see backend/backnumbers.py. The
         # gate calls exhibitors by back number, so reading the always-NULL
         # per-entry column left the steward with a screen full of dashes.
         "back_number": resolve_back_number(e, numbers),
-        "exhibitor_name": e.exhibitor.full_name if e.exhibitor else "",
-        "horse_name": e.horse.name if e.horse else None,
+        "exhibitor_name": exhibitor_name,
+        "horse_name": horse_name,
         "is_disqualified": e.is_disqualified,
         "gate_order": e.gate_order,
         "gate_checked_in": e.gate_checked_in,

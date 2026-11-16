@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 
-interface Association { id: string; code: string; name: string; association_type: 'breed' | 'club'; }
+interface Association { id: string; code: string; name: string; association_type: 'breed' | 'club' | 'saddle_club'; }
 export interface Registration {
   id: string;
   association_id: string;
@@ -12,8 +12,9 @@ export interface Registration {
    * Breed registry or club body. What decides whether the expiry below is
    * required — a breed membership has to be current on the day of the show.
    */
-  association_type?: 'breed' | 'club' | null;
-  member_number: string;
+  association_type?: 'breed' | 'club' | 'saddle_club' | null;
+  /** Null on a saddle club, which issues no numbers (migration 193). */
+  member_number: string | null;
   /** When it lapses. null means unknown, not current (migration 117). */
   expires_at: string | null;
 }
@@ -175,10 +176,13 @@ export default function ExhibitorRegistrations({
 
   const selectedAssociation = associations.find((a) => a.id === newReg.association_id) ?? null;
   const expiryRequired = selectedAssociation?.association_type === 'breed';
+  // A saddle club issues no member numbers (migration 193): WSCA lists its
+  // riders by name, so the membership is the club and nothing else.
+  const numberOptional = selectedAssociation?.association_type === 'saddle_club';
 
   const handleAddReg = async () => {
-    if (!newReg.association_id || !newReg.member_number.trim()) {
-      setError('Select an association and enter a membership ID.');
+    if (!newReg.association_id || (!numberOptional && !newReg.member_number.trim())) {
+      setError(newReg.association_id ? 'Enter a membership ID.' : 'Select an association or club.');
       return;
     }
     if (expiryRequired && !newReg.expires_at) {
@@ -194,7 +198,7 @@ export default function ExhibitorRegistrations({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         association_id: newReg.association_id,
-        member_number: newReg.member_number.trim(),
+        member_number: newReg.member_number.trim() || null,
         expires_at: newReg.expires_at || null,
       }),
     });
@@ -309,7 +313,7 @@ export default function ExhibitorRegistrations({
                     <span className="font-mono text-sm font-semibold mr-2" style={{ color: 'var(--accent)' }}>
                       {reg.association_code}
                     </span>
-                    <span className="text-sm" style={{ color: 'var(--foreground)' }}>{reg.member_number}</span>
+                    <span className="text-sm" style={{ color: 'var(--foreground)' }}>{reg.member_number ?? 'Member'}</span>
                     <span className="text-xs ml-2" style={{ color: 'var(--muted)' }}>({reg.association_name})</span>
                   </div>
                   {confirmDeleteRegId === reg.id ? (
@@ -476,17 +480,26 @@ export default function ExhibitorRegistrations({
             <select value={newReg.association_id}
               onChange={(e) => setNewReg((p) => ({ ...p, association_id: e.target.value }))}
               className="w-full border rounded px-3 py-2 text-sm">
-              <option value="">Association…</option>
-              {availableAssociations.map((st) => (
+              <option value="">Association or club…</option>
+              {availableAssociations.filter((a) => a.association_type !== 'saddle_club').map((st) => (
                 <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
               ))}
+              {/* Saddle clubs (migration 193) by name: their codes are made up. */}
+              {availableAssociations.some((a) => a.association_type === 'saddle_club') && (
+                <optgroup label="Saddle clubs">
+                  {availableAssociations.filter((a) => a.association_type === 'saddle_club').map((st) => (
+                    <option key={st.id} value={st.id}>{st.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
           <div className="flex-1 min-w-[120px]">
             <input value={newReg.member_number}
               onChange={(e) => setNewReg((p) => ({ ...p, member_number: e.target.value }))}
-              placeholder="Membership ID"
-              className="w-full border rounded px-3 py-2 text-sm" />
+              placeholder={numberOptional ? 'No number needed' : 'Membership ID'}
+              disabled={numberOptional}
+              className="w-full border rounded px-3 py-2 text-sm disabled:opacity-60" />
           </div>
           {/* Required on a breed body, optional on a club — see `isBreed`.
               The show office checks membership standing at the desk, and a

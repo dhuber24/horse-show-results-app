@@ -11,6 +11,7 @@ import {
 import { useRegisterStepAutosave } from '../../setup/_lib/StepAutosave';
 import { errorMessage } from '@/lib/api-error';
 import { hashLabel, hashNumber } from '@/lib/class-number';
+import { TEAM_SIZE_CHOICES, teamSizeLabel } from '@/lib/teams';
 
 export type StandardItem = {
   id: string;
@@ -53,6 +54,10 @@ export type ClassItem = {
    *  created; the "Must qualify" box on the class list is where a guess gets
    *  corrected. */
   entered_by_qualification: boolean;
+  /** Ridden by a team of this many riders (migration 192); null for one.
+   *  Seeded from the class name when the class is created ("Tandem Bareback"
+   *  is 2); the Riders picker on the class list is where it is corrected. */
+  team_size?: number | null;
   sort_order: number | null;
   /** Entries on this class, from the class list payload. Read only to say why a
    *  class cannot be swept up in a bulk delete — a class cascades to its
@@ -412,6 +417,8 @@ function ClassBuilder({
   // Classes whose "Must qualify" box is mid-save. Per row rather than the
   // step-wide `busy`, so ticking one box does not freeze every other control.
   const [pendingQualify, setPendingQualify] = useState<Set<string>>(new Set());
+  // Classes whose Riders picker is mid-save, for the same reason.
+  const [pendingTeam, setPendingTeam] = useState<Set<string>>(new Set());
   // Opening the by-name form with the Grand & Reserve shortcut bumps this, so
   // the form can prefill itself without the step reaching into its state.
   const [namedClassPreset, setNamedClassPreset] = useState<{ kind: 'blank' | 'grand'; nonce: number } | null>(null);
@@ -1079,6 +1086,44 @@ function ClassBuilder({
    * Saved optimistically, because a box that waits on a round trip before it
    * shows its own tick reads as a box that did not take the click.
    */
+  /**
+   * How many riders a class is ridden by (migration 192). Seeded from the name
+   * when the class was made, and corrected here — "Tandem Bareback" is two,
+   * "4-In-A-Line" four, and a class the guess missed is set by hand.
+   *
+   * The backend refuses a size smaller than a team already named in the class
+   * (`TEAMS_TOO_LARGE`): which rider comes off is the desk's call. Saved
+   * optimistically like the qualify box, and put back on a refusal.
+   */
+  async function setTeamSize(cls: ClassItem, size: number | null) {
+    const before = cls.team_size ?? null;
+    setError(null);
+    setPendingTeam((prev) => new Set(prev).add(cls.id));
+    onChanged(classes.map((c) => (c.id === cls.id ? { ...c, team_size: size } : c)));
+    try {
+      const res = await fetch(`/api/shows/${showId}/classes/${cls.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team_size: size }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setError(errorMessage(j, `Could not update "${cls.class_name}".`));
+        onChanged(classes.map((c) => (c.id === cls.id ? { ...c, team_size: before } : c)));
+        await refreshClasses();
+      }
+    } catch {
+      setError(`Could not update "${cls.class_name}".`);
+      await refreshClasses();
+    } finally {
+      setPendingTeam((prev) => {
+        const nextSet = new Set(prev);
+        nextSet.delete(cls.id);
+        return nextSet;
+      });
+    }
+  }
+
   async function toggleQualification(cls: ClassItem) {
     const next = !cls.entered_by_qualification;
     setError(null);
@@ -1845,6 +1890,8 @@ function ClassBuilder({
                             onToggleSelect={() => toggleSelected(c.id)}
                             qualifyPending={pendingQualify.has(c.id)}
                             onToggleQualify={() => toggleQualification(c)}
+                            teamPending={pendingTeam.has(c.id)}
+                            onSetTeamSize={(size) => setTeamSize(c, size)}
                             numbersAsPrinted={numbersAsPrinted}
                             onSetNumber={(typed) => setClassNumber(c, typed)}
                             onDelete={() => removeClass(c.id)}
@@ -1890,6 +1937,8 @@ function ClassBuilder({
                                       onToggleSelect={() => toggleSelected(c.id)}
                                       qualifyPending={pendingQualify.has(c.id)}
                                       onToggleQualify={() => toggleQualification(c)}
+                                      teamPending={pendingTeam.has(c.id)}
+                                      onSetTeamSize={(size) => setTeamSize(c, size)}
                                       numbersAsPrinted={numbersAsPrinted}
                                       onSetNumber={(typed) => setClassNumber(c, typed)}
                                       onDelete={() => removeClass(c.id)}
@@ -1987,12 +2036,22 @@ function AxisRemove({
  * wrong classes — and everything else about the row is the same, so the two
  * must not be two pieces of markup that can drift.
  */
+/** The sizes the Riders picker offers, plus a stored one outside the usual
+ *  list so a class set to 7 elsewhere still reads 7 here. */
+function teamSizeChoices(current: number | null | undefined): number[] {
+  const sizes: number[] = [...TEAM_SIZE_CHOICES];
+  if (current && current >= 2 && !sizes.includes(current)) sizes.push(current);
+  return sizes.sort((a, b) => a - b);
+}
+
 function ClassRow({
   cls,
   selected,
   onToggleSelect,
   qualifyPending,
   onToggleQualify,
+  teamPending,
+  onSetTeamSize,
   numbersAsPrinted,
   onSetNumber,
   onDelete,
@@ -2005,6 +2064,9 @@ function ClassRow({
   onToggleSelect: () => void;
   qualifyPending: boolean;
   onToggleQualify: () => void;
+  teamPending: boolean;
+  /** Null for a class one rider rides. */
+  onSetTeamSize: (size: number | null) => void;
   /** The number is the bill's, so it is a box to type over, not a label. */
   numbersAsPrinted: boolean;
   onSetNumber: (typed: string) => void;
@@ -2147,6 +2209,28 @@ function ClassRow({
         </span>
       ) : (
         <span className="flex items-center gap-4 shrink-0">
+          <label
+            className="flex items-center gap-1.5 text-xs select-none"
+            style={{ color: COLORS.text }}
+            title="How many riders ride this class as a team — Tandem Bareback is 2, 4-In-A-Line 4. The rider who enters names the rest of the team, and the entry fee is charged once, to them."
+          >
+            Riders
+            <select
+              value={cls.team_size ?? ''}
+              disabled={teamPending}
+              onChange={(e) => onSetTeamSize(e.target.value ? Number(e.target.value) : null)}
+              aria-label={`Riders per entry — ${hashLabel(cls)}`}
+              className="rounded border px-1 py-0.5 text-xs"
+              style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg, color: COLORS.text }}
+            >
+              <option value="">1</option>
+              {teamSizeChoices(cls.team_size).map((size) => (
+                <option key={size} value={size}>
+                  {teamSizeLabel(size)}
+                </option>
+              ))}
+            </select>
+          </label>
           <label
             className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
             style={{ color: COLORS.text }}

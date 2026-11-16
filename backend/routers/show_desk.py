@@ -89,6 +89,8 @@ from exhibitor_merge import (
     records_with_email,
 )
 from rules.apha import division_for_class
+from teams import is_team_class, team_out, teammates_of
+from club_points import club_names, declared_clubs, held_clubs, load_settings, seat_clubs_for, settings_out
 from schemas import (
     ExhibitorMergeCandidate,
     ExhibitorMergeRequest,
@@ -174,11 +176,40 @@ async def get_desk(
         .join(Class, Entry.class_id == Class.id)
         .where(Class.show_id == show_id)
     )
+    entry_rows = list(entry_result.scalars().all())
+    # The club each team seat rides for, where not the rider's primary (193).
+    seat_clubs = await seat_clubs_for(db, [e.id for e in entry_rows])
     entries_by_exhibitor: dict[UUID, list[dict]] = {}
     entry_count_by_class: dict[UUID, int] = {}
-    for entry in entry_result.scalars().all():
+    # Teams somebody else entered with this exhibitor on them (migration 192),
+    # keyed by the teammate, so their own row says they ride in the class.
+    team_rides_by_exhibitor: dict[UUID, list[dict]] = {}
+    # Who rides on which team in each team class, so a rider on two teams of one
+    # class is shown on both (`team_overlaps`). A rail class refuses that at the
+    # door (`teams.rides_together`); a timed one allows it, and the office looks.
+    riders_by_class: dict[UUID, dict[UUID, list[UUID]]] = {}
+    entrant_by_entry: dict[UUID, UUID] = {}
+    for entry in entry_rows:
         entry_count_by_class[entry.class_id] = entry_count_by_class.get(entry.class_id, 0) + 1
         horse = entry.horse
+        teammates = teammates_of(entry)
+        if is_team_class(entry.class_) and entry.status != "WITHDRAWN":
+            entrant_by_entry[entry.id] = entry.exhibitor_id
+            seats = riders_by_class.setdefault(entry.class_id, {})
+            for rider in [entry.exhibitor_id, *(t.exhibitor_id for t in teammates)]:
+                seats.setdefault(rider, []).append(entry.id)
+        for teammate in teammates:
+            team_rides_by_exhibitor.setdefault(teammate.exhibitor_id, []).append({
+                "entry_id": entry.id,
+                "class_id": entry.class_id,
+                "class_number": entry.class_.class_number if entry.class_ else None,
+                "class_name": entry.class_.class_name if entry.class_ else None,
+                "class_date": entry.class_.class_date if entry.class_ else None,
+                "entrant_id": entry.exhibitor_id,
+                "entrant_name": "",  # filled from the roster below
+                "horse_name": teammate.horse_name,
+                "team_horse_name": horse.name if horse else None,
+            })
         entries_by_exhibitor.setdefault(entry.exhibitor_id, []).append({
             "entry_id": entry.id,
             "class_id": entry.class_id,
@@ -201,8 +232,13 @@ async def get_desk(
             "dam_name": horse.dam_name if horse else None,
             "apha_division": entry.apha_division,
             "is_disqualified": entry.is_disqualified,
+            # The rest of the team and who is still to be named on it -- a
+            # flag the desk shows, never a refusal (`backend/teams.py`).
+            **(team_out(entry.class_, teammates, seat_clubs, entry) if is_team_class(entry.class_) else {}),
         })
     for rows in entries_by_exhibitor.values():
+        rows.sort(key=lambda e: class_order.get(e["class_id"], len(class_order)))
+    for rows in team_rides_by_exhibitor.values():
         rows.sort(key=lambda e: class_order.get(e["class_id"], len(class_order)))
 
     pot_result = await db.execute(
@@ -233,6 +269,26 @@ async def get_desk(
         for pot_entry in pot.pot_entries:
             pot_ids_by_show_entry.setdefault(pot_entry.show_entry_id, []).append(pot.id)
 
+    # Saddle-club high point (migration 193): the clubs each rider holds among
+    # those competing, and the one(s) they ride for here.
+    club_settings = await load_settings(db, show_id)
+    competing = {c.association_id for c in club_settings.clubs} if club_settings else set()
+    roster_ids = [a["exhibitor_id"] for a in financials["accounts"]]
+    held_by = await held_clubs(db, show_id, roster_ids, competing) if competing else {}
+    declared_by = await declared_clubs(db, show_id) if club_settings else {}
+    names_by_club = await club_names(db, competing)
+
+    def clubs_for(exhibitor_id) -> Optional[dict]:
+        if club_settings is None:
+            return None
+        declared = declared_by.get(exhibitor_id)
+        return {
+            "held": [{"id": cid, "name": names_by_club.get(cid, "")} for cid in held_by.get(exhibitor_id, [])],
+            "club_ids": list(declared.clubs) if declared else [],
+            "primary_id": declared.primary if declared else None,
+            "derived": bool(declared and declared.derived),
+        }
+
     exhibitors_out = []
     for account in financials["accounts"]:
         exhibitor_id = account["exhibitor_id"]
@@ -261,6 +317,8 @@ async def get_desk(
             "arrival_date": account["arrival_date"],
             "departure_date": account["departure_date"],
             "entries": entries_by_exhibitor.get(exhibitor_id, []),
+            "team_rides": team_rides_by_exhibitor.get(exhibitor_id, []),
+            "clubs": clubs_for(exhibitor_id),
             "side_pot_ids": pot_ids_by_show_entry.get(account["show_entry_id"], []),
             "memberships": paperwork["memberships"] if paperwork else [],
             "horses": paperwork["horses"] if paperwork else [],
@@ -283,6 +341,32 @@ async def get_desk(
     # Alphabetical, because the desk's question is "where is Susan Miller", not
     # "who owes the most" — that is what the Financials screen sorts for.
     exhibitors_out.sort(key=lambda e: (e["exhibitor_name"] or "").lower())
+    # Who entered each team a teammate rides on, by the name the desk shows them
+    # under rather than a second read of `exhibitors`.
+    name_by_exhibitor = {e["exhibitor_id"]: e["exhibitor_name"] for e in exhibitors_out}
+    for rides in team_rides_by_exhibitor.values():
+        for ride in rides:
+            ride["entrant_name"] = name_by_exhibitor.get(ride["entrant_id"]) or "(unnamed)"
+    for exhibitor_row in exhibitors_out:
+        for row in exhibitor_row["entries"]:
+            seats = riders_by_class.get(row["class_id"])
+            if not seats or row["entry_id"] not in entrant_by_entry:
+                continue
+            riders = [(exhibitor_row["exhibitor_id"], exhibitor_row["exhibitor_name"])] + [
+                (m["exhibitor_id"], m["exhibitor_name"]) for m in row.get("team_members", [])
+            ]
+            row["team_overlaps"] = [
+                {
+                    "exhibitor_id": rider_id,
+                    "exhibitor_name": rider_name,
+                    "entry_id": other,
+                    "entrant_name": name_by_exhibitor.get(entrant_by_entry[other]) or "(unnamed)",
+                    "own_entry": entrant_by_entry[other] == rider_id,
+                }
+                for rider_id, rider_name in riders
+                for other in seats.get(rider_id, [])
+                if other != row["entry_id"]
+            ]
 
     # Counts the paperwork problem, not the sign-off: a lapsed Coggins is what
     # the office chases, and whether anyone has looked at it yet is a different
@@ -301,6 +385,7 @@ async def get_desk(
         "show_name": show.name,
         "show_status": show.status,
         "show_type_code": show_type_code,
+        "club_points": await settings_out(db, club_settings),
         "back_number_per": show.back_number_per or "exhibitor",
         # Quoted from the checklist rather than read off the show again, so the
         # desk cannot disagree with the tally it is drawing (migration 138).
@@ -338,6 +423,7 @@ async def get_desk(
                     else None
                 ),
                 "entry_count": entry_count_by_class.get(cls.id, 0),
+                "team_size": cls.team_size if is_team_class(cls) else None,
             }
             for cls in classes
         ],

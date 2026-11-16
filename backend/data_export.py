@@ -54,6 +54,9 @@ GROUPS = [
     {"key": "memberships", "label": "Memberships"},
     {"key": "horse", "label": "Horse"},
     {"key": "registrations", "label": "Horse registrations"},
+    # Only offered at a show with a team class (migration 192); last, so every
+    # other show's file keeps the columns in the order it always had.
+    {"key": "team", "label": "Team"},
 ]
 
 
@@ -115,6 +118,34 @@ BASE_FIELDS = [
     _field("owner", "Owner", "horse"),
     _field("trainer", "Trainer", "horse"),
 ]
+
+
+# The rest of a team, in a team class (migration 192). The exhibitor and horse
+# columns stay the rider who entered -- the GaitDesk IDs there are theirs -- and
+# these list the others in the team's own order, one teammate per "; "-separated
+# item in every column, so a club crediting each rider and horse can split them
+# back into pairs. A teammate on the team's horse is listed with that horse,
+# since the horse they rode is the fact a club needs.
+TEAM_FIELDS = [
+    _field("teammates", "Teammates", "team"),
+    _field("teammate_ids", "Teammates' GaitDesk IDs", "team"),
+    _field("teammate_horses", "Teammates' horses", "team"),
+    _field("teammate_horse_ids", "Teammates' GaitDesk horse IDs", "team"),
+]
+
+
+def _team_cells(entry: dict) -> dict:
+    team = entry.get("team_members") or []
+
+    def column(values) -> Optional[str]:
+        return "; ".join(values) or None
+
+    return {
+        "teammates": column(t["name"] for t in team),
+        "teammate_ids": column(str(t["exhibitor_id"]) for t in team),
+        "teammate_horses": column(t["horse_name"] or entry["horse_name"] or "" for t in team),
+        "teammate_horse_ids": column(str(t["horse_id"] or entry["horse_id"] or "") for t in team),
+    }
 
 
 def _member_key(code: str) -> str:
@@ -217,6 +248,14 @@ def fields_for(record: dict) -> list[dict]:
             )
         )
 
+    # The team columns, at a show that has a team class, and ticked once a team
+    # there has a rider named on it -- the same rule as a per-body column.
+    has_team_class = any(c.get("team_size") for c in record["classes"])
+    team_named = any(e.get("team_members") for e in record["entries"])
+    team_fields = (
+        [{**f, "default": team_named} for f in TEAM_FIELDS] if has_team_class or team_named else []
+    )
+
     out: list[dict] = []
     for group in GROUPS:
         out.extend(f for f in BASE_FIELDS if f["group"] == group["key"])
@@ -224,6 +263,8 @@ def fields_for(record: dict) -> list[dict]:
             out.extend(member_fields)
         if group["key"] == "registrations":
             out.extend(registration_fields)
+        if group["key"] == "team":
+            out.extend(team_fields)
     return out
 
 
@@ -283,6 +324,7 @@ def _entry_cells(record: dict, entry: dict, bodies: list[dict]) -> dict:
         "color": horse.get("color"),
         "owner": horse.get("owner"),
         "trainer": horse.get("trainer"),
+        **_team_cells(entry),
     }
     memberships = person.get("memberships", {})
     registrations = horse.get("registrations", {})

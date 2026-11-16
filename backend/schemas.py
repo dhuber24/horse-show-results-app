@@ -38,7 +38,9 @@ class ShowTypeOut(BaseModel):
 # The registry of bodies a horse or person can be affiliated with. Distinct from
 # ShowType, which is show configuration. See models.Association.
 
-AssociationType = Literal["breed", "club"]
+# `saddle_club` (migration 193): a local club a rider rides for, never a
+# sanctioning body -- WSCA's member saddle clubs.
+AssociationType = Literal["breed", "club", "saddle_club"]
 
 
 class AssociationCreate(BaseModel):
@@ -812,6 +814,9 @@ class ClassCreate(BaseModel):
     # Omit to derive from the class name at creation time -- a "Grand & Reserve"
     # class is called back from the qualifying classes, never entered.
     entered_by_qualification: Optional[bool] = None
+    # Ridden by a team of this many riders (migration 192). Omit to derive from
+    # the class name ("Tandem Bareback" is 2); send null for one rider.
+    team_size: Optional[int] = Field(default=None, ge=2, le=12)
 
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
@@ -838,6 +843,9 @@ class ClassUpdate(BaseModel):
     # Which card shape this class is judged on (migration 122). Null means the
     # scribe types a total, which is how a rail class still works.
     judging_system_id: Optional[UUID] = None
+    # Ridden by a team of this many riders (migration 192); null for one rider.
+    # Derived from the name when the class was created; this corrects it.
+    team_size: Optional[int] = Field(default=None, ge=2, le=12)
 
 class ClassPatternPost(BaseModel):
     """Recording that a class’s pattern has gone up.
@@ -960,6 +968,8 @@ class ClassOut(BaseModel):
     is_free: bool = False
     # Whether its placings earn high-point points (migration 167).
     high_point_eligible: bool = True
+    # Ridden by a team of this many riders (migration 192); None for one rider.
+    team_size: Optional[int] = None
     gate_status: str = "pending"
     results_published_at: Optional[datetime] = None
     pattern_posted_at: Optional[datetime] = None
@@ -2612,7 +2622,9 @@ class HorseRiderCreate(BaseModel):
 
 class ExhibitorRegistrationCreate(BaseModel):
     association_id: UUID
-    member_number: str = Field(min_length=1, max_length=50)
+    # Required everywhere but a saddle club, which issues none (migration 193);
+    # `people._member_number` says so per association.
+    member_number: Optional[str] = Field(default=None, max_length=50)
     # Migration 117. NULL means unknown, not current — see the column comment.
     expires_at: Optional[date] = None
 
@@ -2636,7 +2648,7 @@ class ExhibitorRegistrationOut(BaseModel):
     association_code: str
     association_name: str
     association_type: Optional[AssociationType] = None
-    member_number: str
+    member_number: Optional[str] = None
     expires_at: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -2905,6 +2917,64 @@ class EntryAttestationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TeamMemberOut(BaseModel):
+    """One rider on a team entry other than the one who entered it (migration 192).
+
+    Names ride along because every screen that shows a team shows it by name,
+    and they are public wherever the entry is: the class page and the schedule
+    already print who is in a class.
+    """
+
+    exhibitor_id: UUID
+    exhibitor_name: str
+    # None: they ride the team's horse, the entry's own (Tandem Bareback).
+    horse_id: Optional[UUID] = None
+    horse_name: Optional[str] = None
+    # From 2: the rider who entered is 1.
+    position: int
+    # The club they ride for on this team, where not their primary (193).
+    club_id: Optional[UUID] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_row(cls, v):
+        if isinstance(v, dict):
+            return v
+        exhibitor = getattr(v, "exhibitor", None)
+        horse = getattr(v, "horse", None)
+        return {
+            "exhibitor_id": v.exhibitor_id,
+            "exhibitor_name": (exhibitor.full_name if exhibitor else None) or "(unnamed)",
+            "horse_id": v.horse_id,
+            "horse_name": horse.name if horse else None,
+            "position": v.position,
+        }
+
+
+class TeamMemberIn(BaseModel):
+    exhibitor_id: UUID
+    # Omit, or send the team's own horse, for a rider on the team's horse.
+    horse_id: Optional[UUID] = None
+    # The club they ride for on this team, where it is not their primary club
+    # (migration 193). Omit for their primary.
+    club_id: Optional[UUID] = None
+
+
+class TeamReplace(BaseModel):
+    """The whole team but its first rider, in order -- every time.
+
+    Replace rather than add/remove for the reason `ClassSanctioningReplace` is:
+    the screen holds the list it means, and sending that list cannot leave a
+    stale seat behind the way a stream of edits can. Capped at the largest team
+    a class may name (`ck_classes_team_size`) less the rider who entered.
+    """
+
+    members: list[TeamMemberIn] = Field(default_factory=list, max_length=11)
+    # The club the rider who entered rides for on this team, where it is not
+    # their primary (migration 193).
+    entrant_club_id: Optional[UUID] = None
+
+
 class EntryCreate(BaseModel):
     exhibitor_id: UUID
     horse_id: UUID
@@ -2945,6 +3015,9 @@ class EntryOut(BaseModel):
     gate_checked_in: bool = False
     gate_no_show: bool = False
     created_at: datetime
+    # The rest of the team, in a team class (migration 192); empty otherwise.
+    # `exhibitor_id` and `horse_id` above are the team's first rider.
+    team_members: list[TeamMemberOut] = Field(default_factory=list)
     # What the association rules said about this entry as it was saved. Nothing
     # refuses an entry over them any more (`rules.REFUSING_CODES`), so this is how
     # whoever entered it hears about them. Empty on every read but a save.
@@ -5238,6 +5311,8 @@ class ShowDeskClassOut(BaseModel):
     # class does not say — an entry is then filed with no division.
     apha_division: Optional[str] = None
     entry_count: int = 0
+    # Ridden by a team of this many riders (migration 192); None for one rider.
+    team_size: Optional[int] = None
 
 
 class ShowDeskSidePotOut(BaseModel):
@@ -5252,6 +5327,18 @@ class ShowDeskSidePotOut(BaseModel):
     # the press — the same shape and the same reason as a futurity's
     # `class_ids` beside it.
     class_ids: list[UUID] = Field(default_factory=list)
+
+
+class ShowDeskTeamOverlapOut(BaseModel):
+    """A rider on this team who also rides on another team in the class."""
+
+    exhibitor_id: UUID
+    exhibitor_name: str
+    # The other team's entry, and who entered it.
+    entry_id: UUID
+    entrant_name: str
+    # The rider entered that other team themselves.
+    own_entry: bool = False
 
 
 class ShowDeskEntryOut(BaseModel):
@@ -5272,6 +5359,52 @@ class ShowDeskEntryOut(BaseModel):
     dam_name: Optional[str] = None
     apha_division: Optional[str] = None
     is_disqualified: bool = False
+    # The rest of the team, in a team class (migration 192), and how many riders
+    # are still to be named on it -- a flag for the desk, never a refusal.
+    team_members: list[TeamMemberOut] = Field(default_factory=list)
+    team_short: int = 0
+    # The club the entrant rides for on this team, where not their primary.
+    entrant_club_id: Optional[UUID] = None
+    # Riders on this team who ride on another team in the same class too. Only
+    # possible in a timed or pattern class, which runs one team at a time.
+    team_overlaps: list[ShowDeskTeamOverlapOut] = Field(default_factory=list)
+
+
+class ShowDeskClubOptionOut(BaseModel):
+    id: UUID
+    name: str
+
+
+class ShowDeskRiderClubsOut(BaseModel):
+    """The saddle clubs a rider holds among those competing at this show, and
+    the one(s) they ride for (migration 193). `derived`: nobody declared, and
+    they hold exactly one."""
+
+    held: list[ShowDeskClubOptionOut] = Field(default_factory=list)
+    club_ids: list[UUID] = Field(default_factory=list)
+    primary_id: Optional[UUID] = None
+    derived: bool = False
+
+
+class ShowDeskTeamRideOut(BaseModel):
+    """A team this exhibitor rides on that somebody else entered (migration 192).
+
+    The entry is the other rider's, so it is on their row of the desk and on
+    their bill; this is how the teammate's own row says they ride in the class.
+    """
+
+    entry_id: UUID
+    class_id: UUID
+    class_number: Optional[str] = None
+    class_name: Optional[str] = None
+    class_date: Optional[date] = None
+    # Who entered the team, and on which horse.
+    entrant_id: UUID
+    entrant_name: str
+    # The horse this exhibitor rides on the team: their own, or None for the
+    # team's horse (`team_horse_name`).
+    horse_name: Optional[str] = None
+    team_horse_name: Optional[str] = None
 
 
 class ShowDeskExhibitorOut(BaseModel):
@@ -5305,6 +5438,10 @@ class ShowDeskExhibitorOut(BaseModel):
     arrival_date: Optional[date] = None
     departure_date: Optional[date] = None
     entries: list[ShowDeskEntryOut] = Field(default_factory=list)
+    # Teams somebody else entered with this exhibitor on them (migration 192).
+    team_rides: list[ShowDeskTeamRideOut] = Field(default_factory=list)
+    # Null where the show keeps no saddle-club standings (migration 193).
+    clubs: Optional[ShowDeskRiderClubsOut] = None
     side_pot_ids: list[UUID] = Field(default_factory=list)
     # The same check rows the standalone check-in sheet renders, from the same
     # builder — "verified", "changed since sign-off", and "nothing on file" have
@@ -5376,6 +5513,8 @@ class ShowDeskOut(BaseModel):
     show_name: str
     show_status: str
     show_type_code: Optional[str] = None
+    # The show's saddle-club high point setup (migration 193).
+    club_points: Optional[dict] = None
     # Who a back number belongs to here (migrations 161, 178): `exhibitor` puts
     # one box in each exhibitor's header, `horse` and `pair` one beside each of
     # their horses.

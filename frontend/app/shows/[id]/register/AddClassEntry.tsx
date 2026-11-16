@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { isTeamClass, teamSizeLabel } from '@/lib/teams';
 import Link from 'next/link';
 import {
   ATTESTATION_REQUIRED_DIVISIONS,
@@ -423,6 +424,9 @@ export default function AddClassEntry({
                   const ridingAlready = (horseIdsByClass.get(c.id) ?? []).length > 0;
                   const division = on ? aphaDivisionOf(c) : '';
                   const meta = [
+                    // A team class (migration 192): entered by one rider, who
+                    // names the rest of the team once it is in.
+                    isTeamClass(c.team_size) ? `${teamSizeLabel(c.team_size)} — you name your team after entering` : null,
                     c.sanctioning_codes.length > 0 ? c.sanctioning_codes.join(', ') : null,
                     (c.side_pots ?? []).length > 0 ? 'side pot' : null,
                     ridingAlready ? 'another horse' : null,

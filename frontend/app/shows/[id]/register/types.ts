@@ -8,6 +8,7 @@
  * types is the kind of pair that drifts.
  */
 
+import type { TeamMember } from '@/lib/teams';
 import type { Bill } from '@/lib/my-shows';
 import type { Registration } from '@/components/ExhibitorRegistrations';
 import type { RegistrationWindow } from '@/lib/registration-window';
@@ -35,6 +36,9 @@ export type PreviewClass = {
    *  the top two from each qualifying class. The picker leaves these out and
    *  says why; `POST /shows/{id}/register` refuses them either way. */
   entered_by_qualification: boolean;
+  /** Ridden by a team of this many riders (migration 192), or null. Whoever
+   *  enters it names the rest of the team on the class page afterwards. */
+  team_size?: number | null;
   /** Which APHA divisions this class is actually run for, read off its bracket
    *  by `divisions_for_bracket`. **Null means the class does not say**, and
    *  every division stays on offer — not "no division fits". Only ever sent at
@@ -138,6 +142,30 @@ export type ExistingEntry = {
    *  finished or the horse has a result — or null. Only the show office takes
    *  them out then. */
   scratch_locked?: string | null;
+  /** The rest of the team, in a team class (migration 192), and how many
+   *  riders are still to be named on it. Absent on an ordinary entry. */
+  team_members?: TeamMember[];
+  team_short?: number;
+  /** Why the team can no longer be changed here — the class is under way or
+   *  finished — or null while it can. */
+  team_locked?: string | null;
+  /** The club they ride for on this team, where not their primary (193). */
+  entrant_club_id?: string | null;
+};
+
+/** A team somebody else entered with this exhibitor on it (migration 192).
+ *  Their entry and their fee; listed so the class page says this rider rides
+ *  in the class too. */
+export type TeamRide = {
+  entry_id: string;
+  class_id: string;
+  class_number: string;
+  class_name: string;
+  class_date: string;
+  entrant_name: string | null;
+  team_horse_name: string | null;
+  /** The horse this exhibitor rides on the team — null for the team's own. */
+  horse_name: string | null;
 };
 
 export type Signup = {
@@ -275,6 +303,9 @@ export type PreviewData = {
    *  offer them back. Optional for a frontend ahead of its backend. */
   other_profile_horses?: { id: string; name: string }[];
   existing_entries: ExistingEntry[];
+  /** Teams somebody else entered with this exhibitor on them (migration 192).
+   *  Optional for a payload from before it. */
+  team_rides?: TeamRide[];
   /** From `billing.build_bill` — never re-derived here. See Claude.md. */
   bill: Bill;
 };

@@ -13,6 +13,7 @@ from models import (
     Class,
     Show,
     Entry,
+    EntryTeamMember,
     Result,
     Ring,
     ClassAssociation,
@@ -29,7 +30,7 @@ from models import (
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from rules.apha import zone_individual_work_note
-from rules.disciplines import classify_class_name, entered_by_qualification
+from rules.disciplines import classify_class_name, entered_by_qualification, team_size as team_size_for_name
 from class_numbers import class_label, hash_label, next_number, number_in_order
 from card_types import (
     CARD_TYPES,
@@ -192,6 +193,9 @@ async def _create_classes_auto_routed(
             # Same derivation as the single-class create: an imported "Grand &
             # Reserve" class is a call-back, not something to offer an exhibitor.
             entered_by_qualification=entered_by_qualification(name),
+            # And a "Tandem Bareback" off a show bill is ridden by two (migration
+            # 192), the office's to correct on the Class Builder.
+            team_size=team_size_for_name(name),
         )
         db.add(cls)
         await db.flush()
@@ -668,6 +672,13 @@ async def create_class(
         if body.entered_by_qualification is not None
         else entered_by_qualification(body.class_name)
     )
+    # The same shape for a team (migration 192): "Tandem Bareback" is ridden by
+    # two unless the caller said otherwise -- and an explicit null says one.
+    team_size = (
+        body.team_size
+        if "team_size" in body.model_fields_set
+        else team_size_for_name(body.class_name)
+    )
 
     max_order_result = await db.execute(
         select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
@@ -692,6 +703,7 @@ async def create_class(
         score_type=score_type,
         entry_fee_cents=body.entry_fee_cents,
         entered_by_qualification=by_qualification,
+        team_size=team_size,
     )
     db.add(class_)
     try:
@@ -825,6 +837,39 @@ def _apply_free(class_: Class, update_fields: dict) -> None:
     update_fields["entry_fee_cents"] = 0
 
 
+async def _assert_teams_fit(class_: Class, new_size: Optional[int], db: AsyncSession) -> None:
+    """Refuse a team size smaller than a team already named in this class.
+
+    Shrinking under a named team would leave riders on it that the class no
+    longer has seats for -- and making the class a one-rider class would leave
+    them on an entry nothing reads as a team. Which teammate to drop is the
+    office's call, made at the desk, so the class change waits for it rather
+    than choosing for them. Growing a class, or naming one a team class, never
+    strands anybody.
+    """
+    seats = (new_size - 1) if new_size else 0
+    counts = await db.execute(
+        select(func.count(EntryTeamMember.id))
+        .join(Entry, Entry.id == EntryTeamMember.entry_id)
+        .where(Entry.class_id == class_.id)
+        .group_by(EntryTeamMember.entry_id)
+    )
+    over = [count for (count,) in counts.all() if count > seats]
+    if over:
+        largest = max(over) + 1
+        teams = "1 team" if len(over) == 1 else f"{len(over)} teams"
+        raise HTTPException(
+            409,
+            {
+                "code": "TEAMS_TOO_LARGE",
+                "message": (
+                    f"{class_label(class_)} has {teams} of up to {largest} riders "
+                    "named already. Take riders off those teams at the desk first."
+                ),
+            },
+        )
+
+
 @router.patch("/{class_id}", response_model=ClassOut, dependencies=[Depends(require_admin_or_show_admin)])
 async def update_class(
     show_id: UUID,
@@ -887,6 +932,8 @@ async def update_class(
             )
         update_fields["class_number"] = (update_fields["class_number"] or "").strip()
     _apply_free(class_, update_fields)
+    if "team_size" in update_fields:
+        await _assert_teams_fit(class_, update_fields["team_size"], db)
     for k, v in update_fields.items():
         setattr(class_, k, v)
     try:

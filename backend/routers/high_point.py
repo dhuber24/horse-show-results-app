@@ -39,6 +39,7 @@ from dependencies import INTERNAL_API_KEY, require_admin_or_show_admin, safe_uui
 from high_point import (
     build_chart,
     load_cards,
+    tally_team,
     load_class_summaries,
     may_edit_point_system,
     may_use_point_system,
@@ -58,6 +59,7 @@ from models import (
     ShowCompanyMember,
     ShowPointSystem,
 )
+from club_points import load_club_context, tally_clubs
 from routers.shows import _assert_show_access
 from show_companies import ALL_FEATURE_ROLES, show_company_ids
 
@@ -510,11 +512,17 @@ async def show_leaderboard(show_id: UUID, db: AsyncSession = Depends(get_db)):
     ).scalars().all()
 
     divisions: list[dict] = []
+    team: Optional[dict] = None
+    clubs: Optional[dict] = None
     classes: list[dict] = []
     cards, posted = await load_cards(db, [show_id])
     if system is not None:
         chart = build_chart(system.awards)
         divisions = tally(cards, chart)
+        # Team classes earn a standing of their own, by rider (migration 192).
+        team = tally_team(cards, chart)
+        # Saddle-club standings, where the office set them up (migration 193).
+        clubs = tally_clubs(cards, chart, await load_club_context(db, [show_id]))
         # What each posted class put up for grabs, and how many it was shown
         # to, printed under the standings so a total can be checked against
         # the classes that made it. A class left out of high point is listed
@@ -531,12 +539,16 @@ async def show_leaderboard(show_id: UUID, db: AsyncSession = Depends(get_db)):
                     UUID(row["exhibitor_id"]),
                     UUID(row["horse_id"]) if row["horse_id"] else None,
                 )
+        for row in (team or {}).get("standings", []):
+            row["back_number"] = numbers.resolve(UUID(row["exhibitor_id"]), None)
 
     return {
         "show_id": str(show_id),
         "point_system": _system_payload(system) if system else None,
         "posted_class_count": posted,
         "divisions": divisions,
+        "team": team,
+        "clubs": clubs,
         "classes": classes,
         "circuits": [_circuit_summary(c) for c in circuits],
     }
@@ -874,6 +886,12 @@ async def circuit_leaderboard(circuit_id: UUID, db: AsyncSession = Depends(get_d
     payload["point_system"] = _system_payload(system) if system else None
     payload["posted_class_count"] = posted
     payload["divisions"] = tally(cards, build_chart(system.awards)) if system else []
+    payload["team"] = tally_team(cards, build_chart(system.awards)) if system else None
+    payload["clubs"] = (
+        tally_clubs(cards, build_chart(system.awards), await load_club_context(db, [UUID(s["id"]) for s in payload["shows"]]))
+        if system
+        else None
+    )
     return payload
 
 

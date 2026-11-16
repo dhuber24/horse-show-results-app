@@ -2332,6 +2332,24 @@ async def _require_expiry_for_breed(association_id: UUID, expires_at, db: AsyncS
         )
 
 
+async def _member_number(association_id: UUID, member_number: Optional[str], db: AsyncSession) -> Optional[str]:
+    """The number to store on a membership, refused where one is needed.
+
+    A saddle club issues no numbers -- WSCA lists its riders by name, zip and
+    birth year -- so its membership is saved with none (migration 193). Every
+    other body is asked for one, as before.
+    """
+    number = (member_number or "").strip() or None
+    if number is not None:
+        return number
+    association = await db.get(Association, association_id)
+    if association is None:
+        raise HTTPException(422, "Association not found")
+    if association.association_type != "saddle_club":
+        raise HTTPException(422, f"A member number is required for a {association.code} membership.")
+    return None
+
+
 def _exhibitor_reg_out(reg: ExhibitorRegistration) -> ExhibitorRegistrationOut:
     return ExhibitorRegistrationOut(
         id=reg.id,
@@ -2382,7 +2400,7 @@ async def add_exhibitor_registration(
     reg = ExhibitorRegistration(
         exhibitor_id=exhibitor_id,
         association_id=body.association_id,
-        member_number=body.member_number.strip(),
+        member_number=await _member_number(body.association_id, body.member_number, db),
         expires_at=body.expires_at,
     )
     db.add(reg)

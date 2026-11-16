@@ -11,6 +11,7 @@ import {
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import { formatPoints } from '@/lib/high-point';
 import HighPointClasses from './HighPointClasses';
+import ClubPointsSetup from '@/components/ClubPointsSetup';
 import ShowPointChart, { type AssociationOption } from './ShowPointChart';
 
 /**
@@ -64,6 +65,13 @@ export default async function ShowHighPointPage({ params }: { params: Promise<{ 
           associations={(associations as AssociationOption[]).map((a) => ({ id: a.id, code: a.code, name: a.name }))}
           isAdmin={isAdmin}
         />
+      </section>
+
+      {/* Saddle-club high point (migration 193): the office decides whether
+          clubs are scored here, which compete, and how riders and teams count. */}
+      <section className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+        <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>Saddle Club High Point</h2>
+        <ClubPointsSetup showId={id} />
       </section>
 
       <section className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>

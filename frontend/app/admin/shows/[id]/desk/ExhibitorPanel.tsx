@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useId, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useState } from 'react';
 import AddEntryForm from './AddEntryForm';
 import CheckRow, { type VerificationKind } from './CheckRow';
 import ContactForm, { type ContactValues } from './ContactForm';
@@ -22,8 +22,12 @@ import {
   paperworkToDo,
   unenrolledFuturityHorses,
 } from './types';
-import type { Desk, DeskExhibitor, ExhibitorContact } from './types';
+import type { Desk, DeskEntry, DeskExhibitor, ExhibitorContact } from './types';
+import TeamEditor, { type SeatClubChoices, type TeamCandidate, type TeamHorseOption } from '@/components/TeamEditor';
+import RiderClubs from '@/components/RiderClubs';
+import { errorMessage } from '@/lib/api-error';
 import { formatMoney } from '@/lib/financials';
+import { isTeamClass, riderLabel, teamShortLabel, teamSizeLabel, type TeamSeat } from '@/lib/teams';
 import type { BillClassLine } from '@/lib/my-shows';
 
 /** The subject of a paperwork sign-off, as the backend wants it posted. */
@@ -629,6 +633,70 @@ export default function ExhibitorPanel({
       'Could not remove that entry.',
     );
 
+  // ── Teams (migration 192) ─────────────────────────────────────────────────
+  // Which of this exhibitor's team entries has its editor open, if any.
+  const [editingTeam, setEditingTeam] = useState<string | null>(null);
+  useEffect(() => setEditingTeam(null), [exhibitor.exhibitor_id]);
+
+  /** Riders who could join a team, from the desk's own roster: anybody at the
+   *  show and not cancelled, which is the backend's rule (`teams.at_show`). */
+  const findTeammates = async (query: string): Promise<TeamCandidate[]> => {
+    const needle = query.trim().toLowerCase();
+    return desk.exhibitors
+      .filter(
+        (e) =>
+          e.show_entry_id &&
+          !e.cancelled_at &&
+          e.exhibitor_id !== exhibitor.exhibitor_id &&
+          e.exhibitor_name.toLowerCase().includes(needle),
+      )
+      .slice(0, 20)
+      .map((e) => ({ exhibitor_id: e.exhibitor_id, full_name: e.exhibitor_name }));
+  };
+
+  /** A rider's declared clubs, for a team seat's "rides for" (migration 193). */
+  const clubChoices = (exhibitorId: string): SeatClubChoices | null => {
+    const clubs = desk.exhibitors.find((e) => e.exhibitor_id === exhibitorId)?.clubs;
+    if (!clubs) return null;
+    const names = new Map(clubs.held.map((c) => [c.id, c.name]));
+    return {
+      primaryId: clubs.primary_id,
+      clubs: clubs.club_ids.map((id) => ({ id, name: names.get(id) ?? 'Club' })),
+    };
+  };
+
+  const saveClubs = async (clubIds: string[], primaryId: string | null): Promise<string | null> => {
+    const res = await fetch(`/api/shows/${showId}/desk/exhibitors/${exhibitor.exhibitor_id}/clubs`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ club_ids: clubIds, primary_id: primaryId }),
+    });
+    if (!res.ok) return errorMessage(await res.json().catch(() => null), 'Could not save the club.');
+    await onChanged();
+    return null;
+  };
+
+  const teammateHorses = async (exhibitorId: string): Promise<TeamHorseOption[]> =>
+    (desk.exhibitors.find((e) => e.exhibitor_id === exhibitorId)?.horses ?? []).map((h) => ({
+      id: h.horse_id,
+      name: h.horse_name,
+    }));
+
+  const saveTeam = async (entry: DeskEntry, seats: TeamSeat[], entrantClubId: string | null): Promise<string | null> => {
+    const res = await fetch(`/api/shows/${showId}/classes/${entry.class_id}/entries/${entry.entry_id}/team`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ members: seats, entrant_club_id: entrantClubId }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      return errorMessage(body, 'Could not save the team.');
+    }
+    setEditingTeam(null);
+    await onChanged();
+    return null;
+  };
+
   const verify = (subject: Subject) =>
     run(
       subjectKey(subject),
@@ -1102,6 +1170,24 @@ export default function ExhibitorPanel({
         </p>
       )}
 
+      {/* Saddle club(s) they ride for here (migration 193): offered from the
+          club memberships on file, which the Paperwork section verifies. */}
+      {desk.club_points?.enabled && exhibitor.clubs && (
+        <Section
+          title="Saddle club"
+          collapsed={collapsed.has('clubs')}
+          onToggle={() => toggle('clubs')}
+        >
+          <RiderClubs
+            key={`${exhibitor.exhibitor_id}-${exhibitor.clubs.club_ids.join(',')}-${exhibitor.clubs.primary_id}`}
+            clubs={exhibitor.clubs}
+            clubsPerRider={desk.club_points.clubs_per_rider}
+            onSave={saveClubs}
+            noClubHint="Add their club to their memberships first."
+          />
+        </Section>
+      )}
+
       <Section
         title="Classes"
         collapsed={collapsed.has('classes')}
@@ -1119,7 +1205,11 @@ export default function ExhibitorPanel({
         }
       >
         {exhibitor.entries.length === 0 ? (
-          <p className="text-sm mb-3" style={{ color: COLORS.muted }}>Not entered in anything yet.</p>
+          <p className="text-sm mb-3" style={{ color: COLORS.muted }}>
+            {(exhibitor.team_rides ?? []).length > 0
+              ? 'No entries of their own.'
+              : 'Not entered in anything yet.'}
+          </p>
         ) : (
           <div className="overflow-x-auto mb-3">
             <table className="w-full text-sm border-collapse">
@@ -1140,14 +1230,56 @@ export default function ExhibitorPanel({
                   const enrollment = futurity
                     ? futurityEnrollment(exhibitor, futurity.id, entry.horse_id)
                     : undefined;
+                  const teamSize = cls?.team_size;
+                  const team = entry.team_members ?? [];
+                  const teamShort = entry.team_short ?? 0;
                   return (
-                    <tr key={entry.entry_id} className="border-t" style={{ borderColor: COLORS.borderSoft }}>
+                    <Fragment key={entry.entry_id}>
+                    <tr className="border-t" style={{ borderColor: COLORS.borderSoft }}>
                       <td className="py-1.5 pr-3" style={{ color: COLORS.text }}>
                         <span className="font-mono" style={{ color: COLORS.accent }}>{entry.class_number}</span>{' '}
                         {entry.class_name}
                         {entry.is_disqualified && (
                           <span className="ml-1.5 text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700">
                             DQ
+                          </span>
+                        )}
+                        {/* A team class (migration 192): who is on the team,
+                            who is still to be named, and the door to change it.
+                            A short team is flagged, never refused. */}
+                        {isTeamClass(teamSize) && (
+                          <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                            {teamSizeLabel(teamSize)}: {riderLabel(exhibitor.exhibitor_name, team)}
+                            {teamShort > 0 && (
+                              <span className="ml-1.5 font-medium" style={{ color: 'var(--warning-strong)' }}>
+                                · {teamShortLabel(teamShort)}
+                              </span>
+                            )}{' '}
+                            {editingTeam !== entry.entry_id && (
+                              <button
+                                type="button"
+                                onClick={() => setEditingTeam(entry.entry_id)}
+                                className="ml-1 hover:underline"
+                                style={{ color: COLORS.accent }}
+                              >
+                                {team.length > 0 ? 'Edit team' : 'Name the team'}
+                              </button>
+                            )}
+                            {/* A rider on two teams of one class — allowed where
+                                teams run one at a time, and the office's to judge
+                                (WSCA takes two 4-In-A-Line teams, not one horse
+                                and rider twice). */}
+                            {(entry.team_overlaps ?? []).map((overlap) => (
+                              <span
+                                key={`${overlap.exhibitor_id}-${overlap.entry_id}`}
+                                className="block font-medium"
+                                style={{ color: 'var(--warning-strong)' }}
+                              >
+                                ⚠ {overlap.exhibitor_name} also rides on{' '}
+                                {overlap.own_entry ? 'a team they entered' : `${overlap.entrant_name}’s team`} in this
+                                class
+                              </span>
+                            ))}
                           </span>
                         )}
                       </td>
@@ -1216,11 +1348,53 @@ export default function ExhibitorPanel({
                         </button>
                       </td>
                     </tr>
+                    {isTeamClass(teamSize) && editingTeam === entry.entry_id && (
+                      <tr>
+                        <td colSpan={5} className="pb-2">
+                          <TeamEditor
+                            teamSize={teamSize}
+                            entrantName={exhibitor.exhibitor_name}
+                            teamHorseName={entry.horse_name}
+                            members={team}
+                            findRiders={findTeammates}
+                            loadHorses={teammateHorses}
+                            onSave={(seats, entrantClubId) => saveTeam(entry, seats, entrantClubId)}
+                            clubChoices={clubChoices}
+                            entrantId={exhibitor.exhibitor_id}
+                            entrantClubId={entry.entrant_club_id ?? null}
+                            onCancel={() => setEditingTeam(null)}
+                            notFoundHint="Add them to the roster first, then name them here."
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
             </table>
           </div>
+        )}
+
+        {/* Teams another rider entered with this exhibitor on them (migration
+            192). The entry and its fee are on the other rider's row; this says
+            they ride in the class too. */}
+        {(exhibitor.team_rides ?? []).length > 0 && (
+          <ul className="space-y-1 mb-3 text-xs" style={{ color: COLORS.muted }}>
+            {(exhibitor.team_rides ?? []).map((ride) => (
+              <li key={ride.entry_id}>
+                Rides on {ride.entrant_name}&rsquo;s team in{' '}
+                <span className="font-mono" style={{ color: COLORS.accent }}>{ride.class_number}</span>{' '}
+                <span style={{ color: COLORS.text }}>{ride.class_name}</span>
+                {ride.horse_name
+                  ? ` on ${ride.horse_name}`
+                  : ride.team_horse_name
+                    ? ` on ${ride.team_horse_name}`
+                    : ''}
+                {' '}— entered and paid for on {ride.entrant_name}&rsquo;s account
+              </li>
+            ))}
+          </ul>
         )}
 
         {/* Each All Day fee charged in place of class entry fees, with what

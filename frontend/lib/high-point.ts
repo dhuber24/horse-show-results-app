@@ -1,3 +1,4 @@
+import type { ClubStandings } from './clubs';
 /**
  * High-point standings (migration 147) — the types, and the few rules every
  * screen that prints a points chart has to agree on.
@@ -72,6 +73,9 @@ export type HighPointClass = {
   posted: boolean;
   /** Whether its placings earn high-point points; the office may leave a class out. */
   eligible: boolean;
+  /** A team class (migration 192): it earns Team High Point, by rider, not its
+   *  division's standings, and its entries are teams. */
+  team?: boolean;
   /** The horses shown: scratches and no-shows at the gate left out. */
   entries: number;
   /** Judges' cards — each earns its own points. */
@@ -90,6 +94,12 @@ export type ShowLeaderboard = {
   point_system: PointSystem | null;
   posted_class_count: number;
   divisions: DivisionStandings[];
+  /** Team High Point (migration 192): every rider on a placed team earns its
+   *  points, ranked by rider — `horse_id` is null on every row. Null until a
+   *  team class earns a point; optional for an older backend. */
+  team?: DivisionStandings | null;
+  /** Saddle Club High Point (migration 193), where the office set it up. */
+  clubs?: ClubStandings | null;
   /** Every posted class with its entries and points. Optional for a frontend
    *  deployed ahead of the backend that sends it. */
   classes?: HighPointClass[];
@@ -115,6 +125,10 @@ export type CircuitLeaderboard = Omit<Circuit, 'point_system'> & {
   point_system: PointSystem | null;
   posted_class_count: number;
   divisions: DivisionStandings[];
+  /** Team High Point across the circuit's shows (migration 192). */
+  team?: DivisionStandings | null;
+  /** Saddle Club High Point across the circuit's shows (migration 193). */
+  clubs?: ClubStandings | null;
 };
 
 /** "6" or "2.5" — charts award half points, and "6.00" reads as a price. */

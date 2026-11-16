@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import AddEntryForm from './AddEntryForm';
 import { COLORS, entryBackNumber, formatShowDate } from './types';
 import type { Desk, DeskEntry } from './types';
+import { horseLabel, NAME_JOINER, teamShortLabel } from '@/lib/teams';
 
 /**
  * The program listing: who is entered, class by class, grouped by show day.
@@ -26,6 +27,8 @@ function haystack(row: Row): string {
     row.horse_name ?? '',
     row.barn_name ?? '',
     row.exhibitor_name,
+    // A team is found by any of its riders and their horses (migration 192).
+    ...(row.team_members ?? []).map((m) => `${m.exhibitor_name} ${m.horse_name ?? ''}`),
     row.back_number != null ? `#${row.back_number} ${row.back_number}` : '',
     row.apha_division ?? '',
     row.owner_name ?? '',
@@ -239,6 +242,17 @@ export default function ByClassView({
                                     >
                                       {row.exhibitor_name}
                                     </button>
+                                    {(row.team_members ?? []).length > 0 && (
+                                      <span style={{ color: COLORS.text }}>
+                                        {NAME_JOINER}
+                                        {(row.team_members ?? []).map((m) => m.exhibitor_name).join(NAME_JOINER)}
+                                      </span>
+                                    )}
+                                    {(row.team_short ?? 0) > 0 && (
+                                      <span className="ml-2 text-xs font-medium whitespace-nowrap" style={{ color: 'var(--warning-strong)' }}>
+                                        {teamShortLabel(row.team_short ?? 0)}
+                                      </span>
+                                    )}
                                     {row.apha_division && (
                                       <span
                                         className="ml-2 text-xs px-1.5 py-0.5 rounded whitespace-nowrap"
@@ -257,7 +271,7 @@ export default function ByClassView({
                                     )}
                                   </td>
                                   <td className="py-1.5 pr-3" style={{ color: COLORS.text }}>
-                                    {row.horse_name ?? '(horse removed)'}
+                                    {horseLabel(row.horse_name, row.team_members) ?? '(horse removed)'}
                                   </td>
                                   <td className="py-1.5 pr-3" style={{ color: 'var(--text-deep)' }}>{row.owner_name || '—'}</td>
                                   <td className="py-1.5 pr-3" style={{ color: COLORS.muted }}>{row.sire_name || '—'}</td>

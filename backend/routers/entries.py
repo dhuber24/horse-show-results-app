@@ -35,7 +35,17 @@ from side_pot_membership import (
     requirement_detail,
     unmet_pots,
 )
-from schemas import CogginsOverrideAuditOut, EntryCreate, EntryUpdate, EntryOut
+from schemas import CogginsOverrideAuditOut, EntryCreate, EntryUpdate, EntryOut, TeamReplace
+from club_points import save_team_clubs
+from teams import (
+    TeammateRequest,
+    already_riding,
+    is_team_class,
+    reload_entry,
+    replace_team,
+    riders_in_class,
+    rides_together,
+)
 from routers.shows import _assert_show_access, get_aqha_association_id
 from rules import get_rules, refusing_issues
 from rules.apha import division_for_class
@@ -233,6 +243,13 @@ async def create_entry(
         if existing_exhibitor_entry.scalar_one_or_none():
             raise HTTPException(409, "This exhibitor is already entered in this class.")
 
+    # The same rule for a rail team class (migration 192): every team is in the
+    # ring at once, so somebody already seated on another team cannot enter one.
+    if is_team_class(class_) and rides_together(class_):
+        riding = await riders_in_class(db, class_id)
+        if riding.get(body.exhibitor_id):
+            raise already_riding(class_, exhibitor.full_name or "This exhibitor", riding[body.exhibitor_id])
+
     # The pot buy-in that goes with this class, if the show has bundled it into
     # one. Written in the same transaction as the entry below: a buy-in
     # committed against an entry that then failed validation would be money owed
@@ -375,6 +392,55 @@ async def update_entry(
     await db.refresh(entry)
     entry.association_warnings = issues
     return entry
+
+
+@router.put("/{entry_id}/team", response_model=EntryOut, dependencies=[Depends(require_admin_or_show_admin)])
+async def replace_entry_team(
+    show_id: UUID, class_id: UUID, entry_id: UUID,
+    body: TeamReplace,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Name the rest of a team entry -- the show office's door (migration 192).
+
+    The whole team but the rider who entered it, in order, every time. Open
+    whatever the class's state: the office corrects a team after the ring as it
+    corrects anything else. Every teammate must already be on the show's roster,
+    so this reaches nobody new and asks `company_verification` nothing -- see
+    `backend/teams.py` for that and the other rules, which the exhibitor's door
+    shares.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    class_ = await _get_class_or_404(show_id, class_id, db)
+    entry = await db.get(Entry, entry_id)
+    if not entry or entry.class_id != class_id:
+        raise HTTPException(404, "Entry not found")
+    await replace_team(
+        db,
+        show_id,
+        entry,
+        class_,
+        [TeammateRequest(m.exhibitor_id, m.horse_id) for m in body.members],
+    )
+    await save_team_clubs(db, show_id, entry, body)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            409,
+            {
+                "code": "TEAM_CHANGED",
+                "message": "This team was changed somewhere else while it saved. Reload and try again.",
+            },
+        )
+    entry = await reload_entry(db, entry_id)
+    numbers = await back_numbers_for_show(show_id, db)
+    return EntryOut.model_validate(entry, from_attributes=True).model_copy(
+        update={"back_number": resolve_back_number(entry, numbers)}
+    )
 
 
 @router.delete("/{entry_id}", status_code=204, dependencies=[Depends(require_admin_or_show_admin)])

@@ -25,6 +25,7 @@ These are the rules this part of the app keeps and the reasons behind them. One 
 - **A no-show is not a scratch.** The entry stays `ENTERED`, on the bill and in the class; scratching is the office's or the exhibitor's call and never the gate's. What a no-show changes is who is in the class that ran: the class can be ready without them, the scribe screens do not list them, the APHA placing-depth check before posting does not count them, and a high-point chart's class size does not count them — a horse that never entered the ring was not shown.
 - **Riders can be checked in for any class not yet started**, not only the one on deck. The steward works down the day as riders arrive. It closes once a class is in the ring.
 - **A rider added to a class already in the ring is not checked in.** They go straight into the class. Exhibitors still cannot add themselves to a class in the ring (`CLASS_UNDER_WAY` in `self_entry.py`); the office can, until the class is completed.
+- **A team is checked in as one rider**, its entry, and called as its riders — "Bella Drevlow / Jennifer Peterson" and the horses they ride (`teams.rider_label`, migration 192) — so the steward knows who the second rider is to ask for. Check-in, no-shows and the order of go stay per entry.
 
 ## Ready
 

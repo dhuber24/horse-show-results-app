@@ -47,13 +47,13 @@ export default async function CircuitPage({ params }: { params: Promise<{ id: st
         <p className="text-sm" style={{ color: 'var(--muted)' }}>
           The circuit has no points system chosen yet, so there are no standings to show.
         </p>
-      ) : circuit.divisions.length === 0 ? (
+      ) : circuit.divisions.length === 0 && !circuit.team?.standings.length && !circuit.clubs?.standings.length ? (
         <p className="text-sm" style={{ color: 'var(--muted)' }}>
           No points yet. Standings appear as soon as a class at one of the circuit&apos;s shows is
           judged and its placings are posted.
         </p>
       ) : (
-        <HighPointStandings divisions={circuit.divisions} pointSystem={circuit.point_system} showShowCount />
+        <HighPointStandings divisions={circuit.divisions} team={circuit.team ?? null} clubs={circuit.clubs ?? null} pointSystem={circuit.point_system} showShowCount />
       )}
 
       <h2 className="text-lg font-semibold mt-8 mb-3" style={{ color: 'var(--foreground)' }}>

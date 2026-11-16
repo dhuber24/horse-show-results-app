@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from sqlalchemy import (
-    Column, Text, Date, Time, Boolean, Integer, LargeBinary, ForeignKey,
+    Column, Text, Date, Time, Boolean, Integer, SmallInteger, LargeBinary, ForeignKey,
     ForeignKeyConstraint, Table, TIMESTAMP, UniqueConstraint, CheckConstraint,
     Index, Identity, Numeric, func, event, text, exists
 )
@@ -49,6 +49,9 @@ class Association(Base):
     `association_type` splits the registry two ways:
       - 'breed' — breed registries (AQHA, APHA, ApHC, FQHR)
       - 'club'  — club/sanctioning bodies (NSBA, WSCA)
+      - 'saddle_club' — a local club a rider belongs to and rides for (migration
+        193): WSCA's member saddle clubs. Kept out of every list that means a
+        sanctioning body, which reads 'club'. The show office may add one.
 
     There is deliberately no row for OPEN: "Open" is the absence of a breed
     association, not a body anyone holds a membership with.
@@ -60,11 +63,21 @@ class Association(Base):
     name = Column(Text, nullable=False)
     association_type = Column(
         Text,
-        CheckConstraint("association_type IN ('breed', 'club')"),
+        CheckConstraint(
+            "association_type IN ('breed', 'club', 'saddle_club')", name="ck_associations_type"
+        ),
         nullable=False,
     )
     is_active = Column(Boolean, nullable=False, server_default="true")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    # The body a saddle club belongs to -- WSCA (migration 193).
+    member_of_association_id = Column(
+        UUID(as_uuid=True), ForeignKey("associations.id", ondelete="SET NULL"), nullable=True
+    )
+    # Who added it, where a show office added a saddle club (migration 193).
+    created_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class ShowType(Base):
@@ -739,6 +752,14 @@ class Class(Base):
     # True for every class unless the office leaves it out; `high_point.load_cards`
     # reads it, so the show's leaderboard and every circuit agree.
     high_point_eligible = Column(Boolean, nullable=False, server_default="true")
+    # Ridden by a team of this many riders (migration 192): Tandem Bareback 2,
+    # 4-In-A-Line 4. NULL is an ordinary class. Seeded from the class name by
+    # `rules.disciplines.team_size` when the class is created and the office's
+    # to correct after -- the derive-then-store shape `entered_by_qualification`
+    # has. The entry stays the team's (the rider who entered it, their horse,
+    # their number, one fee); `entry_team_members` names the rest. See
+    # `backend/teams.py`.
+    team_size = Column(SmallInteger, nullable=True)
     gate_status = Column(Text, nullable=False, server_default="pending")
     # NULL = results are a staff-only draft; timestamp = posted to the public
     # /live and /results screens. See migration 094.
@@ -798,6 +819,10 @@ class Class(Base):
             name="fk_classes_discipline_division_pair",
             onupdate="CASCADE",
             ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "team_size IS NULL OR team_size BETWEEN 2 AND 12",
+            name="ck_classes_team_size",
         ),
     )
     side_pot_classes = relationship(
@@ -1329,7 +1354,7 @@ class ExhibitorRegistration(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False)
     association_id = Column(UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False)
-    member_number = Column(Text, nullable=False)
+    member_number = Column(Text, nullable=True)  # NULL for a saddle club (migration 193)
     # When the membership lapses (migration 117). NULL means unknown, not
     # current. Judged against the show's end date wherever it is read — never
     # against today, the same rule health paperwork follows.
@@ -1878,6 +1903,52 @@ class Entry(Base):
     # It was uselist=False when a class could only hold one card; leaving it
     # scalar would raise as soon as a second judge handed one in.
     results = relationship("Result", back_populates="entry")
+    # The rest of a team, in a team class (migration 192); empty on every other
+    # entry. `lazy="selectin"` for the reason `attestations` is: `EntryOut`
+    # carries the team, and an unloaded collection in an async request is a
+    # MissingGreenlet 500 rather than a missing teammate.
+    team_members = relationship(
+        "EntryTeamMember",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        order_by="EntryTeamMember.position",
+        lazy="selectin",
+    )
+
+
+class EntryTeamMember(Base):
+    """One rider on a team entry other than the one who entered it (migration 192).
+
+    The entry's own exhibitor and horse are the team's first rider -- the one who
+    entered and pays, whose back number the team wears. These are the others, in
+    the order the team is named. `horse_id` NULL means they ride the team's horse,
+    which is how Tandem Bareback and Rescue Race are ridden. Every teammate is on
+    the show's roster; `backend/teams.py` checks it before a row is written.
+    """
+
+    __tablename__ = "entry_team_members"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="CASCADE"), nullable=False)
+    exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False
+    )
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="SET NULL"), nullable=True)
+    # From 2: the rider who entered is 1.
+    position = Column(SmallInteger, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("entry_team_members_entry_exhibitor_uniq", "entry_id", "exhibitor_id", unique=True),
+        Index("entry_team_members_entry_position_uniq", "entry_id", "position", unique=True),
+        Index("entry_team_members_exhibitor_idx", "exhibitor_id"),
+    )
+
+    entry = relationship("Entry", back_populates="team_members")
+    # Joined: a teammate is read for their name, on every screen that names the
+    # team, and neither row carries anything heavy.
+    exhibitor = relationship("Exhibitor", lazy="joined")
+    horse = relationship("Horse", lazy="joined")
 
 
 class Result(Base):
@@ -2689,7 +2760,7 @@ class ShowRegistrationMembership(Base):
     association_id = Column(
         UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False
     )
-    member_number = Column(Text, nullable=False)
+    member_number = Column(Text, nullable=True)  # NULL for a saddle club (migration 193)
     expires_at = Column(Date, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
@@ -3825,3 +3896,85 @@ class ShowWaiverSignature(Base):
 
     waiver = relationship("ShowWaiver", back_populates="signatures")
     exhibitor = relationship("Exhibitor")
+
+
+class ShowClubPoints(Base):
+    """This show keeps saddle-club high point standings, and how (migration 193).
+
+    No row: it does not. The show office sets it up -- which clubs compete
+    (`clubs`), how many clubs one rider may ride for, and how a team class
+    credits clubs. See `backend/club_points.py`.
+    """
+
+    __tablename__ = "show_club_points"
+
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True)
+    clubs_per_rider = Column(SmallInteger, nullable=False, server_default="1")
+    # 'each_rider' (each rider's own club earns a team's placing), 'entrant'
+    # (the entering rider's club), or 'none' (team classes count for no club).
+    team_rule = Column(Text, nullable=False, server_default="each_rider")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("clubs_per_rider BETWEEN 1 AND 5", name="ck_show_club_points_clubs_per_rider"),
+        CheckConstraint(
+            "team_rule IN ('each_rider', 'entrant', 'none')", name="ck_show_club_points_team_rule"
+        ),
+    )
+
+    clubs = relationship(
+        "ShowClubPointClub", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+
+class ShowClubPointClub(Base):
+    """A saddle club competing for club high point at a show (migration 193)."""
+
+    __tablename__ = "show_club_point_clubs"
+
+    show_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_club_points.show_id", ondelete="CASCADE"), primary_key=True
+    )
+    association_id = Column(
+        UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class ShowEntryClub(Base):
+    """A club a rider rides for at a show (migration 193). The primary one is
+    what an individual placing counts for -- never split, never counted twice."""
+
+    __tablename__ = "show_entry_clubs"
+
+    show_entry_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_entries.id", ondelete="CASCADE"), primary_key=True
+    )
+    association_id = Column(
+        UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), primary_key=True
+    )
+    is_primary = Column(Boolean, nullable=False, server_default="false")
+
+    __table_args__ = (
+        Index(
+            "show_entry_clubs_one_primary",
+            "show_entry_id",
+            unique=True,
+            postgresql_where=text("is_primary"),
+        ),
+    )
+
+
+class EntryRiderClub(Base):
+    """A rider on a team riding for one of their other declared clubs rather
+    than their primary (migration 193) -- WSCA lets a rider ride for two clubs
+    in team events."""
+
+    __tablename__ = "entry_rider_clubs"
+
+    entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="CASCADE"), primary_key=True)
+    exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), primary_key=True
+    )
+    association_id = Column(
+        UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False
+    )

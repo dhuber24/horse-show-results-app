@@ -119,6 +119,7 @@ from registration_profile import (
     take_details,
 )
 from show_associations import asked_of, show_associations
+from club_points import competing_club_ids
 
 router = APIRouter(prefix="/shows/{show_id}", tags=["Show Office"])
 
@@ -367,6 +368,11 @@ def _build_contact(exhibitor) -> dict:
     return contact
 
 
+def _is_saddle_club(reg) -> bool:
+    """A saddle-club membership (migration 193), which carries no number."""
+    return bool(reg.association and reg.association.association_type == "saddle_club")
+
+
 def _build_check(
     kind: str,
     current_value: Optional[str],
@@ -480,6 +486,10 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
     asked_association_ids = {
         association_id for association_id, _code in await show_associations(show, db)
     }
+    # The saddle clubs competing for club high point (migration 193): a rider's
+    # club is a membership on their profile, and the desk verifies it like any
+    # other. People only -- no horse is registered with a saddle club.
+    asked_people_ids = asked_association_ids | await competing_club_ids(db, show.id)
 
     verification_result = await db.execute(
         select(ShowVerification).where(ShowVerification.show_id == show_id)
@@ -530,7 +540,7 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
         view = roster.view(exhibitor_id)
         memberships = []
         for reg in sorted(
-            asked_of(view.registrations or [], asked_association_ids)
+            asked_of(view.registrations or [], asked_people_ids)
             if inspections["membership_cards"] else [],
             key=lambda r: (r.association.code if r.association else ""),
         ):
@@ -540,7 +550,10 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
                 association_id=reg.association_id,
             )
             memberships.append(record(key, _build_check(
-                "exhibitor_membership", reg.member_number, by_key.get(key), reg.association,
+                "exhibitor_membership",
+                reg.member_number or ("member" if _is_saddle_club(reg) else None),
+                by_key.get(key),
+                reg.association,
                 expires_at=reg.expires_at,
                 as_of=show.end_date,
             )))
@@ -936,7 +949,9 @@ async def _current_value_for(
     membership = membership_for(view, body.association_id)
     if membership is None:
         raise HTTPException(422, "No membership number on file for that association")
-    return membership.member_number
+    # A saddle club issues no number (migration 193): what is signed off is that
+    # they are a member, against the club's roster.
+    return membership.member_number or "member"
 
 
 @router.post(

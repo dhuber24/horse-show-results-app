@@ -211,7 +211,10 @@ async def _drop_bookings(show_entry, show_id, db, *, removing: bool) -> None:
     What goes: class entries, stall/shavings/camping reservations, futurity
     enrollments and side pot buy-ins. All four are things the show would
     otherwise still be holding for somebody who is not coming, and all four are
-    priced, so leaving any of them would bill somebody who is not there.
+    priced, so leaving any of them would bill somebody who is not there. Their
+    seats on other riders' teams go too (migration 192) -- unpriced, since the
+    rider who entered the team pays, but a team that names somebody who is not
+    coming is one the desk would otherwise read as full.
 
     The caller decides what happens to the `show_entries` row afterwards and
     commits. `show_entry` must arrive with `reservations`, `side_pot_entries`
@@ -219,7 +222,16 @@ async def _drop_bookings(show_entry, show_id, db, *, removing: bool) -> None:
     """
     from sqlalchemy import select
 
-    from models import Class, Entry, FuturityEntry, Result, SidePot, SidePotEntry, SidePotPayout
+    from models import (
+        Class,
+        Entry,
+        EntryTeamMember,
+        FuturityEntry,
+        Result,
+        SidePot,
+        SidePotEntry,
+        SidePotPayout,
+    )
 
     payout = await db.execute(
         select(SidePotPayout.id).where(SidePotPayout.show_entry_id == show_entry.id).limit(1)
@@ -238,11 +250,23 @@ async def _drop_bookings(show_entry, show_id, db, *, removing: bool) -> None:
     )
     entries = list(entries_result.scalars().all())
 
+    # Their seats on teams somebody else entered (migration 192). The entry is
+    # the other rider's and stays; the seat goes with everything else this
+    # registration held. A team with a result already rode with them on it.
+    seats_result = await db.execute(
+        select(EntryTeamMember)
+        .join(Entry, Entry.id == EntryTeamMember.entry_id)
+        .join(Class, Class.id == Entry.class_id)
+        .where(Class.show_id == show_id, EntryTeamMember.exhibitor_id == show_entry.exhibitor_id)
+    )
+    seats = list(seats_result.scalars().all())
+
     competed = False
-    if entries:
+    rode_in = [e.id for e in entries] + [seat.entry_id for seat in seats]
+    if rode_in:
         scored = await db.execute(
             select(Result.id)
-            .where(Result.entry_id.in_([e.id for e in entries]))
+            .where(Result.entry_id.in_(rode_in))
             .limit(1)
         )
         competed = scored.scalar_one_or_none() is not None
@@ -262,6 +286,8 @@ async def _drop_bookings(show_entry, show_id, db, *, removing: bool) -> None:
     # and an unawaited one inside an async session is a MissingGreenlet.
     for entry in entries:
         await db.delete(entry)
+    for seat in seats:
+        await db.delete(seat)
 
     futurity_result = await db.execute(
         select(FuturityEntry).where(FuturityEntry.show_entry_id == show_entry.id)

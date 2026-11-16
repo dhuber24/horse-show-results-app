@@ -53,6 +53,17 @@ def _filter(key: str, label: str, columns: list[str], *, match: str = "words") -
     return {"key": key, "label": label, "columns": columns, "match": match}
 
 
+def _rider(entry: dict) -> str:
+    """Who rode the entry, as an entry-level report prints it: a team as its
+    riders, "Bella Drevlow / Jennifer Peterson" (migration 192)."""
+    return entry.get("rider_label") or entry["exhibitor_name"]
+
+
+def _horse(entry: dict):
+    """The horse the entry rode, or a team's horses, one per rider who brought one."""
+    return entry.get("horse_label") or entry["horse_name"]
+
+
 def _dash(value) -> str:
     """An empty cell that reads as empty. A blank looks like a rendering fault
     in a table somebody is going to print and post."""
@@ -146,9 +157,10 @@ def _results(record: dict) -> dict:
             "tie": "T" if result["is_tie"] else "",
             "score": _score(result["raw_score"]),
             "back_number": _dash(entry["back_number"]),
-            "exhibitor": entry["exhibitor_name"],
+            # A team as its riders and their horses (migration 192).
+            "exhibitor": _rider(entry),
             "member_number": _dash(entry["member_number"]),
-            "horse": _dash(entry["horse_name"]),
+            "horse": _dash(_horse(entry)),
             "registration_number": _dash(entry["registration_number"]),
             "division": _dash(entry["apha_division_label"]),
         })
@@ -215,9 +227,9 @@ def _entry_cards(record: dict) -> dict:
                 *_class_sort(record, entry["class_id"]),
             ),
             "back_number": _dash(entry["back_number"]),
-            "exhibitor": entry["exhibitor_name"],
+            "exhibitor": _rider(entry),
             "member_number": _dash(entry["member_number"]),
-            "horse": _dash(entry["horse_name"]),
+            "horse": _dash(_horse(entry)),
             "registration_number": _dash(entry["registration_number"]),
             "class_number": cls.get("class_number", "—"),
             "class_name": cls.get("class_name", "—"),
@@ -287,8 +299,8 @@ def _judge_cards(record: dict) -> dict:
             "class_number": cls["class_number"],
             "judge": _judge_name(record, card["judge_id"]),
             "back_number": _dash(entry["back_number"]),
-            "exhibitor": entry["exhibitor_name"],
-            "horse": _dash(entry["horse_name"]),
+            "exhibitor": _rider(entry),
+            "horse": _dash(_horse(entry)),
             "system": _dash(card["system_name"]),
             "maneuvers": maneuvers or "—",
             "penalties": penalties or "—",

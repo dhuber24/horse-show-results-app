@@ -363,3 +363,71 @@ def test_a_class_left_out_of_high_point_puts_nothing_up():
 
 def test_a_class_with_no_panel_is_one_card():
     assert summarize_class(FLAT, 6, cards=0, eligible=True)["cards"] == 1
+
+
+# ── Team High Point (migration 192) ───────────────────────────────────────────
+
+from high_point import TEAM_STANDINGS_NAME, tally_team  # noqa: E402
+
+TANDEM, RESCUE = uuid4(), uuid4()
+JUDGE_ONE, JUDGE_TWO = uuid4(), uuid4()
+
+
+def team_card(entrant, place, teammates, *, class_id=TANDEM, judge=JUDGE_ONE, size=5, horse=HORSE_A):
+    return Card(
+        show_id=SHOW,
+        class_id=class_id,
+        division_name="Open",
+        division_sort=1,
+        exhibitor_id=entrant,
+        exhibitor_name={ALICE: "Alice", BOB: "Bob", CARA: "Cara"}[entrant],
+        horse_id=horse,
+        horse_name="Horse",
+        place=place,
+        outcome="placed",
+        class_size=size,
+        judge_id=judge,
+        team_class=True,
+        teammates=tuple((t, {ALICE: "Alice", BOB: "Bob", CARA: "Cara"}[t]) for t in teammates),
+    )
+
+
+def team_points(table):
+    return {row["exhibitor_name"]: row["points"] for row in table["standings"]}
+
+
+def test_a_team_class_adds_nothing_to_the_division_standings():
+    assert tally([team_card(ALICE, 1, [BOB])], FLAT) == []
+
+
+def test_every_rider_on_a_placed_team_earns_its_points():
+    table = tally_team([team_card(ALICE, 1, [BOB])], FLAT)
+    assert table["name"] == TEAM_STANDINGS_NAME
+    assert team_points(table) == {"Alice": 6, "Bob": 6}
+    assert all(row["horse_id"] is None for row in table["standings"])
+
+
+def test_a_riders_team_points_add_up_whoever_they_rode_with():
+    table = tally_team(
+        [team_card(ALICE, 1, [BOB]), team_card(CARA, 3, [ALICE], class_id=RESCUE)], FLAT
+    )
+    assert team_points(table) == {"Alice": 10, "Bob": 6, "Cara": 4}
+    assert table["standings"][0]["exhibitor_name"] == "Alice"
+    assert table["standings"][0]["class_count"] == 2
+
+
+def test_a_rider_on_two_teams_in_one_class_keeps_the_better_placing():
+    table = tally_team([team_card(ALICE, 1, [BOB]), team_card(CARA, 2, [BOB])], FLAT)
+    assert team_points(table)["Bob"] == 6
+
+
+def test_each_judges_card_counts_for_a_team_too():
+    table = tally_team(
+        [team_card(ALICE, 1, [BOB], judge=JUDGE_ONE), team_card(ALICE, 2, [BOB], judge=JUDGE_TWO)], FLAT
+    )
+    assert team_points(table) == {"Alice": 11, "Bob": 11}
+
+
+def test_no_team_points_means_no_team_table():
+    assert tally_team([], FLAT) is None
+    assert tally_team([team_card(ALICE, None, [BOB])], FLAT) is None

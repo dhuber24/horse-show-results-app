@@ -256,3 +256,51 @@ def entered_by_qualification(name: str | None) -> bool:
     if not name:
         return False
     return bool(_QUALIFYING_ONLY_RE.search(name))
+
+
+# ── Classes a team rides ─────────────────────────────────────────────────────
+#
+# A handful of classes are ridden by a team rather than one rider on one horse:
+# Tandem Bareback and Rescue Race (two riders, one horse), Ribbon Race (two
+# riders, two horses), 4-In-A-Line (four riders, each on their own horse), and
+# the cattle classes run in teams. Like the call-back test above, the class
+# list says it in the name and nowhere else, and this decides only the starting
+# value of `classes.team_size` (migration 192) -- the office corrects it on the
+# Class Builder and the stored value wins from then on.
+#
+# Deliberately short, and each entry is a class whose team is the same size at
+# every show that runs it. "Relay", "Leadline" and plain "Team Roping" are left
+# to the office: a relay is two to four riders depending on the show, a leader
+# is not a rider, and a roping is entered by heading and heeling separately.
+# "Tandem" and "Pair" are driving terms too -- one driver behind two horses --
+# so a class that names driving is never a team of riders.
+_TEAM_SIZES: tuple[tuple[re.Pattern, int], ...] = tuple(
+    (re.compile(pattern, re.IGNORECASE), size)
+    for pattern, size in (
+        (r"\btandem\b", 2),
+        (r"\brescue\s+race\b", 2),
+        (r"\bribbon\s+race\b", 2),
+        (r"\b(?:4|four)[\s-]*in[\s-]*(?:a[\s-]*)?line\b", 4),
+        (r"\bpairs\b", 2),
+        (r"\branch\s+sorting\b", 2),
+        (r"\bteam\s+sorting\b", 3),
+        (r"\bteam\s+penning\b", 3),
+        (r"\bquadrille\b", 4),
+    )
+)
+_DRIVING_RE = re.compile(r"\bdriv(?:e|en|ing)\b", re.IGNORECASE)
+
+
+def team_size(name: str | None) -> int | None:
+    """How many riders a class of this name is ridden by, or None for one.
+
+    Seeds `classes.team_size` when a class is created -- by hand, from an
+    association's list or off a show bill. Not re-run on existing classes: the
+    office's answer is the one that counts once the class exists.
+    """
+    if not name or _DRIVING_RE.search(name):
+        return None
+    for pattern, size in _TEAM_SIZES:
+        if pattern.search(name):
+            return size
+    return None
