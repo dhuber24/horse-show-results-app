@@ -13,6 +13,7 @@ import type { Bill } from '@/lib/my-shows';
 import type { Registration } from '@/components/ExhibitorRegistrations';
 import type { RegistrationWindow } from '@/lib/registration-window';
 import type { BackNumberPer } from '@/lib/back-numbers';
+import type { StallCheck } from '@/lib/stall-periods';
 
 export type PreviewClass = {
   id: string;
@@ -264,6 +265,11 @@ export type PreviewData = {
    *  entries without it, so the form refuses to render the picker rather than
    *  letting someone fill it in and be turned away on submit. */
   signup: Signup | null;
+  /** What the show would want to know about their stalls now classes are
+   *  entered (migration 194): a horse showing on a day no horse stall of
+   *  theirs covers, a tack stall short of horses. Flags, never refusals.
+   *  Optional for a payload from before it. */
+  stall_checks?: StallCheck[];
   /** Who a back number belongs to (migrations 161, 178). Where it is `horse`
    *  or `pair`, `horse_numbers` has one per horse entered and
    *  `signup.back_number` is not issued. Optional for a payload from before it. */

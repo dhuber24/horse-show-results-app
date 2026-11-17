@@ -3,14 +3,20 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRegisterStepAutosave } from '../_lib/StepAutosave';
-import { canHaveEarlyRate, unitLabel } from '@/lib/fee-units';
+import { canHaveEarlyRate } from '@/lib/fee-units';
 import { errorMessage } from '@/lib/api-error';
+import { timeForDay } from '@/lib/default-time';
+import type { StallKind, StallPeriod } from '@/lib/stall-periods';
 import {
-  defaultMoveIn,
-  EARLY_MOVE_IN_CODE,
-  earlyMoveInPass,
-  formatStallsOpen,
-} from '@/lib/stalls-open';
+  COLORS,
+  NOTES_MAX,
+  PRICE_COLS,
+  centsToDollars,
+  dollarsToCents,
+  earlyFields,
+  oneParagraph,
+} from './fields';
+import { StallsCard, useStallsEditor } from './StallsCard';
 
 export type FeeRow = {
   id: string;
@@ -28,24 +34,16 @@ export type FeeRow = {
   min_quantity?: number;
   /** How many exhibitors have already booked this line. Staff endpoint only. */
   reserved_count?: number;
+  /** On a stall line (migration 194): what it sells, stated or read from the
+   *  line by the backend; the period it is sold for; a tack stall's minimum. */
+  stall_kind?: StallKind | null;
+  stall_period_id?: string | null;
+  horses_per_tack_stall?: number | null;
+  /** When holders may move in (migration 195): the Early Move-In Pass's own
+   *  day (yyyy-mm-dd) and optional hour, venue wall-clock. */
+  move_in_date?: string | null;
+  move_in_time?: string | null;
 };
-
-const COLORS = {
-  text: 'var(--foreground)',
-  muted: 'var(--muted)',
-  border: 'var(--border)',
-  bg: 'var(--surface)',
-  warn: 'var(--text-deep)',
-  warnSoft: 'var(--warning-bg)',
-} as const;
-
-/** The fee row's own limit (`ShowFeeCreate.notes`). Enforced here too, so a
- *  long note stops at the box rather than coming back from the save as a 422. */
-const NOTES_MAX = 500;
-
-/** The price column's two tracks: the amount, then whatever sits beside it.
- *  The standard and early amounts share the first, so the two prices line up. */
-const PRICE_COLS = 'grid grid-cols-[8rem_minmax(0,1fr)] gap-x-3';
 
 /** What is typed on a slot's card. The row it saves to is not held here: the
  *  save reads it off `initialFees` (`findFee`), which `router.refresh()`
@@ -103,18 +101,9 @@ type Slot = {
   notesPlaceholder: string;
 };
 
+// Stalls are not a slot: every line priced per stall is the Stalls card's
+// (`StallsCard.tsx`, migration 194), found by unit rather than by code.
 const SLOTS: readonly Slot[] = [
-  {
-    code: 'stall',
-    aliases: [],
-    title: 'Stalls',
-    createLabel: 'Stall (per stall)',
-    units: [
-      { value: 'per_stall', choice: 'Per stall', noun: 'stall', placeholder: 'e.g. 75.00' },
-    ],
-    requirable: false,
-    notesPlaceholder: '',
-  },
   {
     code: 'shavings',
     aliases: [],
@@ -167,24 +156,6 @@ function earlyRateAllowed(slot: Slot): boolean {
   return slot.units.some((u) => canHaveEarlyRate(u.value));
 }
 
-function centsToDollars(cents: number): string {
-  return (cents / 100).toFixed(2);
-}
-
-function dollarsToCents(input: string): number {
-  const n = Number.parseFloat(input);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return Math.round(n * 100);
-}
-
-/** A note is one paragraph, however it was typed or pasted. The box wraps so
- *  the whole note can be read, but the exhibitor's reservation row and the
- *  show bill print it as running text, where a line break typed here would
- *  not be one. */
-function oneParagraph(text: string): string {
-  return text.replace(/[ \t]*\r?\n[ \t]*/g, ' ');
-}
-
 function unitChoice(slot: Slot, unit: string): UnitChoice {
   return slot.units.find((u) => u.value === unit) ?? slot.units[0];
 }
@@ -210,35 +181,6 @@ function unitIsManaged(slot: Slot, unit: string): boolean {
   return slot.units.some((u) => u.value === unit);
 }
 
-type EarlyFields = {
-  early_amount_cents: number | null;
-  early_deadline: string | null;
-  early_deadline_time: string | null;
-};
-
-/** The early-bird half of a slot's payload, or the reason it can't be sent. */
-function earlyFields(slot: SlotState, standardCents: number): EarlyFields | { error: string } {
-  const hasAmount = slot.earlyDollars.trim() !== '';
-  const hasDeadline = slot.earlyDeadline.trim() !== '';
-  if (!hasAmount && !hasDeadline) {
-    return { early_amount_cents: null, early_deadline: null, early_deadline_time: null };
-  }
-  if (hasAmount !== hasDeadline) {
-    return {
-      error: 'an early rate needs both a discounted amount and a "reserve by" date.',
-    };
-  }
-  const earlyCents = dollarsToCents(slot.earlyDollars);
-  if (earlyCents > standardCents) {
-    return { error: 'the early rate must be lower than the standard rate.' };
-  }
-  return {
-    early_amount_cents: earlyCents,
-    early_deadline: slot.earlyDeadline,
-    early_deadline_time: slot.earlyDeadlineTime || null,
-  };
-}
-
 export default function LodgingClient({
   showId,
   initialFees,
@@ -248,18 +190,28 @@ export default function LodgingClient({
   showStartDate,
   showEndDate,
   maps,
+  initialStallPeriods,
+  initialStallPerHorse,
+  allFeeCodes,
 }: {
   showId: string;
   initialFees: FeeRow[];
+  /** The windows stall lines are sold for (migration 194). */
+  initialStallPeriods: StallPeriod[];
+  /** Every horse entered needs its own stall (migration 194). */
+  initialStallPerHorse: boolean;
+  /** Every fee code on the show, so a new stall line's code is unique. */
+  allFeeCodes: string[];
   initialShavingsBanOutside: boolean;
-  /** yyyy-mm-dd, or '' when the show has not said (migration 181). */
+  /** `shows.stalls_open_*` as saved (migration 181): yyyy-mm-dd and HH:MM, or
+   *  ''. Set from the stall periods, never typed here; a show still carrying
+   *  one from before periods opens on a period made from it (`StallsCard`). */
   initialStallsOpenDate: string;
-  /** HH:MM, or '' for a day with no hour. */
   initialStallsOpenTime: string;
   showStartDate: string;
   showEndDate: string;
-  /** The stall and RV map uploads, drawn under Move-in. They save on their
-   *  own, so they are handed in rather than joining this form's save. */
+  /** The stall and RV map uploads, drawn under *Stalls & move-in*. They save
+   *  on their own, so they are handed in rather than joining this form's save. */
   maps?: React.ReactNode;
 }) {
   const router = useRouter();
@@ -301,34 +253,21 @@ export default function LodgingClient({
   });
 
   const [banOutsideShavings, setBanOutsideShavings] = useState(initialShavingsBanOutside);
-  // A show with no move-in on file starts with the day before its first day,
-  // at noon — filled in rather than asked for, and changed like anything else.
-  // It differs from what is on file, so the step's save writes it.
-  const suggestedMoveIn = initialStallsOpenDate ? null : defaultMoveIn(showStartDate);
-  const [stallsOpenDate, setStallsOpenDate] = useState(suggestedMoveIn?.date ?? initialStallsOpenDate);
-  const [stallsOpenTime, setStallsOpenTime] = useState(suggestedMoveIn?.time ?? initialStallsOpenTime);
-  // An hour on no day is meaningless, and the backend refuses it — so a time
-  // left behind after the date is cleared is simply not sent.
-  const sentStallsOpenTime = stallsOpenDate ? stallsOpenTime : '';
-  const moveInDirty =
-    stallsOpenDate !== initialStallsOpenDate || sentStallsOpenTime !== initialStallsOpenTime;
-  const moveInAfterShow = Boolean(stallsOpenDate && stallsOpenDate > showEndDate);
-  const moveInPreview = formatStallsOpen(stallsOpenDate || null, sentStallsOpenTime || null);
-
-  // The Early Move-In Pass (lib/stalls-open.ts): ticked is a fee row, unticked
-  // is none. The row is read off the loaded fees on every render rather than
-  // kept in state, so a second save after `router.refresh()` updates the row
-  // the first one created instead of posting another beside it.
-  const passFee = earlyMoveInPass(initialFees);
-  const passOnFile = passFee ? centsToDollars(passFee.amount_cents) : '';
-  const [offerPass, setOfferPass] = useState(Boolean(passFee));
-  const [passDollars, setPassDollars] = useState(passOnFile);
-  // This card writes a pass per stall. One priced another way on the Boarding
-  // Fees screen keeps its unit, and the price box says which.
-  const passUnit = passFee?.unit ?? 'per_stall';
-  const passReserved = passFee?.reserved_count ?? 0;
-  const passDirty =
-    offerPass !== Boolean(passFee) || (offerPass && passDollars.trim() !== passOnFile.trim());
+  // The *Stalls & move-in* card (`StallsCard`): the stall periods — the only
+  // place move-in is set — each with its own Early Move-In Pass, every line
+  // priced per stall, and the stall-per-horse tick (migrations 194-196). Its
+  // save runs inside this one.
+  const stalls = useStallsEditor({
+    showId,
+    fees: initialFees,
+    periods: initialStallPeriods,
+    stallPerHorse: initialStallPerHorse,
+    takenCodes: allFeeCodes,
+    showStartDate,
+    showEndDate,
+    stallsOpenDateOnFile: initialStallsOpenDate,
+    stallsOpenTimeOnFile: initialStallsOpenTime,
+  });
 
   function setSlot(code: string, patch: Partial<SlotState>) {
     setSlots((prev) => ({ ...prev, [code]: { ...prev[code], ...patch } }));
@@ -352,7 +291,9 @@ export default function LodgingClient({
       slot.earlyDeadlineTime !== (fee?.early_deadline_time ?? '').slice(0, 5) ||
       slot.minQuantity !== (fee?.min_quantity ? String(fee.min_quantity) : '')
     );
-  }) || banOutsideShavings !== initialShavingsBanOutside || moveInDirty || passDirty;
+  }) ||
+    banOutsideShavings !== initialShavingsBanOutside ||
+    stalls.dirty;
 
   /** Returns whether everything was written. The step's autosave stops the
    *  navigation on a false — the row that failed has said why on screen, and
@@ -362,25 +303,16 @@ export default function LodgingClient({
     setSuccessMsg(null);
     setBusy(true);
     try {
-      // 1) Patch the show's own columns: the shavings policy and when stalls
-      //    open. Only what changed is sent.
-      if (moveInAfterShow) {
-        setError("Move-in: stalls can't open after the show's last day.");
-        return false;
-      }
-      // Checked before anything is written, though the pass saves last.
-      const passPrice = Number.parseFloat(passDollars);
-      if (offerPass && (passDollars.trim() === '' || !Number.isFinite(passPrice) || passPrice < 0)) {
-        setError('Early Move-In Pass: enter its price, or untick the box.');
-        return false;
-      }
+      // 1) Patch the show's own columns: the shavings policy and the stall-per-
+      //    horse tick. Only what changed is sent. When stalls open is not one
+      //    of them — the backend sets it from the stall periods, which also
+      //    carry the move-in notes (step 2).
       const showPatch: Record<string, unknown> = {};
       if (banOutsideShavings !== initialShavingsBanOutside) {
         showPatch.shavings_ban_outside = banOutsideShavings;
       }
-      if (moveInDirty) {
-        showPatch.stalls_open_date = stallsOpenDate || null;
-        showPatch.stalls_open_time = sentStallsOpenTime || null;
+      if (stalls.perHorse !== initialStallPerHorse) {
+        showPatch.stall_per_horse_required = stalls.perHorse;
       }
       if (Object.keys(showPatch).length > 0) {
         const showRes = await fetch(`/api/shows/${showId}`, {
@@ -390,12 +322,18 @@ export default function LodgingClient({
         });
         if (!showRes.ok) {
           const j = await showRes.json().catch(() => null);
-          setError(errorMessage(j, 'Failed to update move-in and shavings policy.'));
+          setError(errorMessage(j, 'Failed to update the stall and shavings settings.'));
           return false;
         }
       }
 
-      // 2) Upsert / delete each lodging fee slot.
+      // 2) The stall periods, every stall line and each move-in's pass
+      //    (`StallsCard`).
+      if (stalls.dirty && !(await stalls.save((message) => setError(message)))) {
+        return false;
+      }
+
+      // 3) Upsert / delete the shavings and camping slots.
       for (const s of SLOTS) {
         const slot = slots[s.code];
         const cents = dollarsToCents(slot.dollars);
@@ -473,56 +411,6 @@ export default function LodgingClient({
         }
       }
 
-      // 3) The Early Move-In Pass, after the stall it is an extra on: the
-      //    fees list in the order they were created, so a show filling in
-      //    both at once lists the stall first at sign-up and on the bill.
-      //    Deleting the row takes it off the bill of anybody who booked one,
-      //    which the card warns about before the save.
-      if (offerPass) {
-        const cents = dollarsToCents(passDollars);
-        if (!passFee) {
-          const res = await fetch(`/api/shows/${showId}/fees`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              code: EARLY_MOVE_IN_CODE,
-              label: 'Early Move-In Pass',
-              unit: 'per_stall',
-              amount_cents: cents,
-            }),
-          });
-          if (!res.ok) {
-            const j = await res.json().catch(() => null);
-            setError(errorMessage(j, 'Failed to add the Early Move-In Pass.'));
-            return false;
-          }
-        } else if (cents !== passFee.amount_cents || passFee.code !== EARLY_MOVE_IN_CODE) {
-          // An `early_arrival_stall` row takes the pass's own code on its first
-          // save here, as a `hookup` row becomes `camping`. Its label and notes
-          // are the show bill's wording and are left as they are.
-          const res = await fetch(`/api/shows/${showId}/fees/${passFee.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              amount_cents: cents,
-              ...(passFee.code !== EARLY_MOVE_IN_CODE ? { code: EARLY_MOVE_IN_CODE } : {}),
-            }),
-          });
-          if (!res.ok) {
-            const j = await res.json().catch(() => null);
-            setError(errorMessage(j, 'Failed to update the Early Move-In Pass.'));
-            return false;
-          }
-        }
-      } else if (passFee) {
-        const res = await fetch(`/api/shows/${showId}/fees/${passFee.id}`, { method: 'DELETE' });
-        if (!res.ok && res.status !== 204) {
-          const j = await res.json().catch(() => null);
-          setError(errorMessage(j, 'Failed to remove the Early Move-In Pass.'));
-          return false;
-        }
-      }
-
       setSuccessMsg('Lodging & boarding saved.');
       router.refresh();
       return true;
@@ -570,135 +458,10 @@ export default function LodgingClient({
           the shavings above it, and the shavings ban looked like a policy about
           the whole step. A section apiece is what makes the controls in a box
           belong to the thing the box is named after. */}
-      {/* When the barn opens comes first: it is the one thing on this step
-          every exhibitor hauling in needs, whether or not they book anything
-          here. The venue's own day and hour, printed as typed — not a moment
-          to convert into the reader's zone (see lib/stalls-open.ts). */}
-      <section
-        className="p-4 rounded-lg border space-y-3"
-        style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
-        aria-labelledby="move-in-heading"
-      >
-        <div>
-          <h2 id="move-in-heading" className="text-base font-semibold" style={{ color: COLORS.text }}>
-            Move-in
-          </h2>
-          <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
-            When exhibitors may arrive and move into their stalls. Shown on the show page, the
-            show bill, and beside the arrival date exhibitors pick when they sign up. The time
-            is optional.
-          </p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-[12rem_9rem_auto] gap-3 items-end">
-          <label className="block">
-            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-              Stalls open on
-            </span>
-            <input
-              type="date"
-              value={stallsOpenDate}
-              max={showEndDate}
-              onChange={(e) => setStallsOpenDate(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              style={{ borderColor: moveInAfterShow ? 'var(--error)' : COLORS.border }}
-              aria-invalid={moveInAfterShow}
-            />
-          </label>
-          <label className="block">
-            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-              From
-            </span>
-            <input
-              type="time"
-              value={stallsOpenTime}
-              disabled={!stallsOpenDate}
-              title={!stallsOpenDate ? 'Pick the day stalls open first.' : undefined}
-              onChange={(e) => setStallsOpenTime(e.target.value)}
-              className="w-full border rounded px-3 py-2 disabled:opacity-50"
-              style={{ borderColor: COLORS.border }}
-            />
-          </label>
-          {(stallsOpenDate || stallsOpenTime) && (
-            <button
-              type="button"
-              onClick={() => {
-                setStallsOpenDate('');
-                setStallsOpenTime('');
-              }}
-              className="text-sm underline justify-self-start py-2"
-              style={{ color: COLORS.muted }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        {moveInAfterShow ? (
-          <p className="text-xs" style={{ color: 'var(--error-strong)' }} role="alert">
-            That&apos;s after the show&apos;s last day. Pick a day on or before it.
-          </p>
-        ) : moveInPreview ? (
-          <p className="text-xs" style={{ color: COLORS.muted }}>
-            Exhibitors will read: <strong style={{ color: COLORS.text }}>Stalls open {moveInPreview}</strong>
-            {stallsOpenDate > showStartDate && ' — after the show has started.'}
-          </p>
-        ) : null}
-
-        {/* Under the day it lets exhibitors beat. A tick and a price: the pass
-            is a fee row while the box is ticked, booked at sign-up beside the
-            stalls, so the bill and the price list charge and print it with no
-            more said here. */}
-        <div className="pt-3 border-t space-y-3" style={{ borderColor: COLORS.border }}>
-          <label className="flex items-start gap-2 text-sm" style={{ color: COLORS.text }}>
-            <input
-              type="checkbox"
-              checked={offerPass}
-              onChange={(e) => setOfferPass(e.target.checked)}
-              className="mt-0.5"
-            />
-            <span>
-              <strong>Offer an Early Move-In Pass.</strong>{' '}
-              <span style={{ color: COLORS.muted }}>
-                Exhibitors pay to move into their stalls before they open, and add it at sign-up
-                beside their stalls.
-              </span>
-            </span>
-          </label>
-          {offerPass && (
-            <div className="ml-6 grid grid-cols-1 sm:grid-cols-[12rem_minmax(0,1fr)] gap-x-3 gap-y-1 items-end">
-              <label className="block">
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  $ {unitLabel(passUnit)}
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={passDollars}
-                  onChange={(e) => setPassDollars(e.target.value)}
-                  className="w-full border rounded px-3 py-2"
-                  style={{ borderColor: COLORS.border }}
-                  placeholder="e.g. 35.00"
-                  aria-label={`Early Move-In Pass — price ${unitLabel(passUnit)}`}
-                />
-              </label>
-              {passUnit !== 'per_stall' && (
-                <a
-                  href={`/admin/shows/${showId}/fees/boarding`}
-                  className="text-xs underline py-2"
-                  style={{ color: COLORS.muted }}
-                >
-                  Charged {unitLabel(passUnit)} (set on the boarding fee schedule)
-                </a>
-              )}
-            </div>
-          )}
-          {!offerPass && passReserved > 0 && (
-            <p className="text-xs ml-6" style={{ color: 'var(--error-strong)' }} role="alert">
-              {passReserved} exhibitor{passReserved === 1 ? ' has' : 's have'} booked a pass.
-              Saving takes it off {passReserved === 1 ? 'their bill' : 'their bills'}.
-            </p>
-          )}
-        </div>
-      </section>
+      {/* Stalls and move-in first: when the barn opens is the one thing on this
+          step every exhibitor hauling in needs, and each stall period is its
+          own move-in, so the two are one card. */}
+      <StallsCard editor={stalls} />
 
       {maps}
 
@@ -895,11 +658,12 @@ export default function LodgingClient({
                             onChange={(e) =>
                               setSlot(s.code, {
                                 earlyDeadline: e.target.value,
-                                // An hour on no day is refused; clearing the day clears it.
-                                ...(e.target.value ? {} : { earlyDeadlineTime: '' }),
+                                // Noon when the day is picked with no hour, as
+                                // every time field; clearing the day clears it.
+                                earlyDeadlineTime: timeForDay(e.target.value, slot.earlyDeadlineTime),
                               })
                             }
-                            className="min-w-0 flex-1 border rounded px-3 py-2"
+                            className="min-w-[9.5rem] flex-1 border rounded px-3 py-2"
                             style={{ borderColor: COLORS.border }}
                             aria-label={`${s.title} — early rate deadline`}
                           />

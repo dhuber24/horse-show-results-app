@@ -4,6 +4,7 @@ import {
   fetchClasses,
   fetchShowJudgesPublic,
   fetchShowFeesPublic,
+  fetchShowStallPeriodsPublic,
   fetchShowFuturitiesPublic,
   fetchShowbill,
 } from '@/lib/api';
@@ -55,13 +56,14 @@ export default async function ShowbillPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
 
   const back = showHubBack(id);
-  const [show, allClasses, judges, fees, futurities, showbill] = await Promise.all([
+  const [show, allClasses, judges, fees, futurities, showbill, stallPeriods] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchShowJudgesPublic(id),
     fetchShowFeesPublic(id),
     fetchShowFuturitiesPublic(id),
     fetchShowbill(id),
+    fetchShowStallPeriodsPublic(id),
   ]);
 
   // DRAFT classes are the secretary's working copy — they are not on offer yet
@@ -103,6 +105,7 @@ export default async function ShowbillPage({ params }: { params: Promise<{ id: s
         classes={classes}
         judges={judges}
         fees={fees}
+        stallPeriods={stallPeriods}
         futurities={futurities}
       />
 

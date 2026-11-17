@@ -16,6 +16,7 @@ import RiderClubs from '@/components/RiderClubs';
 import type { ClubPointsSetup, RiderClubs as RiderClubsData } from '@/lib/clubs';
 import { errorMessage } from '@/lib/api-error';
 import { isTeamClass, riderLabel, teamShortLabel, teamSizeLabel, type TeamSeat } from '@/lib/teams';
+import { stallCheckText } from '@/lib/stall-periods';
 
 /**
  * Class registration: the classes an exhibitor is entered in, the picker that
@@ -362,6 +363,36 @@ export default function ClassEntryScreen({
               backNumber={preview.signup?.back_number ?? null}
               preferredBackNumber={preview.signup?.preferred_back_number ?? null}
             />
+          )}
+
+          {/* Their stalls against the horses they have entered (migration
+              194). Here because entering a Saturday class is what makes a
+              pleasure-days stall too short, and the stalls are a page away. */}
+          {(preview.stall_checks?.length ?? 0) > 0 && (
+            <div
+              className="mt-4 rounded border p-3 text-sm"
+              style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
+              role="status"
+            >
+              <p className="font-semibold">Check your stalls</p>
+              <ul className="mt-1 space-y-1">
+                {preview.stall_checks!.map((check, i) => (
+                  <li key={i}>{stallCheckText(check, 'you')}</li>
+                ))}
+              </ul>
+              <p className="text-xs mt-2">
+                {live ? (
+                  'The show office can change your stalls at the desk.'
+                ) : (
+                  <>
+                    <Link href={`/shows/${showId}/signup`} className="underline font-medium">
+                      Change your stalls
+                    </Link>
+                    , or if somebody else is paying for the stall, say whose it is there.
+                  </>
+                )}
+              </p>
+            </div>
           )}
 
           <div className="mt-4">

@@ -342,8 +342,10 @@ schedule with it, day for day.
   line that reads as the main one gets a slot: tack stalls and early-arrival or
   late-departure nights stay on the Boarding Fees screen. The first
   early-arrival or priority move-in line priced **per stall** is the step's
-  Early Move-In Pass (`early_move_in`). No other fee is ever given one of those
-  codes, nor `early_arrival_stall`, which the step also reads as the pass.
+  Early Move-In Pass (`early_move_in`); the step moves it into the show's
+  first stall period, making a *Full show* period to hold it if the show has
+  none. No other fee is ever given one of those codes, nor
+  `early_arrival_stall`, which the step also reads as the pass.
 - **The PDF goes on file** as the show's `SHOWBILL` document when the box is
   ticked (it is by default). `showbill_source` stays `generated`: switching the
   Show Bill button to the upload is the deliberate second press in Step 10 that

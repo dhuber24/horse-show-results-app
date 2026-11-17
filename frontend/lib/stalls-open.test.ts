@@ -3,9 +3,15 @@ import { describe, expect, it } from '@jest/globals';
 import {
   arrivesBeforeStallsOpen,
   defaultMoveIn,
+  defaultPassMoveIn,
   earlyMoveInPass,
   formatStallsOpen,
   formatWallClock,
+  isEarlyMoveInPass,
+  passBasisLabel,
+  passMoveIn,
+  passMovesInFirst,
+  periodPass,
 } from './stalls-open';
 
 describe('formatStallsOpen', () => {
@@ -83,5 +89,79 @@ describe('earlyMoveInPass', () => {
 
   it('is nothing at a show that does not offer one', () => {
     expect(earlyMoveInPass([{ code: 'stall' }, { code: 'tack_stall' }])).toBeUndefined();
+  });
+});
+
+
+describe('the Early Move-In Pass move-in (migration 195)', () => {
+  it('prints the day and hour the way stalls opening is printed', () => {
+    expect(passMoveIn({ move_in_date: '2026-05-13', move_in_time: '18:00:00' })).toBe(
+      'Wednesday, May 13 at 6:00 PM',
+    );
+    expect(passMoveIn({ move_in_date: null, move_in_time: null })).toBeNull();
+    expect(passMoveIn(undefined)).toBeNull();
+  });
+
+  it('must come before stalls open', () => {
+    expect(passMovesInFirst('2026-05-13', '18:00', '2026-05-14', '09:00')).toBe(true);
+    expect(passMovesInFirst('2026-05-14', null, '2026-05-14', '16:00')).toBe(false);
+    expect(passMovesInFirst('2026-05-14', '08:00', '2026-05-14', '16:00:00')).toBe(true);
+    expect(passMovesInFirst('2026-05-14', '16:00', '2026-05-14', '16:00')).toBe(false);
+    expect(passMovesInFirst('2026-05-15', '08:00', '2026-05-14', '16:00')).toBe(false);
+  });
+
+  it('has nothing to compare when either day is missing', () => {
+    expect(passMovesInFirst('', '', '2026-05-14', '16:00')).toBe(true);
+    expect(passMovesInFirst('2026-05-13', '', '', '')).toBe(true);
+  });
+});
+
+describe('the Early Move-In Pass default (migration 195)', () => {
+  it('is the day before stalls open, at the hour they open', () => {
+    expect(defaultPassMoveIn('2027-09-22', '16:00:00')).toEqual({ date: '2027-09-21', time: '16:00' });
+  });
+
+  it('is noon when stalls open on a day with no hour', () => {
+    expect(defaultPassMoveIn('2027-09-22', '')).toEqual({ date: '2027-09-21', time: '12:00' });
+  });
+
+  it('rolls back over a month and a year end', () => {
+    expect(defaultPassMoveIn('2027-10-01', '09:00')).toEqual({ date: '2027-09-30', time: '09:00' });
+    expect(defaultPassMoveIn('2027-01-01', null)).toEqual({ date: '2026-12-31', time: '12:00' });
+  });
+
+  it('is nothing when stalls open on no day', () => {
+    expect(defaultPassMoveIn('', '16:00')).toBeNull();
+    expect(defaultPassMoveIn(null, null)).toBeNull();
+  });
+
+  it('always comes before stalls open', () => {
+    const pass = defaultPassMoveIn('2027-09-22', '16:00')!;
+    expect(passMovesInFirst(pass.date, pass.time, '2027-09-22', '16:00')).toBe(true);
+  });
+});
+
+describe('a pass per stall period (migration 196)', () => {
+  const fees = [
+    { code: 'stall', stall_period_id: 'p1' },
+    { code: 'early_move_in_ab12cd34', stall_period_id: 'p1' },
+    { code: 'early_move_in', stall_period_id: null },
+  ];
+
+  it('knows a period pass by its code', () => {
+    expect(isEarlyMoveInPass({ code: 'early_move_in_ab12cd34' })).toBe(true);
+    expect(isEarlyMoveInPass({ code: 'early_arrival_stall' })).toBe(true);
+    expect(isEarlyMoveInPass({ code: 'stall_box_stall' })).toBe(false);
+  });
+
+  it('finds a period its own pass, and the whole show its own', () => {
+    expect(periodPass(fees, 'p1')?.code).toBe('early_move_in_ab12cd34');
+    expect(periodPass(fees, 'p2')).toBeUndefined();
+    expect(earlyMoveInPass(fees)?.code).toBe('early_move_in');
+  });
+
+  it('says how the pass is priced', () => {
+    expect(passBasisLabel({ unit: 'per_stall' })).toBe('per stall');
+    expect(passBasisLabel({ unit: 'per_stall', one_per_exhibitor: true })).toBe('per exhibitor');
   });
 });

@@ -6,6 +6,7 @@ import {
   formatMoney,
   sanctionArithmetic,
   type Bill,
+  type BillAdjustmentLine,
   type BillAllDayLine,
   type BillChargeLine,
   type BillClassLine,
@@ -127,6 +128,13 @@ export default function ShowBillBreakdown({
         {(bill.side_pot_lines ?? []).map((line) => (
           <SidePotLine key={line.side_pot_id} line={line} />
         ))}
+        {/* The show office's own changes (migration 197) — a credit for a tie
+            stall given in place of a box stall, a cleaning fee — each with the
+            reason it was made. In `total_cents`, so listed or the bill would
+            not foot. */}
+        {(bill.adjustment_lines ?? []).map((line) => (
+          <AdjustmentLine key={line.id} line={line} />
+        ))}
         <dt
           className="pt-1.5 mt-1 border-t font-semibold"
           style={{ borderColor: 'var(--border-subtle)', color: 'var(--foreground)' }}
@@ -238,6 +246,24 @@ function formatDay(iso: string): string {
 }
 
 /** One side pot buy-in: once per pot however many of its classes were entered. */
+/** An office adjustment: its reason, and the amount — a credit with a minus. */
+function AdjustmentLine({ line }: { line: BillAdjustmentLine }) {
+  const credit = line.amount_cents < 0;
+  return (
+    <>
+      <dt>
+        {line.reason}
+        <span className="text-xs" style={{ color: 'var(--muted)' }}>
+          {' '}({credit ? 'credit' : 'charge'} from the show office)
+        </span>
+      </dt>
+      <dd className="text-right" style={credit ? { color: 'var(--success)' } : undefined}>
+        {credit ? `−${formatMoney(-line.amount_cents)}` : formatMoney(line.amount_cents)}
+      </dd>
+    </>
+  );
+}
+
 function SidePotLine({ line }: { line: BillSidePotLine }) {
   return (
     <>

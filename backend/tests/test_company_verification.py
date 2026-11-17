@@ -62,6 +62,7 @@ NOBODY_NEW = {
     ("payments.py", "_ensure_show_entry"): "the exhibitor paying their own balance",
     ("show_desk.py", "create_exhibitor_at_desk"): "a record it has just typed in",
     ("show_financials.py", "record_payment"): "calls _assert_exhibitor_on_roster first",
+    ("show_financials.py", "_account_row"): "calls _assert_exhibitor_on_roster first (office bookings and adjustments, migration 197)",
     ("show_registration.py", "save_signup"): "the caller signing themselves up",
     ("show_registration.py", "register_for_show"): "the caller entering themselves",
 }

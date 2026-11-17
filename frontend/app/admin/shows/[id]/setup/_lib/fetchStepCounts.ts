@@ -18,6 +18,13 @@ export const LODGING_CODES: ReadonlySet<string> = new Set([
   ...EARLY_MOVE_IN_CODES,
 ]);
 
+/** Whether the Lodging step manages this fee: one of its coded rows, or any
+ *  line priced per stall, which is the Stalls card's whatever its code
+ *  (migration 194) — a tack stall imported off a show bill included. */
+export function isLodgingStepFee(fee: { code: string; unit: string }): boolean {
+  return LODGING_CODES.has(fee.code) || fee.unit === 'per_stall';
+}
+
 type FeeRow = {
   id: string;
   code: string;
@@ -78,7 +85,7 @@ export const fetchStepCounts = cache(async function fetchStepCounts(
     getJson<{ point_system: unknown | null }>(`${API_URL}/shows/${showId}/high-point`, { point_system: null }),
   ]);
 
-  const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
+  const lodgingFeeCount = fees.filter(isLodgingStepFee).length;
   const scoredClasses = classes.filter(
     (c) => c.score_type === 'pattern' || c.score_type === 'time',
   );

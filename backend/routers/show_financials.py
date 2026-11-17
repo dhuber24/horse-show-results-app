@@ -36,7 +36,7 @@ deliberately excluded: neither role has any business reading revenue.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -47,7 +47,7 @@ from sqlalchemy.orm import selectinload
 
 import side_pot_membership
 from backnumbers import back_numbers_for_show
-from billing import build_account, side_pot_money, summarize_accounts
+from billing import build_account, reservable_fees, side_pot_money, summarize_accounts
 from cancellations import is_on_roster
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
@@ -58,8 +58,10 @@ from models import (
     Entry,
     Exhibitor,
     Show,
+    ShowAccountAdjustment,
     ShowEntry,
     ShowEntryReservation,
+    ShowFee,
     ShowPayment,
     SidePot,
     SidePotPayout,
@@ -69,6 +71,9 @@ from routers.futurities import load_futurity_bill_index
 from routers.show_office import _assert_exhibitor_on_roster
 from routers.shows import _assert_show_access
 from schemas import (
+    AccountAdjustmentCreate,
+    AccountAdjustmentOut,
+    AccountReservationsReplace,
     ReportDefinitionOut,
     ReportOut,
     ShowFinancialsOut,
@@ -132,6 +137,8 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             selectinload(ShowEntry.exhibitor),
             selectinload(ShowEntry.reservations).selectinload(ShowEntryReservation.show_fee),
             selectinload(ShowEntry.payments),
+            # The office's changes to what they owe (migration 197), on the bill.
+            selectinload(ShowEntry.adjustments),
         )
         .where(ShowEntry.show_id == show_id)
     )
@@ -209,6 +216,7 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             payments,
             futurity_index.get(show_entry.id, []) if show_entry else [],
             pot_index.get(show_entry.id, []) if show_entry else [],
+            list(show_entry.adjustments) if show_entry else [],
         )
         accounts.append({
             "exhibitor_id": exhibitor_id,
@@ -231,6 +239,9 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             # exhibitor who had already paid reads here as a credit, which is
             # the whole reason the row is marked rather than deleted.
             "cancelled_at": show_entry.cancelled_at if show_entry else None,
+            # Checked out at the desk (migration 200), and by whom.
+            "checked_out_at": show_entry.checked_out_at if show_entry else None,
+            "checked_out_by_name": show_entry.checked_out_by_name if show_entry else None,
             # What they asked for when it comes to stabling (migration 128).
             # Carried here so the desk can list every request at once while the
             # stall chart is being drawn -- which is the whole reason it is a
@@ -498,6 +509,165 @@ async def delete_payment(
         payment.recorded_by_name or "unknown",
     )
     await db.delete(payment)
+    await db.commit()
+
+
+# ── Changing what is owed ─────────────────────────────────────────────────────
+#
+# GaitDesk does not run the stall chart: the office assigns stalls itself. What
+# an exhibitor owes has to follow what the office decided, so the office can
+# set an exhibitor's bookings (a walk-up's stalls, a box stall changed for a
+# tie stall when the boxes ran out) and add an adjustment for anything a booking
+# cannot say (a cleaning fee, a comped stall). Both change what is owed, never
+# what was paid: a refund is a negative payment above.
+
+
+async def _account_row(show_id: UUID, exhibitor_id: UUID, db: AsyncSession) -> ShowEntry:
+    """The exhibitor's `show_entries` row, made if the office is the first to
+    need one -- the same shell row a payment or a back number makes."""
+    await _assert_exhibitor_on_roster(show_id, exhibitor_id, db)
+    query = (
+        select(ShowEntry)
+        .options(selectinload(ShowEntry.reservations))
+        .where(ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor_id)
+    )
+    show_entry = (await db.execute(query)).scalar_one_or_none()
+    if show_entry is not None:
+        return show_entry
+    show_entry = ShowEntry(show_id=show_id, exhibitor_id=exhibitor_id)
+    show_entry.reservations = []
+    db.add(show_entry)
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Two staff opening the same account at once; use the first one's row.
+        await db.rollback()
+        show_entry = (await db.execute(query)).scalar_one_or_none()
+        if show_entry is None:
+            raise HTTPException(409, "Could not open an account for that exhibitor. Try again.")
+    return show_entry
+
+
+@router.put("/accounts/{exhibitor_id}/reservations", status_code=204)
+async def set_account_reservations(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    body: AccountReservationsReplace,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set an exhibitor's stalls, shavings and camping as the office has them.
+
+    The whole booking, as at sign-up: a line left out is booked at nought. A
+    line kept keeps the day it was booked, which is what decides its early rate;
+    a line the office adds is booked today. The show's minimums are not
+    enforced -- the office is the one deciding -- but a line sold once per
+    exhibitor is still once (migration 196). This is how the bill follows the
+    stall chart the office keeps: a tie stall for a box stall, a walk-up's
+    stall. Anything a booking cannot say is an adjustment.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+    fees = (await db.execute(select(ShowFee).where(ShowFee.show_id == show_id))).scalars().all()
+    fees_by_id = {fee.id: fee for fee in reservable_fees(fees)}
+    wanted: dict[UUID, int] = {}
+    for item in body.reservations:
+        fee = fees_by_id.get(item.show_fee_id)
+        if fee is None:
+            raise HTTPException(422, "One or more of those lines are not booked at this show.")
+        if fee.one_per_exhibitor and item.quantity > 1:
+            raise HTTPException(422, f"{fee.label} is one per exhibitor.")
+        if item.quantity > 0:
+            wanted[fee.id] = item.quantity
+
+    show_entry = await _account_row(show_id, exhibitor_id, db)
+    existing = {row.show_fee_id: row for row in (show_entry.reservations or [])}
+    for fee_id, quantity in wanted.items():
+        row = existing.get(fee_id)
+        if row is None:
+            show_entry.reservations.append(
+                ShowEntryReservation(show_fee_id=fee_id, quantity=quantity, reserved_at=date.today())
+            )
+        else:
+            row.quantity = quantity
+    for fee_id, row in existing.items():
+        if fee_id not in wanted:
+            show_entry.reservations.remove(row)
+    await db.commit()
+    logger.info(
+        "Bookings set by the office: show=%s exhibitor=%s lines=%d by=%s",
+        show_id,
+        exhibitor_id,
+        len(wanted),
+        x_user_id,
+    )
+
+
+@router.post("/adjustments", response_model=AccountAdjustmentOut, status_code=201)
+async def add_adjustment(
+    show_id: UUID,
+    body: AccountAdjustmentCreate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change what an exhibitor owes, with the reason the bill prints.
+
+    Positive is a charge, negative a credit. Not a payment: if money is given
+    back, record a refund as well, so the takings still reconcile.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+    show_entry = await _account_row(show_id, body.exhibitor_id, db)
+    actor = await db.get(User, safe_uuid(x_user_id))
+    adjustment = ShowAccountAdjustment(
+        show_entry_id=show_entry.id,
+        amount_cents=body.amount_cents,
+        reason=body.reason,
+        recorded_by=actor.id if actor else None,
+        recorded_by_name=actor.full_name if actor else None,
+    )
+    db.add(adjustment)
+    await db.commit()
+    await db.refresh(adjustment)
+    logger.info(
+        "Adjustment added: show=%s show_entry=%s amount_cents=%d by=%s",
+        show_id,
+        show_entry.id,
+        adjustment.amount_cents,
+        adjustment.recorded_by_name or "unknown",
+    )
+    return adjustment
+
+
+@router.delete("/adjustments/{adjustment_id}", status_code=204)
+async def delete_adjustment(
+    show_id: UUID,
+    adjustment_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take an adjustment off the bill."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    adjustment = await db.get(ShowAccountAdjustment, adjustment_id)
+    if adjustment is None:
+        raise HTTPException(404, "Adjustment not found")
+    show_entry = await db.get(ShowEntry, adjustment.show_entry_id)
+    if show_entry is None or show_entry.show_id != show_id:
+        raise HTTPException(404, "Adjustment not found")
+    logger.info(
+        "Adjustment deleted: show=%s adjustment=%s amount_cents=%d originally_by=%s",
+        show_id,
+        adjustment.id,
+        adjustment.amount_cents,
+        adjustment.recorded_by_name or "unknown",
+    )
+    await db.delete(adjustment)
     await db.commit()
 
 

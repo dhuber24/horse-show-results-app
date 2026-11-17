@@ -97,6 +97,7 @@ from registration_profile import (
     take_memberships,
 )
 from reservations import minimum_shortfall
+from stabling import load_stall_periods, stall_checks_for_exhibitor, stall_kind_of
 from show_associations import show_associations
 from billing import (
     breed_judge_count,
@@ -183,7 +184,13 @@ from side_pot_membership import (
     requirement_detail,
     unmet_pots,
 )
-from schemas import EntryOut, ExhibitorRegistrationCreate, ExhibitorRegistrationUpdate, TeamReplace
+from schemas import (
+    EntryOut,
+    ExhibitorRegistrationCreate,
+    ExhibitorRegistrationUpdate,
+    StallCheckOut,
+    TeamReplace,
+)
 from club_points import save_team_clubs, seat_clubs_for
 from teams import (
     TeammateRequest,
@@ -346,7 +353,11 @@ async def _load_show_entry(
 ) -> Optional[ShowEntry]:
     result = await db.execute(
         select(ShowEntry)
-        .options(selectinload(ShowEntry.reservations).selectinload(ShowEntryReservation.show_fee))
+        .options(
+            selectinload(ShowEntry.reservations).selectinload(ShowEntryReservation.show_fee),
+            # The office's changes to what they owe (migration 197), on the bill.
+            selectinload(ShowEntry.adjustments),
+        )
         .where(ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor_id)
     )
     return result.scalar_one_or_none()
@@ -394,8 +405,42 @@ def _fee_options_out(fees: list[ShowFee], show_entry: Optional[ShowEntry]) -> li
             # show that requires 4 and find out on save.
             "min_quantity": f.min_quantity or 0,
             "notes": f.notes,
+            # On a stall line (migration 194): what it sells, the period it is
+            # sold for (null is the whole show), and a tack stall's minimum.
+            # The picker groups stall lines by period and prints each one's
+            # move-in and move-out from `stall_periods`.
+            "stall_kind": stall_kind_of(f),
+            "stall_period_id": str(f.stall_period_id) if f.stall_period_id else None,
+            "horses_per_tack_stall": f.horses_per_tack_stall,
+            # When holders may move in (migration 195) -- the Early Move-In
+            # Pass's own day and hour, printed on its line and beside the
+            # arrival date.
+            "move_in_date": f.move_in_date,
+            "move_in_time": f.move_in_time,
+            # Booked once and priced per exhibitor (migration 196): the form
+            # offers a tick box rather than a count.
+            "one_per_exhibitor": bool(f.one_per_exhibitor),
         }
         for f in fees
+    ]
+
+
+def _stall_periods_out(periods) -> list[dict]:
+    """The show's stall periods for the sign-up form, in the office's order."""
+    return [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "move_in_date": p.move_in_date,
+            "move_in_time": p.move_in_time,
+            "move_out_date": p.move_out_date,
+            "move_out_time": p.move_out_time,
+            "move_out_note": p.move_out_note,
+            # What to know about moving in for this period (migration 199),
+            # printed under its heading above the stalls.
+            "move_in_notes": p.move_in_notes,
+        }
+        for p in periods
     ]
 
 
@@ -551,6 +596,11 @@ class ShowSignupBody(BaseModel):
     stall_request: Optional[str] = Field(default=None, max_length=1000)
 
 
+class StallChecksBody(BaseModel):
+    """A booking the sign-up form has not saved, to check (migration 194)."""
+    reservations: list[ReservationItem] = Field(default_factory=list, max_length=200)
+
+
 @router.get("/profile-status")
 async def get_profile_status(
     show_id: UUID,
@@ -599,9 +649,24 @@ async def get_signup(
             # the exhibitor is about to pick.
             "stalls_open_date": show.stalls_open_date,
             "stalls_open_time": show.stalls_open_time,
+            # Every horse entered needs its own stall (migration 194), said
+            # above the stall lines. Flagged, never refused.
+            "stall_per_horse_required": show.stall_per_horse_required,
         },
         "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
         "fee_options": _fee_options_out(fees, show_entry),
+        # The windows stall lines are sold for (migration 194). Empty at a show
+        # selling every stall for the whole show.
+        "stall_periods": _stall_periods_out(await load_stall_periods(db, show.id)),
+        # What the show would want to know about these stalls -- horses
+        # without one, a tack stall short of horses (`stabling.stall_checks`).
+        # Of the saved booking; the form asks `POST .../stall-checks` again as
+        # the quantities change.
+        "stall_checks": (
+            await stall_checks_for_exhibitor(db, show, exhibitor.id)
+            if is_on_roster(show_entry)
+            else []
+        ),
         "signup": _signup_out(show_entry),
         # Step one, so the screen can lock this half rather than offering a
         # form the save is going to refuse.
@@ -619,6 +684,28 @@ async def get_signup(
         # sign-up to somebody not on the roster reads `signup_open` first.
         "registration": registration_window(show),
     }
+
+
+@router.post("/signup/stall-checks", response_model=list[StallCheckOut])
+async def preview_stall_checks(
+    show_id: UUID,
+    body: StallChecksBody,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """The stall checks for a booking the sign-up form has not saved yet.
+
+    The form asks as the quantities change, so "two horses show Saturday and
+    one stall covers it" appears and clears while the number is being typed,
+    from the same rule the class page and the desk read
+    (`stabling.stall_checks`) rather than a copy of it in the browser. Writes
+    nothing; a line the show does not offer is ignored rather than refused,
+    because this is a question, not a booking.
+    """
+    show = await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(user_id), db)
+    booked = {item.show_fee_id: item.quantity for item in body.reservations if item.quantity > 0}
+    return await stall_checks_for_exhibitor(db, show, exhibitor.id, booked=booked)
 
 
 @router.put("/signup")
@@ -722,6 +809,22 @@ async def save_signup(
                 "min_quantity": floor,
             },
         )
+
+    # A line sold once per exhibitor (migration 196) -- an Early Move-In Pass
+    # priced per exhibitor -- is booked once or not at all. More than one is a
+    # count the price was never quoted for, so it is refused like a malformed
+    # quantity rather than flagged.
+    for item in body.reservations:
+        fee = fees_by_id[item.show_fee_id]
+        if fee.one_per_exhibitor and item.quantity > 1:
+            raise HTTPException(
+                422,
+                {
+                    "code": "ONE_PER_EXHIBITOR",
+                    "message": f"{fee.label} is one per exhibitor.",
+                    "show_fee_id": str(fee.id),
+                },
+            )
 
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
     if show_entry is None:
@@ -1730,6 +1833,15 @@ async def preview_registration(
         # exhibitor to sign-up first rather than letting them fill in a class
         # picker the POST would reject.
         "signup": _signup_out(show_entry),
+        # What the show would want to know about their stalls now that classes
+        # are entered -- a horse showing on a day none of their horse stalls
+        # covers, a tack stall short of horses (migration 194). A flag with a
+        # link back to the stalls, never a refusal: `stabling.stall_checks`.
+        "stall_checks": (
+            await stall_checks_for_exhibitor(db, show, exhibitor.id)
+            if is_on_roster(show_entry)
+            else []
+        ),
         # Who a back number belongs to at this show (migrations 161, 178).
         # Where it is the horse or the pair, `horse_numbers` carries one per
         # horse they have entered, and the exhibitor's own
@@ -1962,6 +2074,7 @@ async def preview_registration(
             # in, so the buy-in has to be quoted on the screen that takes the
             # entry rather than discovered on the bill afterwards.
             billed_pots(preview_pots, show_entry.id if show_entry else None),
+            list(show_entry.adjustments) if show_entry else [],
         ),
     }
 

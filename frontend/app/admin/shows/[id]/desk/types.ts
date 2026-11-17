@@ -5,6 +5,7 @@
  * with a queue behind it: clicking down the roster must not fire five requests
  * per exhibitor.
  */
+import type { StallCheck } from '@/lib/stall-periods';
 import type { TeamMember } from '@/lib/teams';
 import type { ClubPointsSetup, RiderClubs } from '@/lib/clubs';
 import type { VerificationCheck } from './CheckRow';
@@ -227,11 +228,20 @@ export interface DeskExhibitor {
    *  stay on the roster because their payments do, and a cancelled exhibitor
    *  nobody can find on the desk is one nobody can refund. */
   cancelled_at: string | null;
+  /** Checked out at the desk (migration 200): when, and by whom. A record the
+   *  desk shows, never a gate. */
+  checked_out_at?: string | null;
+  checked_out_by_name?: string | null;
   /** What they asked for when it comes to stabling — "put me next to the Smith
    *  barn" (migration 128). Its own field rather than a sentence inside the
    *  general notes, because whoever draws the stall chart reads every one of
    *  these together and nothing else. */
   stall_request: string | null;
+  /** Their stalls against the horses they show (migration 194): a horse on a
+   *  day none of their horse stalls covers, a tack stall short of horses.
+   *  Flags for the office; often somebody else is paying for the stall.
+   *  Optional for a payload from before it. */
+  stall_checks?: StallCheck[];
   arrival_date: string | null;
   departure_date: string | null;
   entries: DeskEntry[];

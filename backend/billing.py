@@ -957,6 +957,7 @@ def build_bill(
     reservations: Iterable,
     futurities: Iterable = (),
     side_pots: Iterable = (),
+    adjustments: Iterable = (),
 ) -> dict:
     """Itemize one exhibitor's charges at one show.
 
@@ -976,6 +977,12 @@ def build_bill(
     rule that kept pot money out of `build_bill` — that rule's reason was that
     folding buy-ins into a balance would make Financials disagree with My Shows,
     which is only true while the two read different things. Both read this.
+
+    `adjustments` are the office's changes to what is owed (migration 197): a
+    signed amount and a reason each, positive a charge and negative a credit --
+    the cleaning fee for a stall nobody checked out, the difference when box
+    stalls ran out and somebody got a tie stall. In the total like every other
+    line, so a credit lowers the bill rather than reading as money paid back.
     """
     rates = sanction_rates(show)
 
@@ -1106,9 +1113,22 @@ def build_bill(
         class_line["charge_cents"] = sum(c["cents"] for c in charges)
         class_charge_total += class_line["charge_cents"]
 
+    adjustment_line_list = [
+        {
+            "id": adjustment.id,
+            "reason": adjustment.reason,
+            "amount_cents": adjustment.amount_cents,
+            "recorded_by_name": getattr(adjustment, "recorded_by_name", None),
+            "created_at": getattr(adjustment, "created_at", None),
+        }
+        for adjustment in adjustments
+    ]
+    adjustment_total = sum(line["amount_cents"] for line in adjustment_line_list)
+
     return {
         "class_lines": class_lines,
         "reservation_lines": reservation_lines,
+        "adjustment_lines": adjustment_line_list,
         "charge_lines": charge_line_list,
         "sanction_lines": sanction_line_list,
         "futurity_lines": futurity_line_list,
@@ -1129,6 +1149,8 @@ def build_bill(
         "class_charge_total_cents": class_charge_total,
         "futurity_total_cents": futurity_total,
         "side_pot_total_cents": side_pot_total,
+        # Signed: the office's charges less its credits (migration 197).
+        "adjustment_total_cents": adjustment_total,
         "total_cents": (
             class_fee_total
             + all_day_total
@@ -1138,6 +1160,7 @@ def build_bill(
             + charge_total
             + futurity_total
             + side_pot_total
+            + adjustment_total
         ),
     }
 
@@ -1176,13 +1199,14 @@ def build_account(
     payments: Iterable,
     futurities: Iterable = (),
     side_pots: Iterable = (),
+    adjustments: Iterable = (),
 ) -> dict:
     """One exhibitor's standing at one show: billed, paid, and the difference.
 
     The bill comes from `build_bill` untouched, so what Financials shows an
     exhibitor owes is character-for-character what My Shows shows them.
     """
-    bill = build_bill(show, entries, reservations, futurities, side_pots)
+    bill = build_bill(show, entries, reservations, futurities, side_pots, adjustments)
     totals = payment_totals_cents(payments)
     return {
         "bill": bill,
@@ -1210,6 +1234,7 @@ def summarize_accounts(accounts: Iterable) -> dict:
         "charge_total_cents": 0,
         "futurity_total_cents": 0,
         "side_pot_total_cents": 0,
+        "adjustment_total_cents": 0,
         "billed_cents": 0,
         "collected_cents": 0,
         "refunded_cents": 0,
@@ -1241,6 +1266,7 @@ def summarize_accounts(accounts: Iterable) -> dict:
             "charge_total_cents",
             "futurity_total_cents",
             "side_pot_total_cents",
+            "adjustment_total_cents",
         ):
             # .get, because an account built before futurities existed — or by
             # a caller that passes no futurities — has no such key, and a show

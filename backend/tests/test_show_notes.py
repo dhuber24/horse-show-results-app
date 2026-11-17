@@ -5,7 +5,7 @@ from datetime import date
 
 from models import Show
 from routers.shows import _serialize
-from schemas import ShowOut, ShowUpdate
+from schemas import ShowOut, ShowUpdate, StallPeriodIn, StallPeriodOut
 
 
 def a_show(**kwargs) -> Show:
@@ -53,3 +53,28 @@ def test_a_note_cleared_to_whitespace_is_stored_as_none():
 def test_a_note_keeps_its_line_breaks_but_loses_its_edges():
     body = ShowUpdate(public_notes="  Line one\nLine two  ")
     assert body.public_notes == "Line one\nLine two"
+
+
+# -- Move-in notes (migration 199: by stall period) ---------------------------
+
+def _period(**fields):
+    return StallPeriodIn(
+        name="Full show", move_in_date=date(2027, 9, 22), move_out_date=date(2027, 9, 27), **fields
+    )
+
+
+def test_move_in_notes_are_the_periods_not_the_shows():
+    """Each period can have its own instructions, so the notes are sent and
+    read with the period, and the show no longer carries any."""
+    assert "move_in_notes" in StallPeriodOut.model_fields
+    assert "move_in_notes" not in ShowOut.model_fields
+    assert "move_in_notes" not in ShowUpdate.model_fields
+    assert "move_in_notes" not in _serialize(a_show())
+
+
+def test_period_move_in_notes_cleared_to_whitespace_are_stored_as_none():
+    assert _period(move_in_notes="  \n ").move_in_notes is None
+
+
+def test_period_move_in_notes_keep_their_line_breaks_but_lose_their_edges():
+    assert _period(move_in_notes="  Line one\nLine two  ").move_in_notes == "Line one\nLine two"

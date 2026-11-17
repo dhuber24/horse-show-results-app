@@ -358,6 +358,9 @@ export default function DeskClient({
                   const alerts = members.some((e) => healthAlerts(e).length > 0);
                   const unsigned = members.some((e) => unsignedWaivers(e).length > 0);
                   const owing = members.reduce((n, e) => n + Math.max(e.balance_cents, 0), 0);
+                  // Checked out at the desk (migration 200): every record of
+                  // theirs, so somebody half checked out still shows as here.
+                  const checkedOut = members.every((e) => Boolean(e.checked_out_at));
                   // Every number on every record: one per horse at a show
                   // that numbers horses (migration 161).
                   const numbers = members.flatMap(exhibitorNumbers).map((n) => `#${n}`);
@@ -395,6 +398,7 @@ export default function DeskClient({
                           {owing > 0 && (
                             <span style={{ color: 'var(--error)' }}>· {formatMoney(owing)} owing</span>
                           )}
+                          {checkedOut && <span style={{ color: 'var(--success)' }}>· checked out</span>}
                         </div>
                       </button>
                     </li>

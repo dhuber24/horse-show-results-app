@@ -178,6 +178,8 @@ def _serialize(show: Show) -> dict:
         "offers_clinic": show.offers_clinic,
         "aqha_show_number": show.aqha_show_number,
         "shavings_ban_outside": show.shavings_ban_outside,
+        # Every horse entered needs its own stall (migration 194).
+        "stall_per_horse_required": show.stall_per_horse_required,
         # When exhibitors may move into their stalls (migration 181).
         "stalls_open_date": show.stalls_open_date,
         "stalls_open_time": show.stalls_open_time,

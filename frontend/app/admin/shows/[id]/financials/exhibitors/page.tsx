@@ -3,7 +3,21 @@ import { fetchShow } from '@/lib/api';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import { formatMoney } from '@/lib/financials';
 import { loadFinancials } from '../loadFinancials';
-import AccountsPanel from './AccountsPanel';
+import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
+import { isReservableUnit } from '@/lib/fee-units';
+import AccountsPanel, { type BookableLine } from './AccountsPanel';
+
+/** The lines an exhibitor books a quantity of — stalls, passes, shavings,
+ *  camping — for the office's booking editor. None on any failure, which only
+ *  hides the editor. */
+async function fetchBookableLines(showId: string): Promise<BookableLine[]> {
+  const headers = await getAuthHeaders();
+  if (!headers) return [];
+  const res = await fetch(`${API_URL}/shows/${showId}/fees/`, { headers, cache: 'no-store' });
+  if (!res.ok) return [];
+  const fees = ((await readJsonBody(res)) ?? []) as BookableLine[];
+  return fees.filter((fee) => isReservableUnit(fee.unit));
+}
 
 /**
  * Per-exhibitor accounts: what each one was billed, what they have paid, and
@@ -27,7 +41,11 @@ export default async function FinancialExhibitorsPage({
 }) {
   const { id } = await params;
   const { exhibitor } = await searchParams;
-  const [show, financials] = await Promise.all([fetchShow(id), loadFinancials(id)]);
+  const [show, financials, bookable] = await Promise.all([
+    fetchShow(id),
+    loadFinancials(id),
+    fetchBookableLines(id),
+  ]);
 
   const crumbs = (
     <Breadcrumbs
@@ -121,6 +139,7 @@ export default async function FinancialExhibitorsPage({
       <AccountsPanel
         showId={id}
         accounts={financials.accounts}
+        bookable={bookable}
         focusExhibitorId={exhibitor ?? null}
       />
     </main>

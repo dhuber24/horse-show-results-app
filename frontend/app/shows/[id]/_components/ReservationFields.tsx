@@ -1,15 +1,27 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { CancellationWindow, ProfileStatus } from '../register/types';
 import type { RegistrationWindow } from '@/lib/registration-window';
 import {
-  arrivesBeforeStallsOpen,
-  earlyMoveInPass,
+  EARLY_MOVE_IN_CODES,
   formatStallsOpen,
   formatWallClock,
+  isEarlyMoveInPass,
 } from '@/lib/stalls-open';
+import { arrivalNote, departureNote, passLineText } from '@/lib/move-in';
+import {
+  isHorseStallKind,
+  isStallType,
+  periodWindow,
+  STALL_TYPE_LABEL,
+  STALL_TYPES,
+  stallCheckText,
+  type StallCheck,
+  type StallKind,
+  type StallPeriod,
+} from '@/lib/stall-periods';
 
 /**
  * Stalls, shavings, camping, arrival dates and a note to the office — the whole
@@ -57,6 +69,18 @@ export type FeeOption = {
    *  than the rule. */
   min_quantity: number;
   notes: string | null;
+  /** On a stall line (migration 194): what it sells, the period it is sold
+   *  for (null is the whole show), and a tack stall's minimum horse stalls. */
+  stall_kind?: StallKind | null;
+  stall_period_id?: string | null;
+  horses_per_tack_stall?: number | null;
+  /** When holders may move in (migration 195) — the Early Move-In Pass's own
+   *  day and hour, venue wall-clock. */
+  move_in_date?: string | null;
+  move_in_time?: string | null;
+  /** Booked once and priced per exhibitor (migration 196): a tick box, not a
+   *  count. */
+  one_per_exhibitor?: boolean;
 };
 
 export type SignupData = {
@@ -70,9 +94,17 @@ export type SignupData = {
     /** When stalls open (migration 181): venue wall-clock, printed as set. */
     stalls_open_date?: string | null;
     stalls_open_time?: string | null;
+    /** Every horse entered needs its own stall (migration 194). */
+    stall_per_horse_required?: boolean;
   };
   exhibitor: { id: string; full_name: string };
   fee_options: FeeOption[];
+  /** The windows stall lines are sold for (migration 194); empty when every
+   *  stall is for the whole show. */
+  stall_periods?: StallPeriod[];
+  /** What the show would want to know about the saved booking — horses
+   *  without a stall, a tack stall short of horses. Flags, never refusals. */
+  stall_checks?: StallCheck[];
   signup: {
     show_entry_id: string;
     registered_at: string;
@@ -167,6 +199,24 @@ function unitBlurb(units: string[]): string {
 const BEDDING_UNITS = ['per_bag'];
 const STALL_UNITS = ['per_stall'];
 
+/** A stall a horse stands in — a box or a tie stall: not a tack stall, and not
+ *  an add-on priced per stall such as the Early Move-In Pass (migrations 194 and
+ *  198). `stall_kind` comes from the backend already read off the line; the
+ *  code check covers a payload from before it did. Mirrors
+ *  `stabling.is_horse_stall`. */
+function isHorseStall(fee: FeeOption): boolean {
+  if (!STALL_UNITS.includes(fee.unit)) return false;
+  if (fee.stall_kind) return isHorseStallKind(fee.stall_kind);
+  return !EARLY_MOVE_IN_CODES.includes(fee.code);
+}
+
+/** Where a line sits in its period: box, tie, tack, then anything else (the
+ *  period's Early Move-In Pass last). */
+function stallTypeOrder(fee: FeeOption): number {
+  const at = (STALL_TYPES as readonly string[]).indexOf(fee.stall_kind ?? '');
+  return at === -1 ? STALL_TYPES.length : at;
+}
+
 /**
  * The fewest of each line this show will take, given what is currently in the
  * boxes.
@@ -178,7 +228,7 @@ const STALL_UNITS = ['per_stall'];
  * a minimum, and the boxes have to know it or the form offers a booking the
  * save is going to refuse.
  *
- * Conditional on a stall, because a day-haul entry that ships in on the
+ * Conditional on a horse stall, because a day-haul entry that ships in on the
  * Saturday and goes home has nothing to bed. That is why this is computed from
  * the live quantities rather than seeded once: dropping to no stalls drops the
  * bedding requirement in the same breath.
@@ -189,7 +239,7 @@ function requiredQuantities(
   banOutsideShavings: boolean,
 ): Record<string, number> {
   const stalls = fees
-    .filter((f) => STALL_UNITS.includes(f.unit))
+    .filter(isHorseStall)
     .reduce((sum, f) => sum + (quantities[f.id] ?? 0), 0);
   const floors: Record<string, number> = {};
   for (const fee of fees) {
@@ -250,6 +300,32 @@ function EarlyRateNote({ fee, noun }: { fee: FeeOption; noun: string }) {
 }
 
 /**
+ * The stall checks, said to the exhibitor (migration 194). A warning, not an
+ * error: the save still goes through, because the stall may be on somebody
+ * else's booking — a parent's, a trainer's, a group's — and only the office
+ * can see that.
+ */
+export function StallChecksNotice({ checks }: { checks: StallCheck[] }) {
+  return (
+    <div
+      className="mt-3 rounded border p-3 text-sm"
+      style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
+      role="status"
+    >
+      <ul className="space-y-1">
+        {checks.map((check, i) => (
+          <li key={i}>{stallCheckText(check, 'you')}</li>
+        ))}
+      </ul>
+      <p className="text-xs mt-2">
+        You can still save. If somebody else is paying for the stall, say whose it is under
+        Stabling requests.
+      </p>
+    </div>
+  );
+}
+
+/**
  * What the picker adds up to, for a caller that wants it in a collapsed
  * section header. Exported so the summary and the form cannot disagree.
  */
@@ -261,6 +337,11 @@ export function reservationSummary(data: SignupData): { total_cents: number; par
     const fee = byId.get(r.show_fee_id);
     if (!fee || r.quantity <= 0) continue;
     total += fee.rate_cents * r.quantity;
+    if (isEarlyMoveInPass(fee)) {
+      // A pass is not a stall, however it is priced.
+      parts.push(`${r.quantity} early move-in pass${r.quantity === 1 ? '' : 'es'}`);
+      continue;
+    }
     const noun = UNIT_NOUN[fee.unit] ?? 'item';
     parts.push(`${r.quantity} ${noun}${r.quantity === 1 ? '' : 's'}`);
   }
@@ -316,7 +397,6 @@ export default function ReservationFields({
   });
   const [arrival, setArrival] = useState(signup?.arrival_date ?? '');
   const stallsOpen = formatStallsOpen(show.stalls_open_date, show.stalls_open_time);
-  const arrivesEarly = arrivesBeforeStallsOpen(arrival, show.stalls_open_date);
   const [departure, setDeparture] = useState(signup?.departure_date ?? '');
   const [notes, setNotes] = useState(signup?.notes ?? '');
   const [stallRequest, setStallRequest] = useState(signup?.stall_request ?? '');
@@ -355,11 +435,124 @@ export default function ReservationFields({
     return out;
   }, [rawQuantities, floors]);
 
-  // The Early Move-In Pass, if the show offers one: a per-stall line booked
-  // like any other, and what an exhibitor arriving before stalls open is
-  // pointed at, rather than only being told to ring the office.
-  const pass = earlyMoveInPass(fee_options);
-  const passBooked = pass ? (quantities[pass.id] ?? 0) > 0 : false;
+  // Stall lines under the period each is sold for (migration 194). Null where
+  // the show sells every stall for the whole show, which keeps the one list.
+  // Whole-show stalls first, then each period in the office's order, then any
+  // whole-show add-on (the move-in pass) last, so it does not sit alone under
+  // a "Whole show" heading.
+  const stallPeriods = useMemo(() => data.stall_periods ?? [], [data.stall_periods]);
+  const stallGroups = useMemo(() => {
+    if (stallPeriods.length === 0) return null;
+    const known = new Set(stallPeriods.map((p) => p.id));
+    const stallFees = fee_options.filter((f) => STALL_UNITS.includes(f.unit));
+    const wholeShow = stallFees.filter((f) => !f.stall_period_id || !known.has(f.stall_period_id));
+    const groups: {
+      key: string;
+      name: string;
+      window: string | null;
+      fees: FeeOption[];
+      /** A stall type's own name, by fee id, where the period is the heading. */
+      names: Record<string, string>;
+      /** The period's move-in notes (migration 199), printed under its heading. */
+      notes?: string | null;
+    }[] = [];
+    const stallsWhole = wholeShow.filter((f) => f.stall_kind !== 'add_on');
+    if (stallsWhole.length) {
+      groups.push({
+        key: 'whole',
+        name: 'Whole show',
+        window: stallsOpen ? `In ${stallsOpen}` : null,
+        fees: stallsWhole,
+        names: {},
+      });
+    }
+    for (const period of stallPeriods) {
+      // Each period's box, tie and tack stalls (migration 198), in that order,
+      // each by its type's name — "Box stall", with the period as the heading
+      // — unless two lines in the period sell the same type.
+      const fees = stallFees
+        .filter((f) => f.stall_period_id === period.id)
+        .sort((a, b) => stallTypeOrder(a) - stallTypeOrder(b));
+      if (fees.length) {
+        const names: Record<string, string> = {};
+        for (const f of fees) {
+          const kind = f.stall_kind;
+          if (isStallType(kind) && fees.filter((g) => g.stall_kind === kind).length === 1) {
+            names[f.id] = STALL_TYPE_LABEL[kind];
+          }
+        }
+        groups.push({
+          key: period.id,
+          name: period.name,
+          window: periodWindow(period) || null,
+          fees,
+          names,
+          notes: period.move_in_notes?.trim() || null,
+        });
+      }
+    }
+    const extras = wholeShow.filter((f) => f.stall_kind === 'add_on');
+    if (extras.length) groups.push({ key: 'extras', name: 'Extras', window: null, fees: extras, names: {} });
+    return groups;
+  }, [fee_options, stallPeriods, stallsOpen]);
+
+  // What the show would want to know about these stalls (migration 194): a
+  // horse showing on a day none of the horse stalls covers, a tack stall short
+  // of horses. Starts from the saved booking and is asked again as the stall
+  // numbers change, from the backend's rule rather than a copy of it here.
+  // Shown, never enforced — the save goes through either way.
+  const hasStallLines = fee_options.some((f) => STALL_UNITS.includes(f.unit));
+  const [stallChecks, setStallChecks] = useState<StallCheck[]>(data.stall_checks ?? []);
+  const stallBooking = JSON.stringify(
+    fee_options
+      .filter((f) => STALL_UNITS.includes(f.unit) && (quantities[f.id] ?? 0) > 0)
+      .map((f) => ({ show_fee_id: f.id, quantity: quantities[f.id] })),
+  );
+  const bookingOnFile = useRef(stallBooking);
+  useEffect(() => {
+    if (!hasStallLines || stallBooking === bookingOnFile.current) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/shows/${showId}/register/signup/stall-checks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reservations: JSON.parse(stallBooking) }),
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const json = await res.json().catch(() => null);
+        if (Array.isArray(json)) {
+          bookingOnFile.current = stallBooking;
+          setStallChecks(json as StallCheck[]);
+        }
+      } catch {
+        // Cancelled by the next keystroke, or offline: keep what is shown.
+      }
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [hasStallLines, showId, stallBooking]);
+
+  // What to say beside the arrival and departure days, from the stalls and
+  // passes booked so far (`lib/move-in.ts`): a games-only exhibitor is held to
+  // the games move-in, a pass moves the earliest day to its own, and the last
+  // booked period says when the stalls must be out. Flags, never refusals.
+  const moveInContext = {
+    lines: fee_options,
+    quantities,
+    periods: stallPeriods,
+    stallsOpenDate: show.stalls_open_date,
+    stallsOpenTime: show.stalls_open_time,
+  };
+  const arrivalInfo = arrivalNote(arrival, moveInContext);
+  const departureInfo = departureNote(departure, moveInContext);
+
+  const stallsBlurb =
+    (stallGroups ? 'Each stall is for the period it’s listed under.' : 'For the whole show.') +
+    (show.stall_per_horse_required ? ' Every horse you enter needs its own stall.' : '');
 
   const reservationTotal = fee_options.reduce(
     (sum, fee) => sum + fee.rate_cents * (quantities[fee.id] ?? 0),
@@ -438,6 +631,159 @@ export default function ReservationFields({
     }
   };
 
+  /** One line of the picker: its name, price, notes and the stepper. `name`
+   *  is what to call it where a heading already says the rest. */
+  const renderFee = (fee: FeeOption, name?: string) => {
+    const qty = quantities[fee.id] ?? 0;
+    const noun = UNIT_NOUN[fee.unit] ?? 'item';
+    const floor = floors[fee.id] ?? 0;
+    const atFloor = floor > 0 && qty <= floor;
+    return (
+      // Stacked on a phone, side by side from `sm` up. The
+      // stepper is a fixed ~200px, so on a 390px screen the label
+      // and the show's own notes were being wrung out in a column
+      // barely wider than a word — a two-line note rendering as
+      // fifteen one-word lines. Nothing shortened in this file
+      // fixes that, because the longest text in the row is the
+      // secretary's `notes` and this screen does not write it.
+      <li
+        key={fee.id}
+        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 rounded border px-3 py-2"
+        style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}
+      >
+        <div className="min-w-0">
+          <div className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+            {name ?? fee.label}
+          </div>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>
+            {fee.rate_cents > 0
+              ? `${formatMoney(fee.rate_cents)} per ${fee.one_per_exhibitor ? 'exhibitor' : noun}`
+              : 'No charge'}
+            {fee.rate_cents !== fee.amount_cents && (
+              <>
+                {' '}
+                <s>{formatMoney(fee.amount_cents)}</s>
+              </>
+            )}
+            {fee.notes && <> · {fee.notes}</>}
+          </div>
+          {/* An Early Move-In Pass says when it moves you in, and which
+              move-in it beats: its period's, or stalls opening. */}
+          {isEarlyMoveInPass(fee) && (
+            <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+              {passLineText(fee, stallPeriods, show.stalls_open_date, show.stalls_open_time)}
+            </div>
+          )}
+          <EarlyRateNote fee={fee} noun={noun} />
+          {fee.stall_kind === 'tack' && fee.horses_per_tack_stall ? (
+            <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+              Needs {fee.horses_per_tack_stall} horse stall
+              {fee.horses_per_tack_stall === 1 ? '' : 's'}
+              {fee.stall_period_id ? ' in the same period' : ''} for each tack stall.
+            </div>
+          ) : null}
+          {/* Where the number came from rides on the `title` when
+              it came from the show's shavings policy rather than a
+              minimum typed on the fee — the callout at the top of
+              this form has already said it in full, and on a phone
+              the two are a thumb's width apart. */}
+          {floor > 0 && (
+            <div
+              className="text-xs mt-0.5 font-medium"
+              style={{ color: 'var(--warning)' }}
+              title={
+                !fee.min_quantity && BEDDING_UNITS.includes(fee.unit)
+                  ? 'Outside shavings are not allowed here, so stalls must be bedded with bags bought from the show.'
+                  : undefined
+              }
+            >
+              At least {floor} {noun}
+              {floor === 1 ? '' : 's'} required.
+            </div>
+          )}
+        </div>
+        {fee.one_per_exhibitor ? (
+          // Once per exhibitor (migration 196): there is no number to pick.
+          <label
+            className="flex items-center gap-2 text-sm shrink-0 self-end sm:self-auto"
+            style={{ color: 'var(--foreground)' }}
+          >
+            <input
+              type="checkbox"
+              checked={qty > 0}
+              onChange={(e) => setQuantity(fee.id, e.target.checked ? 1 : 0, floor)}
+              aria-label={`Add ${fee.label}`}
+            />
+            Add
+          </label>
+        ) : (
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setQuantity(fee.id, qty - 1, floor)}
+            disabled={qty === 0 || atFloor}
+            className="w-8 h-8 rounded border text-lg leading-none disabled:opacity-40"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
+            title={
+              atFloor
+                ? `This show requires at least ${floor} ${noun}${
+                    floor === 1 ? '' : 's'
+                  }`
+                : qty === 0
+                  ? `No ${noun}s reserved`
+                  : `One fewer ${noun}`
+            }
+            aria-label={`One fewer ${fee.label}`}
+          >
+            −
+          </button>
+          <input
+            type="number"
+            min={0}
+            max={999}
+            value={qty}
+            // Snapped back up to the floor on blur rather than
+            // as they type: clamping mid-keystroke makes "1" on
+            // the way to "12" jump to the minimum and the second
+            // digit land somewhere nobody meant.
+            onChange={(e) =>
+              setRawQuantities((prev) => ({
+                ...prev,
+                [fee.id]: Math.max(0, Math.min(999, Number(e.target.value) || 0)),
+              }))
+            }
+            onBlur={() => setQuantity(fee.id, qty, floor)}
+            className="w-16 border rounded px-2 py-1.5 text-sm text-center"
+            style={{ borderColor: 'var(--border)' }}
+            aria-label={`Number of ${noun}s — ${fee.label}`}
+          />
+          <button
+            type="button"
+            onClick={() => setQuantity(fee.id, qty + 1, floor)}
+            className="w-8 h-8 rounded border text-lg leading-none"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
+            aria-label={`One more ${fee.label}`}
+          >
+            +
+          </button>
+          {/* Against the box, not only in the heading. Nights and
+              whole-show spots now sit in the same section, and
+              this is the word that tells them apart at the moment
+              the number is typed. */}
+          <span
+            className="text-xs w-11 text-left"
+            style={{ color: 'var(--muted)' }}
+            aria-hidden
+          >
+            {noun}
+            {qty === 1 ? '' : 's'}
+          </span>
+
+        </div>
+        )}
+      </li>
+    );
+  };
   return (
     <form onSubmit={handleSubmit}>
       {/* Stated both ways, always. Only rendering the ban left the permissive
@@ -475,7 +821,7 @@ export default function ReservationFields({
             >
               <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>{group.heading}</h3>
               <p className="text-xs mt-0.5 mb-3" style={{ color: 'var(--muted)' }}>
-                {group.blurb}
+                {group.key === 'stalls' ? stallsBlurb : group.blurb}
                 {/* Derived from the units actually present, so a show selling
                     camping by the night and a show selling it by the weekend
                     each get the sentence that applies to them. */}
@@ -496,134 +842,41 @@ export default function ReservationFields({
                   </span>
                 )}
               </p>
-              <ul className="space-y-2">
-                {group.fees.map((fee) => {
-                  const qty = quantities[fee.id] ?? 0;
-                  const noun = UNIT_NOUN[fee.unit] ?? 'item';
-                  const floor = floors[fee.id] ?? 0;
-                  const atFloor = floor > 0 && qty <= floor;
-                  return (
-                    // Stacked on a phone, side by side from `sm` up. The
-                    // stepper is a fixed ~200px, so on a 390px screen the label
-                    // and the show's own notes were being wrung out in a column
-                    // barely wider than a word — a two-line note rendering as
-                    // fifteen one-word lines. Nothing shortened in this file
-                    // fixes that, because the longest text in the row is the
-                    // secretary's `notes` and this screen does not write it.
-                    <li
-                      key={fee.id}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 rounded border px-3 py-2"
-                      style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}
-                    >
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                          {fee.label}
-                        </div>
-                        <div className="text-xs" style={{ color: 'var(--muted)' }}>
-                          {fee.rate_cents > 0 ? `${formatMoney(fee.rate_cents)} per ${noun}` : 'No charge'}
-                          {fee.rate_cents !== fee.amount_cents && (
-                            <>
-                              {' '}
-                              <s>{formatMoney(fee.amount_cents)}</s>
-                            </>
-                          )}
-                          {fee.notes && <> · {fee.notes}</>}
-                        </div>
-                        {fee.id === pass?.id && (
-                          <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-                            {stallsOpen
-                              ? `Move in before stalls open (${stallsOpen}).`
-                              : 'Move in before stalls open.'}
-                          </div>
-                        )}
-                        <EarlyRateNote fee={fee} noun={noun} />
-                        {/* Where the number came from rides on the `title` when
-                            it came from the show's shavings policy rather than a
-                            minimum typed on the fee — the callout at the top of
-                            this form has already said it in full, and on a phone
-                            the two are a thumb's width apart. */}
-                        {floor > 0 && (
-                          <div
-                            className="text-xs mt-0.5 font-medium"
-                            style={{ color: 'var(--warning)' }}
-                            title={
-                              !fee.min_quantity && BEDDING_UNITS.includes(fee.unit)
-                                ? 'Outside shavings are not allowed here, so stalls must be bedded with bags bought from the show.'
-                                : undefined
-                            }
-                          >
-                            At least {floor} {noun}
-                            {floor === 1 ? '' : 's'} required.
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                        <button
-                          type="button"
-                          onClick={() => setQuantity(fee.id, qty - 1, floor)}
-                          disabled={qty === 0 || atFloor}
-                          className="w-8 h-8 rounded border text-lg leading-none disabled:opacity-40"
-                          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
-                          title={
-                            atFloor
-                              ? `This show requires at least ${floor} ${noun}${
-                                  floor === 1 ? '' : 's'
-                                }`
-                              : qty === 0
-                                ? `No ${noun}s reserved`
-                                : `One fewer ${noun}`
-                          }
-                          aria-label={`One fewer ${fee.label}`}
+              {/* Stall lines under the period each is sold for (migration
+                  194), with its move-in and move-out, where the show sells
+                  stalls for part of the show. Otherwise one list. */}
+              {group.key === 'stalls' && stallGroups ? (
+                <div className="space-y-4">
+                  {stallGroups.map((sg) => (
+                    <div key={sg.key}>
+                      <h4 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+                        {sg.name}
+                      </h4>
+                      {sg.window && (
+                        <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
+                          {sg.window}
+                        </p>
+                      )}
+                      {/* What to know about moving in for this period — where
+                          to unload, when assignments are posted — as typed. */}
+                      {sg.notes && (
+                        <p
+                          className="text-xs mb-2 rounded border px-3 py-2 whitespace-pre-wrap"
+                          style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)', color: 'var(--foreground)' }}
                         >
-                          −
-                        </button>
-                        <input
-                          type="number"
-                          min={0}
-                          max={999}
-                          value={qty}
-                          // Snapped back up to the floor on blur rather than
-                          // as they type: clamping mid-keystroke makes "1" on
-                          // the way to "12" jump to the minimum and the second
-                          // digit land somewhere nobody meant.
-                          onChange={(e) =>
-                            setRawQuantities((prev) => ({
-                              ...prev,
-                              [fee.id]: Math.max(0, Math.min(999, Number(e.target.value) || 0)),
-                            }))
-                          }
-                          onBlur={() => setQuantity(fee.id, qty, floor)}
-                          className="w-16 border rounded px-2 py-1.5 text-sm text-center"
-                          style={{ borderColor: 'var(--border)' }}
-                          aria-label={`Number of ${noun}s — ${fee.label}`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setQuantity(fee.id, qty + 1, floor)}
-                          className="w-8 h-8 rounded border text-lg leading-none"
-                          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
-                          aria-label={`One more ${fee.label}`}
-                        >
-                          +
-                        </button>
-                        {/* Against the box, not only in the heading. Nights and
-                            whole-show spots now sit in the same section, and
-                            this is the word that tells them apart at the moment
-                            the number is typed. */}
-                        <span
-                          className="text-xs w-11 text-left"
-                          style={{ color: 'var(--muted)' }}
-                          aria-hidden
-                        >
-                          {noun}
-                          {qty === 1 ? '' : 's'}
-                        </span>
-
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                          {sg.notes}
+                        </p>
+                      )}
+                      <ul className="space-y-2">{sg.fees.map((fee) => renderFee(fee, sg.names[fee.id]))}</ul>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <ul className="space-y-2">{group.fees.map((fee) => renderFee(fee))}</ul>
+              )}
+              {group.key === 'stalls' && stallChecks.length > 0 && (
+                <StallChecksNotice checks={stallChecks} />
+              )}
             </section>
           ))}
         </div>
@@ -684,25 +937,20 @@ export default function ReservationFields({
               onChange={(e) => setArrival(e.target.value)}
               className="mt-1 w-full border rounded px-3 py-2 text-sm"
               style={{ borderColor: 'var(--border)' }}
-              aria-describedby={stallsOpen ? 'stalls-open-note' : undefined}
+              aria-describedby={arrivalInfo ? 'stalls-open-note' : undefined}
             />
             {/* Said where the day is picked, and flagged rather than refused:
                 an early arrival is the office's to allow, and a `min` on the
-                input would stop the form saving over it. Where the show sells
-                an Early Move-In Pass that is the way to ask, so it is named. */}
-            {stallsOpen && (
+                input would stop the form saving over it. Held to the stalls
+                actually booked — a games-only exhibitor to the games move-in —
+                and where an Early Move-In Pass is the way to ask, it is named. */}
+            {arrivalInfo && (
               <span
                 id="stalls-open-note"
                 className="block mt-1"
-                style={{ color: arrivesEarly && !passBooked ? 'var(--warning)' : 'var(--muted)' }}
+                style={{ color: arrivalInfo.warn ? 'var(--warning)' : 'var(--muted)' }}
               >
-                {!arrivesEarly
-                  ? `Stalls open ${stallsOpen}.`
-                  : passBooked
-                    ? `That's before stalls open (${stallsOpen}). You've added an Early Move-In Pass.`
-                    : pass
-                      ? `That's before stalls open (${stallsOpen}). Add an Early Move-In Pass above, or check with the show office.`
-                      : `That's before stalls open (${stallsOpen}). Check with the show office first.`}
+                {arrivalInfo.text}
               </span>
             )}
           </label>
@@ -714,7 +962,19 @@ export default function ReservationFields({
               onChange={(e) => setDeparture(e.target.value)}
               className="mt-1 w-full border rounded px-3 py-2 text-sm"
               style={{ borderColor: 'var(--border)' }}
+              aria-describedby={departureInfo ? 'stalls-out-note' : undefined}
             />
+            {/* When the last booked period's stalls must be out (migration
+                194), flagged like an early arrival rather than refused. */}
+            {departureInfo && (
+              <span
+                id="stalls-out-note"
+                className="block mt-1"
+                style={{ color: departureInfo.warn ? 'var(--warning)' : 'var(--muted)' }}
+              >
+                {departureInfo.text}
+              </span>
+            )}
           </label>
         </div>
         )}

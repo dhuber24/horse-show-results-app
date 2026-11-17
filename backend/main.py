@@ -49,6 +49,7 @@ from routers.futurities import router as futurities_router
 from routers.side_pots import router as side_pots_router
 from routers.show_registration import router as show_registration_router
 from routers.show_fees import router as show_fees_router
+from routers.show_stall_periods import router as show_stall_periods_router
 from routers.show_judges import router as show_judges_router
 from routers.judges import router as judges_router
 from routers.associations import router as associations_router
@@ -224,6 +225,7 @@ app.include_router(futurities_public_router)
 app.include_router(futurities_router)
 app.include_router(show_registration_router)
 app.include_router(show_fees_router)
+app.include_router(show_stall_periods_router)
 app.include_router(show_judges_router)
 app.include_router(judges_router)
 app.include_router(sanctioning_registry_router)

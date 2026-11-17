@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import inspect as sa_inspect
 from typing import Optional, Any, Literal
 from datetime import date, datetime, time
@@ -158,6 +158,9 @@ class ShowUpdate(BaseModel):
     offers_clinic: Optional[bool] = None
     aqha_show_number: Optional[str] = Field(default=None, max_length=50)
     shavings_ban_outside: Optional[bool] = None
+    # Every horse entered needs its own stall (migration 194). Flagged, never
+    # refused -- see `stabling.stall_checks`.
+    stall_per_horse_required: Optional[bool] = None
     # When exhibitors may move into their stalls (migration 181): the venue's
     # own wall-clock day and hour. A time needs a day; `update_show` checks the
     # pair as it will be stored, since either half may arrive alone.
@@ -291,6 +294,8 @@ class ShowOut(BaseModel):
     # in `_serialize` too -- see `showbill_source`.
     class_numbers_as_printed: bool = False
     shavings_ban_outside: bool = False
+    # Migration 194. Serialized in `_serialize` too -- see `showbill_source`.
+    stall_per_horse_required: bool = False
     # Migration 181. Serialized in `_serialize` too -- see `showbill_source`.
     stalls_open_date: Optional[date] = None
     stalls_open_time: Optional[time] = None
@@ -1037,6 +1042,10 @@ FeeUnit = Literal[
 ]
 
 
+# What a per_stall line sells (migration 194). See `stabling.stall_kind_of`.
+StallKind = Literal['box', 'tie', 'tack', 'add_on']
+
+
 class ShowFeeCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     label: str = Field(min_length=1, max_length=200)
@@ -1059,6 +1068,20 @@ class ShowFeeCreate(BaseModel):
     # meaningful on an automatic or per-class unit -- the router refuses one
     # elsewhere, since the unit families live in billing.py.
     class_ids: list[UUID] = Field(default_factory=list)
+    # On a per_stall line only (migration 194): what it sells, the stall
+    # period it is sold for (None is the whole show), and on a tack stall the
+    # horse stalls each one needs. The router refuses them on any other unit.
+    # An unset kind is read from the line -- see `stabling.stall_kind_of`.
+    stall_kind: Optional[StallKind] = None
+    stall_period_id: Optional[UUID] = None
+    horses_per_tack_stall: Optional[int] = Field(default=None, ge=1, le=20)
+    # When holders may move in (migration 195), on a per-stall line -- the
+    # Early Move-In Pass. Venue wall-clock; a time needs a day.
+    move_in_date: Optional[date] = None
+    move_in_time: Optional[time] = None
+    # Booked at most once and priced per exhibitor (migration 196); an add-on
+    # such as the pass only.
+    one_per_exhibitor: bool = False
 
 
 class ShowFeeUpdate(BaseModel):
@@ -1077,6 +1100,16 @@ class ShowFeeUpdate(BaseModel):
     # schedule. `exclude_unset` on the update is what makes those two
     # different, the same way it does for every other field here.
     class_ids: Optional[list[UUID]] = None
+    # Migration 194, per_stall lines only. Omitted leaves each alone; null
+    # clears it (a kind back to "read from the line", a period back to the
+    # whole show, a tack minimum to none).
+    stall_kind: Optional[StallKind] = None
+    stall_period_id: Optional[UUID] = None
+    horses_per_tack_stall: Optional[int] = Field(default=None, ge=1, le=20)
+    # Migration 195. Omitted leaves them alone; clearing the day clears the hour.
+    move_in_date: Optional[date] = None
+    move_in_time: Optional[time] = None
+    one_per_exhibitor: Optional[bool] = None
 
 
 class ShowFeeOut(BaseModel):
@@ -1101,9 +1134,97 @@ class ShowFeeOut(BaseModel):
     reserved_count: int = 0
     # The classes this charge is narrowed to, empty for the whole schedule.
     class_ids: list[UUID] = Field(default_factory=list)
+    # Migration 194, on a per_stall line. `stall_kind` is what the line sells,
+    # stated or read from the line (`ShowFee.stall_kind_effective`), so no
+    # screen repeats the reading; null on anything not priced per stall.
+    stall_kind: Optional[StallKind] = Field(
+        default=None, validation_alias=AliasChoices("stall_kind_effective", "stall_kind")
+    )
+    stall_period_id: Optional[UUID] = None
+    horses_per_tack_stall: Optional[int] = None
+    # When holders may move in (migration 195): the Early Move-In Pass's own day.
+    move_in_date: Optional[date] = None
+    move_in_time: Optional[time] = None
+    # Priced and booked once per exhibitor rather than per stall (migration 196).
+    one_per_exhibitor: bool = False
+
+    @field_validator("one_per_exhibitor", mode="before")
+    @classmethod
+    def _unset_is_not_per_exhibitor(cls, value):
+        # A row built in memory has no server default yet; unset is the
+        # ordinary per-stall pass.
+        return bool(value)
 
     class Config:
         from_attributes = True
+
+
+# ── Stall periods (migration 194) ─────────────────────────────────────────────
+
+class StallPeriodIn(BaseModel):
+    """One stall period as the Lodging step sends it. `id` names a period
+    already on the show; none makes a new one. Wall-clock at the venue."""
+    id: Optional[UUID] = None
+    name: str = Field(min_length=1, max_length=60)
+    move_in_date: date
+    move_in_time: Optional[time] = None
+    move_out_date: date
+    move_out_time: Optional[time] = None
+    move_out_note: Optional[str] = Field(default=None, max_length=200)
+    # Move-in notes for exhibitors for this period (migration 199). Line breaks
+    # kept, edges trimmed; blank is NULL.
+    move_in_notes: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("move_in_notes")
+    @classmethod
+    def blank_move_in_notes_are_none(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
+class StallPeriodsPut(BaseModel):
+    """The show's whole list, in order. A period left out is deleted, and any
+    stall line sold for it becomes a whole-show line."""
+    periods: list[StallPeriodIn] = Field(default_factory=list, max_length=12)
+
+
+class StallPeriodOut(BaseModel):
+    id: UUID
+    show_id: UUID
+    name: str
+    move_in_date: date
+    move_in_time: Optional[time] = None
+    move_out_date: date
+    move_out_time: Optional[time] = None
+    move_out_note: Optional[str] = None
+    move_in_notes: Optional[str] = None
+    sort_order: int
+
+    class Config:
+        from_attributes = True
+
+
+class StallCheckOut(BaseModel):
+    """One thing about an exhibitor's stalls the show would want to know
+    (`stabling.stall_checks`). A flag, never a refusal. The fields used depend
+    on `code`."""
+    code: Literal["HORSE_STALLS_SHORT", "TACK_STALL_HORSES", "PASS_WITHOUT_STALL"]
+    # HORSE_STALLS_SHORT: the days these horses show on fewer horse stalls.
+    dates: list[date] = Field(default_factory=list)
+    horses: list[str] = Field(default_factory=list)
+    stalls: Optional[int] = None
+    # TACK_STALL_HORSES: the tack stall line, its period, and the shortfall.
+    show_fee_id: Optional[UUID] = None
+    label: Optional[str] = None
+    period: Optional[str] = None
+    tack_stalls: Optional[int] = None
+    horses_per_tack_stall: Optional[int] = None
+    horse_stalls: Optional[int] = None
+    # PASS_WITHOUT_STALL: the passes booked, and whether one covers them all.
+    passes: Optional[int] = None
+    one_per_exhibitor: Optional[bool] = None
 
 
 # ── Show Judges ────────────────────────────────────────────────────────────────
@@ -4847,6 +4968,54 @@ class FuturityStandingsOut(BaseModel):
 PaymentMethod = Literal["cash", "check", "card", "transfer", "other"]
 
 
+class AccountAdjustmentCreate(BaseModel):
+    """An office change to what an exhibitor owes (migration 197). Positive is a
+    charge, negative a credit. `recorded_by` comes from the caller's headers."""
+
+    exhibitor_id: UUID
+    amount_cents: int = Field(ge=-10_000_000, le=10_000_000)
+    reason: str = Field(min_length=1, max_length=200)
+
+    @field_validator("amount_cents")
+    @classmethod
+    def _adjustment_nonzero(cls, v: int) -> int:
+        if v == 0:
+            raise ValueError("An adjustment cannot be zero.")
+        return v
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_said(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Say what the adjustment is for — it is printed on the bill.")
+        return v
+
+
+class AccountAdjustmentOut(BaseModel):
+    id: UUID
+    show_entry_id: UUID
+    amount_cents: int
+    reason: str
+    recorded_by: Optional[UUID] = None
+    recorded_by_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AccountReservationItem(BaseModel):
+    show_fee_id: UUID
+    quantity: int = Field(ge=0, le=999)
+
+
+class AccountReservationsReplace(BaseModel):
+    """An exhibitor's whole booking as the office sets it: a line left out is
+    booked at nought, as at sign-up."""
+    reservations: list[AccountReservationItem] = Field(default_factory=list, max_length=200)
+
+
 class ShowPaymentCreate(BaseModel):
     """Record a payment the office took. `recorded_by` is read from the caller's
     headers, never sent — the same reason a verification's value is not."""
@@ -5062,11 +5231,22 @@ class BillSidePotLineOut(BaseModel):
     line_total_cents: int
 
 
+class BillAdjustmentLineOut(BaseModel):
+    """An office change to what is owed (migration 197): positive a charge,
+    negative a credit, and the reason printed beside it."""
+    id: UUID
+    reason: str
+    amount_cents: int
+    recorded_by_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
 class BillOut(BaseModel):
     """One exhibitor's charges, straight from `billing.build_bill`."""
 
     class_lines: list[BillClassLineOut] = Field(default_factory=list)
     reservation_lines: list[BillReservationLineOut] = Field(default_factory=list)
+    adjustment_lines: list[BillAdjustmentLineOut] = Field(default_factory=list)
     charge_lines: list[BillChargeLineOut] = Field(default_factory=list)
     sanction_lines: list[BillSanctionLineOut] = Field(default_factory=list)
     futurity_lines: list[BillFuturityLineOut] = Field(default_factory=list)
@@ -5088,6 +5268,8 @@ class BillOut(BaseModel):
     class_charge_total_cents: int = 0
     futurity_total_cents: int = 0
     side_pot_total_cents: int = 0
+    #: The office's charges less its credits (migration 197); signed.
+    adjustment_total_cents: int = 0
     total_cents: int
 
 
@@ -5166,6 +5348,8 @@ class FinancialTotalsOut(BaseModel):
     #: Buy-ins billed to exhibitors. The same money the `side_pots` pools were
     #: funded by, counted here as what the show is owed for them.
     side_pot_total_cents: int = 0
+    #: The office's adjustments, charges less credits (migration 197).
+    adjustment_total_cents: int = 0
     billed_cents: int = 0
     collected_cents: int = 0
     refunded_cents: int = 0
@@ -5430,6 +5614,10 @@ class ShowDeskExhibitorOut(BaseModel):
     # They stay on the desk because their payments do, and a cancelled
     # exhibitor nobody can find is a cancelled exhibitor nobody can refund.
     cancelled_at: Optional[datetime] = None
+    # Checked out at the desk (migration 200): when, and by whom. A record the
+    # desk shows, never a gate.
+    checked_out_at: Optional[datetime] = None
+    checked_out_by_name: Optional[str] = None
     # What the exhibitor asked for when it comes to stabling -- "put me next to
     # the Smith barn" (migration 128). Its own field rather than a sentence
     # inside the general registration notes, because whoever draws the stall
@@ -5437,6 +5625,10 @@ class ShowDeskExhibitorOut(BaseModel):
     stall_request: Optional[str] = None
     arrival_date: Optional[date] = None
     departure_date: Optional[date] = None
+    # A horse showing on a day none of their horse stalls covers, a tack stall
+    # short of horses (migration 194, `stabling.stall_checks`). Flags for the
+    # office to sort out -- often somebody else is paying for the stall.
+    stall_checks: list[StallCheckOut] = Field(default_factory=list)
     entries: list[ShowDeskEntryOut] = Field(default_factory=list)
     # Teams somebody else entered with this exhibitor on them (migration 192).
     team_rides: list[ShowDeskTeamRideOut] = Field(default_factory=list)

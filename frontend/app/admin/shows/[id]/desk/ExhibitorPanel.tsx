@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Fragment, useCallback, useEffect, useId, useState } from 'react';
 import AddEntryForm from './AddEntryForm';
+import CheckoutSection from './CheckoutSection';
 import CheckRow, { type VerificationKind } from './CheckRow';
 import ContactForm, { type ContactValues } from './ContactForm';
 import DocumentViewer from './DocumentViewer';
@@ -29,6 +30,7 @@ import { errorMessage } from '@/lib/api-error';
 import { formatMoney } from '@/lib/financials';
 import { isTeamClass, riderLabel, teamShortLabel, teamSizeLabel, type TeamSeat } from '@/lib/teams';
 import type { BillClassLine } from '@/lib/my-shows';
+import { stallCheckText } from '@/lib/stall-periods';
 
 /** The subject of a paperwork sign-off, as the backend wants it posted. */
 type Subject = {
@@ -1128,6 +1130,22 @@ export default function ExhibitorPanel({
           </div>
         )}
 
+        {/* Their stalls against the horses they show (migration 194). A flag
+            for the office, never a refusal: the stall may well be on a
+            parent's, a trainer's or a group's booking, which only the desk
+            can tell. */}
+        {(exhibitor.stall_checks?.length ?? 0) > 0 && (
+          <div
+            className="mt-3 rounded border px-3 py-2 text-sm"
+            style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide">Stalls</span>
+            {exhibitor.stall_checks!.map((check, i) => (
+              <p key={i}>{stallCheckText(check, 'they')}</p>
+            ))}
+          </div>
+        )}
+
         {/* Each line is its own jump link, to that horse's row rather than to
             the section: "No Coggins on file" over three horses is three
             different pieces of work, and the horse is named here because the
@@ -1942,6 +1960,24 @@ export default function ExhibitorPanel({
             ))}
           </>
         )}
+      </Section>
+
+      {/* Their whole bill, with a line item the office can add to it, and
+          checking them out (migration 200). The badge says they are out while
+          the section is folded. */}
+      <Section
+        title="Bill & checkout"
+        collapsed={collapsed.has('checkout')}
+        onToggle={() => toggle('checkout')}
+        badge={
+          exhibitor.checked_out_at ? (
+            <span className="text-xs" style={{ color: 'var(--success)' }}>
+              checked out
+            </span>
+          ) : undefined
+        }
+      >
+        <CheckoutSection showId={showId} desk={desk} exhibitor={exhibitor} busy={busy} run={run} />
       </Section>
 
       {/* Below the work rather than above it: entries, money and paperwork are

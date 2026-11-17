@@ -294,6 +294,8 @@ async def list_my_shows(
             selectinload(ShowEntry.show).selectinload(Show.fees),
             selectinload(ShowEntry.show).selectinload(Show.judges),
             selectinload(ShowEntry.reservations).selectinload(ShowEntryReservation.show_fee),
+            # The office's changes to what they owe (migration 197), on the bill.
+            selectinload(ShowEntry.adjustments),
         )
         .where(ShowEntry.exhibitor_id == exhibitor.id)
     )
@@ -351,7 +353,14 @@ async def list_my_shows(
         pots = billed_pots(
             await load_show_pots(show_id, db), signup.id if signup else None
         )
-        bill = build_bill(show, show_entries, reservations, futurities, pots)
+        bill = build_bill(
+            show,
+            show_entries,
+            reservations,
+            futurities,
+            pots,
+            list(signup.adjustments) if signup else [],
+        )
         # One number, or one per horse at a show that numbers horses (161).
         numbers = await back_numbers_for_show(show_id, db)
 

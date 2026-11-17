@@ -111,13 +111,30 @@ def test_an_explicit_minimum_beats_the_derived_one():
     assert required_quantity(bag, show=_show(ban=True), stalls=2) == 4
 
 
-def test_stalls_are_counted_across_every_stall_line():
-    """A show sells a horse stall, a tack stall and early arrival separately.
-    Any of them means the exhibitor is stabling here."""
-    horse_stall = _fee("per_stall", label="Horse stall")
-    tack = _fee("per_stall", label="Tack stall")
+def test_stalls_are_counted_across_every_horse_stall_line():
+    """A show sells a box stall, a tie stall and a full-show and a games-days
+    stall separately. Any of them stands a horse (migration 194)."""
+    box = _fee("per_stall", label="Box stall")
+    tie = _fee("per_stall", label="Tie stall")
 
-    assert stalls_reserved([horse_stall, tack], {tack.id: 1}) == 1
+    assert stalls_reserved([box, tie], {box.id: 2, tie.id: 1}) == 3
+
+
+def test_a_tack_stall_or_the_move_in_pass_stands_no_horse():
+    """A tack stall holds tack and the Early Move-In Pass is an extra on a
+    stall, so booking only those must not require shavings for a horse that is
+    not there (migration 194)."""
+    tack = _fee("per_stall", label="Tack stall")
+    pass_ = SimpleNamespace(
+        id=uuid4(), unit="per_stall", min_quantity=0, label="Early Move-In Pass",
+        code="early_move_in",
+    )
+    bag = _fee("per_bag")
+
+    assert stalls_reserved([tack, pass_], {tack.id: 1, pass_.id: 1}) == 0
+    assert minimum_shortfall(
+        [tack, pass_, bag], show=_show(ban=True), requested={tack.id: 1, pass_.id: 1}
+    ) is None
 
 
 def test_the_ban_does_not_put_a_floor_on_anything_but_bedding():

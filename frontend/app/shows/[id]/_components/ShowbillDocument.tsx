@@ -21,7 +21,9 @@
 
 import { groupFees, unitLabel } from '@/lib/fee-units';
 import { runsOf } from '@/lib/class-order';
-import { earlyMoveInPass, formatStallsOpen, formatWallClock } from '@/lib/stalls-open';
+import { formatWallClock, isEarlyMoveInPass, passBasisLabel, passMoveIn } from '@/lib/stalls-open';
+import MoveInSummary, { hasMoveInSummary } from './MoveInSummary';
+import { periodWindow, type StallPeriod } from '@/lib/stall-periods';
 import { classEntryText, signupDeadlineText } from '@/lib/registration-window';
 import { hashOrName } from '@/lib/class-number';
 
@@ -72,6 +74,14 @@ type Fee = {
   /** The classes the fee is narrowed to (migration 137). Empty is every class,
    *  and prints nothing; a narrowed list is where an exhibitor reads which. */
   class_ids?: string[];
+  /** The stall period a stall line is sold for (migration 194); null is the
+   *  whole show. */
+  stall_period_id?: string | null;
+  /** When holders may move in (migration 195): the Early Move-In Pass's day. */
+  move_in_date?: string | null;
+  move_in_time?: string | null;
+  /** Priced and booked once per exhibitor (migration 196). */
+  one_per_exhibitor?: boolean;
 };
 
 /**
@@ -142,6 +152,7 @@ function FeeRow({
   notes,
   early,
   classesText,
+  whenText,
 }: {
   label: string;
   unitText: string;
@@ -149,12 +160,17 @@ function FeeRow({
   notes?: string | null;
   early?: string | null;
   classesText?: string | null;
+  /** A stall line's period and its move-in and move-out (migration 194). */
+  whenText?: string | null;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2 text-sm">
       <div style={{ color: 'var(--foreground)' }}>
         {label}
         <span className="text-xs" style={{ color: 'var(--muted)' }}> ({unitText})</span>
+        {whenText && (
+          <div className="text-xs" style={{ color: 'var(--foreground)' }}>{whenText}</div>
+        )}
         {classesText && (
           <div className="text-xs" style={{ color: 'var(--foreground)' }}>{classesText}</div>
         )}
@@ -172,6 +188,24 @@ function FeeRow({
 
 function formatMoney(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
+/** "Move in from Tuesday, September 21 at 4:00 PM (Pleasure)" for an Early
+ *  Move-In Pass row — when its holders move in, and which period it is for. */
+function passWhenText(pass: Fee, periods: StallPeriod[]): string | null {
+  const from = passMoveIn(pass);
+  const period = pass.stall_period_id ? periods.find((p) => p.id === pass.stall_period_id) : undefined;
+  if (!from) return period ? period.name : null;
+  return period ? `Move in from ${from} (${period.name})` : `Move in from ${from}`;
+}
+
+/** "Pleasure: In Wednesday, September 23 at 4:00 PM · out Friday, ..." for a
+ *  stall line sold for a period (migration 194); nothing for a whole-show line. */
+function stallPeriodText(periodId: string | null | undefined, periods: StallPeriod[]): string | null {
+  const period = periodId ? periods.find((p) => p.id === periodId) : undefined;
+  if (!period) return null;
+  const window = periodWindow(period);
+  return window ? `${period.name}: ${window}` : period.name;
 }
 
 function formatDate(dateStr: string): string {
@@ -282,6 +316,7 @@ export default function ShowbillDocument({
   classes,
   judges,
   fees,
+  stallPeriods = [],
   futurities = [],
 }: {
   // Straight off `fetchShow`, which is untyped — the same shape every other
@@ -290,6 +325,8 @@ export default function ShowbillDocument({
   classes: ShowbillClassRow[];
   judges: Judge[];
   fees: Fee[];
+  /** The windows stall lines are sold for (migration 194). */
+  stallPeriods?: StallPeriod[];
   /** A show with no futurity prints no futurity section. */
   futurities?: ShowbillFuturity[];
 }) {
@@ -343,8 +380,13 @@ export default function ShowbillDocument({
   // would be a promise nobody is keeping — the registration screen has no
   // shavings to order there either.
   const sellsBedding = fees.some((fee) => fee.unit === 'per_bag');
-  const stallsOpen = formatStallsOpen(show.stalls_open_date, show.stalls_open_time);
-  const pass = earlyMoveInPass(fees);
+  // When and how exhibitors move in, worded as Show Details words it.
+  const moveIn = {
+    stallsOpenDate: show.stalls_open_date,
+    stallsOpenTime: show.stalls_open_time,
+    periods: stallPeriods,
+    fees,
+  };
 
   return (
     <article
@@ -376,17 +418,13 @@ export default function ShowbillDocument({
             {formatDate(show.start_date)}
             {show.end_date !== show.start_date && <> through {formatDate(show.end_date)}</>}
           </Fact>
-          {/* Migration 181. Beside the dates, since it is the date a trailer
-              is planned around. Venue wall-clock, printed as the office set it. */}
-          {(stallsOpen || pass) && (
+          {/* Beside the dates, since it is the date a trailer is planned
+              around: stalls open or each stall period, any Early Move-In Pass,
+              the office's notes (migrations 181, 194-196). Venue wall-clock,
+              printed as the office set it, in the words Show Details uses. */}
+          {hasMoveInSummary(moveIn) && (
             <Fact label="Move-in">
-              {stallsOpen && <>Stalls open {stallsOpen}.</>}
-              {stallsOpen && pass && ' '}
-              {pass && (
-                <>
-                  Early Move-In Pass {formatMoney(pass.amount_cents)} {unitLabel(pass.unit)}.
-                </>
-              )}
+              <MoveInSummary {...moveIn} />
             </Fact>
           )}
           {/* The show office's two registration answers (migration 159). Printed
@@ -539,10 +577,15 @@ export default function ShowbillDocument({
                 <FeeRow
                   key={fee.id}
                   label={fee.label}
-                  unitText={unitLabel(fee.unit)}
+                  unitText={isEarlyMoveInPass(fee) ? passBasisLabel(fee) : unitLabel(fee.unit)}
                   amountCents={fee.amount_cents}
                   notes={fee.notes}
                   classesText={feeClassesText(fee.class_ids, classes)}
+                  whenText={
+                    isEarlyMoveInPass(fee)
+                      ? passWhenText(fee, stallPeriods)
+                      : stallPeriodText(fee.stall_period_id, stallPeriods)
+                  }
                   early={
                     fee.early_amount_cents != null && fee.early_deadline != null
                       ? `${formatMoney(fee.early_amount_cents)} if reserved by ${formatShortDate(

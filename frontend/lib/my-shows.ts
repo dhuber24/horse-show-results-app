@@ -265,6 +265,16 @@ export type BillAllDayLine = {
   line_total_cents: number;
 };
 
+/** An office change to what is owed (migration 197): positive a charge,
+ *  negative a credit, with the reason the bill prints. */
+export type BillAdjustmentLine = {
+  id: string;
+  reason: string;
+  amount_cents: number;
+  recorded_by_name?: string | null;
+  created_at?: string | null;
+};
+
 export type Bill = {
   class_lines: BillClassLine[];
   /** Optional for a payload built before migration 186. */
@@ -288,6 +298,9 @@ export type Bill = {
   class_charge_total_cents?: number;
   futurity_total_cents: number;
   side_pot_total_cents: number;
+  /** The office's adjustments (migration 197). Optional for an older payload. */
+  adjustment_lines?: BillAdjustmentLine[];
+  adjustment_total_cents?: number;
   total_cents: number;
 };
 

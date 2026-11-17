@@ -35,6 +35,8 @@ from __future__ import annotations
 from typing import Iterable, Mapping
 from uuid import UUID
 
+from stabling import is_horse_stall
+
 # The units a bag of bedding is sold in, and the units a stall is sold in.
 # Read off the fee's unit rather than its `code`, for the same reason the
 # sign-up picker groups by unit: a show that adds its own bedding line under a
@@ -77,13 +79,18 @@ def _quantity(requested: Mapping[UUID, int], fee_id: UUID) -> int:
 
 
 def stalls_reserved(fees: Iterable, requested: Mapping[UUID, int]) -> int:
-    """How many stalls this booking reserves, across every stall line.
+    """How many horse stalls this booking reserves, across every stall line.
 
-    Summed across lines because a show sells several: a horse stall, a tack
-    stall, early arrival. Any of them means the exhibitor is stabling here.
+    Summed across lines because a show sells several: a box stall, a tie stall,
+    one for the full show and one for the games days. Only *horse* stalls
+    (`stabling.stall_kind_of`, migration 194): a tack stall holds no horse and
+    the Early Move-In Pass is an extra on a stall, so booking only a tack stall
+    must not require shavings for a horse that is not there.
     """
     return sum(
-        _quantity(requested, f.id) for f in fees if f.unit in STALL_UNITS
+        _quantity(requested, f.id)
+        for f in fees
+        if f.unit in STALL_UNITS and is_horse_stall(f)
     )
 
 

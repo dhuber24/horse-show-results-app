@@ -1,4 +1,5 @@
 from datetime import date
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,8 +16,9 @@ from billing import (
 from reservations import REQUIRABLE_FEE_UNITS
 from database import get_db
 from dependencies import require_admin_or_show_admin
-from models import Class, Show, ShowEntryReservation, ShowFee, ShowFeeClass
+from models import Class, Show, ShowEntryReservation, ShowFee, ShowFeeClass, ShowStallPeriod
 from routers.shows import _assert_show_access
+from stabling import ADD_ON, STALL_UNIT, TACK, stall_kind_of
 from schemas import ShowFeeCreate, ShowFeeOut, ShowFeeUpdate
 
 router = APIRouter(prefix="/shows/{show_id}/fees", tags=["Show Fees"])
@@ -190,6 +192,84 @@ async def _resolve_scope_classes(
     return wanted
 
 
+STALL_FIELDS = ("stall_kind", "stall_period_id", "horses_per_tack_stall")
+
+
+async def _check_stall_fields(
+    *,
+    show_id: UUID,
+    unit: str,
+    code: str,
+    label: str,
+    stall_kind: str | None,
+    stall_period_id: UUID | None,
+    horses_per_tack_stall: int | None,
+    db: AsyncSession,
+) -> None:
+    """The three stall facts (migration 194), checked against the row as it
+    will be stored.
+
+    Only a per_stall line carries them: a kind, a period or a tack minimum on a
+    camping night is a control with no reader. A period must be one of this
+    show's, since the id arrives from a client. A tack minimum only on a line
+    that sells a tack stall, read the way every screen reads it
+    (`stabling.stall_kind_of`), so an imported "Tack stall" with no kind stated
+    may take one.
+    """
+    if unit != STALL_UNIT:
+        if stall_kind or stall_period_id or horses_per_tack_stall:
+            raise HTTPException(
+                422,
+                "Only a fee charged per stall says what kind of stall it is, which "
+                "stall period it is for, or how many horses a tack stall needs.",
+            )
+        return
+    if stall_period_id is not None:
+        found = await db.execute(
+            select(ShowStallPeriod.id).where(
+                ShowStallPeriod.id == stall_period_id, ShowStallPeriod.show_id == show_id
+            )
+        )
+        if found.scalar_one_or_none() is None:
+            raise HTTPException(422, "That stall period is not on this show.")
+    if horses_per_tack_stall:
+        kind = stall_kind_of(
+            SimpleNamespace(unit=unit, code=code, label=label, stall_kind=stall_kind)
+        )
+        if kind != TACK:
+            raise HTTPException(
+                422,
+                "Only a tack stall needs a number of horses. Set this line's kind "
+                "to a tack stall first, or clear the number.",
+            )
+
+
+def _check_move_in(*, unit: str, move_in_date: date | None, move_in_time) -> None:
+    """When holders of a line may move in (migration 195) -- the Early Move-In
+    Pass's own day and hour. Only a per-stall line moves anybody in, and an hour
+    needs its day, as on `stalls_open_*` and the early-rate deadline."""
+    if unit != STALL_UNIT and (move_in_date or move_in_time):
+        raise HTTPException(
+            422, "Only a fee charged per stall, such as the Early Move-In Pass, has a move-in day."
+        )
+    if move_in_time is not None and move_in_date is None:
+        raise HTTPException(422, "A move-in time needs a move-in day.")
+
+
+def _check_one_per_exhibitor(*, unit: str, code: str, label: str, stall_kind, one_per_exhibitor) -> None:
+    """Priced and booked once per exhibitor (migration 196) is a way to sell an
+    add-on such as the Early Move-In Pass. On a stall itself it would mean one
+    stall per exhibitor, which is a booking rule nobody asked for."""
+    if not one_per_exhibitor:
+        return
+    kind = stall_kind_of(SimpleNamespace(unit=unit, code=code, label=label, stall_kind=stall_kind))
+    if kind != ADD_ON:
+        raise HTTPException(
+            422,
+            "Only an add-on such as the Early Move-In Pass can be priced per exhibitor.",
+        )
+
+
 def _apply_scope(fee: ShowFee, class_ids: list[UUID] | None) -> None:
     """Replace a fee's class scope in place, leaving it alone when None.
 
@@ -291,6 +371,26 @@ async def create_show_fee(
     )
     _assert_min_quantity_valid(unit=body.unit, min_quantity=body.min_quantity)
     _assert_deadline_time_valid(body.early_deadline, body.early_deadline_time)
+    _check_move_in(
+        unit=body.unit, move_in_date=body.move_in_date, move_in_time=body.move_in_time
+    )
+    _check_one_per_exhibitor(
+        unit=body.unit,
+        code=body.code,
+        label=body.label,
+        stall_kind=body.stall_kind,
+        one_per_exhibitor=body.one_per_exhibitor,
+    )
+    await _check_stall_fields(
+        show_id=show_id,
+        unit=body.unit,
+        code=body.code,
+        label=body.label,
+        stall_kind=body.stall_kind,
+        stall_period_id=body.stall_period_id,
+        horses_per_tack_stall=body.horses_per_tack_stall,
+        db=db,
+    )
     scope = await _resolve_scope_classes(
         show_id=show_id, unit=body.unit, class_ids=body.class_ids, db=db
     )
@@ -389,6 +489,69 @@ async def update_show_fee(
                 "silently reprice their bookings. Remove this fee and add it "
                 "again to start over, or leave the unit as it is.",
             )
+    # The period is what a booked stall *is*, the way the unit is what a booked
+    # quantity counts: moving a full-show stall that people hold to the
+    # pleasure days changes what they bought. Same answer as the unit.
+    if (
+        "stall_period_id" in updates
+        and updates["stall_period_id"] != fee.stall_period_id
+        and new_unit == STALL_UNIT
+    ):
+        reserved = (await _reserved_counts([fee.id], db)).get(fee.id, 0)
+        if reserved:
+            raise HTTPException(
+                409,
+                f"{reserved} exhibitor(s) have already booked this stall for its "
+                "current period. Moving it would change what they bought. Add a "
+                "new stall type for the other period instead.",
+            )
+    # The stall facts follow the line (migration 194). A line that stops being
+    # priced per stall drops all three, and one that stops selling a tack stall
+    # drops its tack minimum -- unless the request itself sent them, which is a
+    # contradiction to refuse rather than tidy away.
+    if new_unit != STALL_UNIT:
+        for key in (*STALL_FIELDS, "move_in_date", "move_in_time"):
+            updates.setdefault(key, None)
+    # Clearing the move-in day clears its hour, as the early-rate deadline does.
+    if "move_in_date" in updates and updates["move_in_date"] is None:
+        updates["move_in_time"] = None
+    _check_move_in(
+        unit=new_unit,
+        move_in_date=updates.get("move_in_date", fee.move_in_date),
+        move_in_time=updates.get("move_in_time", fee.move_in_time),
+    )
+    merged = {key: updates.get(key, getattr(fee, key)) for key in STALL_FIELDS}
+    merged_kind = stall_kind_of(
+        SimpleNamespace(
+            unit=new_unit,
+            code=updates.get("code", fee.code),
+            label=updates.get("label", fee.label),
+            stall_kind=merged["stall_kind"],
+        )
+    )
+    if merged_kind != TACK and "horses_per_tack_stall" not in updates:
+        merged["horses_per_tack_stall"] = updates["horses_per_tack_stall"] = None
+    # Once per exhibitor goes with the add-on: a line that stops being one stops
+    # being priced that way, unless this request said so, which is refused.
+    if merged_kind != ADD_ON and "one_per_exhibitor" not in updates and fee.one_per_exhibitor:
+        updates["one_per_exhibitor"] = False
+    if updates.get("one_per_exhibitor") is None:
+        updates.pop("one_per_exhibitor", None)
+    _check_one_per_exhibitor(
+        unit=new_unit,
+        code=updates.get("code", fee.code),
+        label=updates.get("label", fee.label),
+        stall_kind=merged["stall_kind"],
+        one_per_exhibitor=updates.get("one_per_exhibitor", fee.one_per_exhibitor),
+    )
+    await _check_stall_fields(
+        show_id=show_id,
+        unit=new_unit,
+        code=updates.get("code", fee.code),
+        label=updates.get("label", fee.label),
+        db=db,
+        **merged,
+    )
     scope = await _resolve_scope_classes(
         show_id=show_id, unit=new_unit, class_ids=updates.pop("class_ids", None), db=db
     )

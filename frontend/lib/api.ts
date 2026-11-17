@@ -1,6 +1,7 @@
 import type { CardPhoto } from './card-photos';
 import type { ShowPattern } from './patterns';
 import { NO_MAPS, type ShowMaps } from './show-maps';
+import type { StallPeriod } from './stall-periods';
 import type {
   Circuit,
   CircuitLeaderboard,
@@ -69,6 +70,17 @@ export async function fetchShowJudgesPublic(showId: string) {
  */
 export async function fetchShowFeesPublic(showId: string) {
   const res = await fetch(`${API_URL}/shows/${showId}/fees/public`, { cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+/**
+ * The show's stall periods (migration 194) — the windows its stalls are sold
+ * for, each with its own move-in and move-out — no auth, printed beside the
+ * stall lines. Returns [] on any failure, as the price list does.
+ */
+export async function fetchShowStallPeriodsPublic(showId: string): Promise<StallPeriod[]> {
+  const res = await fetch(`${API_URL}/shows/${showId}/stall-periods/public`, { cache: 'no-store' });
   if (!res.ok) return [];
   return res.json();
 }

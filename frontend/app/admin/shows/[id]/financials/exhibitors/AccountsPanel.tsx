@@ -13,10 +13,22 @@ import {
   type PaymentMethod,
 } from '@/lib/financials';
 import { unitLabel } from '@/lib/fee-units';
+import { errorMessage } from '@/lib/api-error';
 import AutoRefresh from '../AutoRefresh';
+import OfficeBillBreakdown from '@/components/OfficeBillBreakdown';
 import { backNumbersLabel } from '@/lib/back-numbers';
 
 type Filter = 'owing' | 'settled' | 'all';
+
+/** A line an exhibitor books a quantity of (stalls, passes, shavings,
+ *  camping), for the office's booking editor. */
+export type BookableLine = {
+  id: string;
+  label: string;
+  unit: string;
+  amount_cents: number;
+  one_per_exhibitor?: boolean;
+};
 
 /**
  * Per-exhibitor accounts, with the desk's record-a-payment form.
@@ -29,10 +41,13 @@ type Filter = 'owing' | 'settled' | 'all';
 export default function AccountsPanel({
   showId,
   accounts,
+  bookable = [],
   focusExhibitorId = null,
 }: {
   showId: string;
   accounts: FinancialAccount[];
+  /** The show's bookable lines, for setting what an exhibitor has booked. */
+  bookable?: BookableLine[];
   /** From `?exhibitor=` — the desk sent the office here to take money from one
    *  named person. Their row opens on arrival. */
   focusExhibitorId?: string | null;
@@ -144,6 +159,7 @@ export default function AccountsPanel({
               key={account.exhibitor_id}
               showId={showId}
               account={account}
+              bookable={bookable}
               isOpen={openId === account.exhibitor_id}
               onToggle={() =>
                 setOpenId(openId === account.exhibitor_id ? null : account.exhibitor_id)
@@ -160,12 +176,14 @@ export default function AccountsPanel({
 function AccountRow({
   showId,
   account,
+  bookable,
   isOpen,
   onToggle,
   onChanged,
 }: {
   showId: string;
   account: FinancialAccount;
+  bookable: BookableLine[];
   isOpen: boolean;
   onToggle: () => void;
   onChanged: () => void;
@@ -263,7 +281,19 @@ function AccountRow({
           >
             ← {account.exhibitor_name}&rsquo;s registration
           </Link>
-          <BillBreakdown account={account} />
+          <OfficeBillBreakdown bill={account.bill} />
+          {/* What the office changes about what they owe (migration 197):
+              their bookings, to match the stall chart the office keeps, and
+              credits or charges with a reason. Payments and refunds below. */}
+          {bookable.length > 0 && (
+            <BookingsEditor
+              showId={showId}
+              account={account}
+              bookable={bookable}
+              onSaved={onChanged}
+            />
+          )}
+          <AdjustmentsEditor showId={showId} account={account} onChanged={onChanged} />
           <PaymentHistory showId={showId} account={account} onChanged={onChanged} />
           <RecordPaymentForm
             showId={showId}
@@ -276,94 +306,324 @@ function AccountRow({
   );
 }
 
-function BillBreakdown({ account }: { account: FinancialAccount }) {
-  const { bill } = account;
-  const rows = [
-    { label: 'Class entry fees', cents: bill.class_fee_total_cents },
-    // Charged in place of the class entry fees each one covered, which are not
-    // in the row above (migration 186).
-    ...(bill.all_day_lines ?? []).map((line) => ({
-      label:
-        `${line.label}${line.horse_name ? ` — ${line.horse_name}` : ''}` +
-        `${line.class_date ? `, ${line.class_date}` : ''}` +
-        ` (${line.class_count} ${line.class_count === 1 ? 'class' : 'classes'} at ${formatMoney(
-          line.class_fee_cents,
-        )})`,
-      cents: line.line_total_cents,
-    })),
-    // The per-class clubs only: their money is spread across the class lines
-    // and has no line of its own. A club charging per horse or per exhibitor
-    // is itemised below with its arithmetic, the way the show's own charges
-    // are — the two add up to `sanction_total_cents`.
-    {
-      label: 'Club sanction fees',
-      cents: bill.class_sanction_total_cents ?? bill.sanction_total_cents,
-    },
-    ...(bill.sanction_lines ?? []).map((line) => ({
-      label: `${line.name || line.code} sanction — ${formatMoney(line.amount_cents)} ${unitLabel(
-        line.unit,
-      )}${line.quantity > 1 ? ` × ${line.quantity}` : ''}`,
-      cents: line.line_total_cents,
-    })),
-    // No office charge row of its own: since migration 132 it is an ordinary
-    // fee row and arrives with the show's other charges below.
-    ...bill.reservation_lines.map((line) => ({
-      label: `${line.label} — ${line.quantity} × ${formatMoney(line.amount_cents)}${
-        line.is_early_rate ? ' (early rate)' : ''
-      }`,
-      cents: line.line_total_cents,
-    })),
-    // The show's own charges. The multiplier is spelled out for the same reason
-    // the futurity line names the horse and the category: this is a charge
-    // nobody booked, so the desk needs to be able to answer "why is this $30?"
-    // without opening the fee editor.
-    ...(bill.charge_lines ?? []).map((line) => ({
-      label: `${line.label} — ${formatMoney(line.amount_cents)} ${unitLabel(line.unit)}${
-        line.quantity > 1 ? ` × ${line.quantity}` : ''
-      }`,
-      cents: line.line_total_cents,
-    })),
-    // Futurity money is its own line per horse, because the per-class rate is
-    // the entrant's category rate and appears nowhere in `class_lines` — those
-    // classes are $0. Reading the two together is how you check a futurity
-    // bill, so the horse and the category are both named.
-    ...(bill.futurity_lines ?? []).map((line) => ({
-      label:
-        `${line.futurity_name} — ${line.horse_name ?? 'horse'}` +
-        (line.fee_tier_name ? ` (${line.fee_tier_name})` : '') +
-        `, ${line.class_count} ${line.class_count === 1 ? 'class' : 'classes'}` +
-        (line.is_late ? ' + late fee' : '') +
-        (line.membership_fee_cents > 0
-          ? ` + ${line.membership_name ?? 'membership'}`
-          : ''),
-      cents: line.line_total_cents,
-    })),
-  ].filter((r) => r.cents !== 0);
+/**
+ * What the exhibitor has booked — stalls, passes, shavings, camping — as the
+ * office sets it (migration 197). GaitDesk does not run the stall chart; this
+ * is how the bill follows the one the office keeps: a tie stall for a box stall
+ * when the boxes ran out, a walk-up's stalls. The whole booking is saved at
+ * once, a line at nought dropped, as at sign-up. A line kept keeps its early
+ * rate; one added now is today's.
+ */
+function BookingsEditor({
+  showId,
+  account,
+  bookable,
+  onSaved,
+}: {
+  showId: string;
+  account: FinancialAccount;
+  bookable: BookableLine[];
+  onSaved: () => void;
+}) {
+  const booked: Record<string, number> = Object.fromEntries(
+    account.bill.reservation_lines.map((line) => [line.show_fee_id, line.quantity]),
+  );
+  const [quantities, setQuantities] = useState<Record<string, number>>(() =>
+    Object.fromEntries(bookable.map((fee) => [fee.id, booked[fee.id] ?? 0])),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const dirty = bookable.some((fee) => (quantities[fee.id] ?? 0) !== (booked[fee.id] ?? 0));
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/shows/${showId}/accounts/${account.exhibitor_id}/reservations`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reservations: bookable
+            .filter((fee) => (quantities[fee.id] ?? 0) > 0)
+            .map((fee) => ({ show_fee_id: fee.id, quantity: quantities[fee.id] })),
+        }),
+      });
+      if (!res.ok && res.status !== 204) {
+        const json = await res.json().catch(() => null);
+        setError(errorMessage(json, 'Could not save their bookings.'));
+        return;
+      }
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: 'var(--muted)' }}>
-        Bill
+      <h3 className="text-xs font-semibold uppercase tracking-wide mb-0.5" style={{ color: 'var(--muted)' }}>
+        Stalls, shavings &amp; camping
       </h3>
-      <dl className="text-sm space-y-1">
-        {rows.map((row) => (
-          <div key={row.label} className="flex justify-between gap-4">
-            <dt style={{ color: 'var(--text-deep)' }}>{row.label}</dt>
-            <dd className="tabular-nums" style={{ color: 'var(--foreground)' }}>
-              {formatMoney(row.cents)}
-            </dd>
-          </div>
-        ))}
-        <div
-          className="flex justify-between gap-4 pt-1.5 mt-1.5 border-t font-semibold"
-          style={{ borderColor: 'var(--bg-subtle)' }}
+      <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
+        What they have booked. Change it to match your stall chart — their bill follows.
+      </p>
+      <ul className="space-y-1.5">
+        {bookable.map((fee) => {
+          const qty = quantities[fee.id] ?? 0;
+          const basis = fee.one_per_exhibitor ? 'per exhibitor' : unitLabel(fee.unit);
+          return (
+            <li key={fee.id} className="flex items-center justify-between gap-3 text-sm">
+              <span style={{ color: 'var(--text-deep)' }}>
+                {fee.label}
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                  {' '}
+                  {formatMoney(fee.amount_cents)} {basis}
+                </span>
+              </span>
+              {fee.one_per_exhibitor ? (
+                <input
+                  type="checkbox"
+                  checked={qty > 0}
+                  onChange={(e) => setQuantities((prev) => ({ ...prev, [fee.id]: e.target.checked ? 1 : 0 }))}
+                  aria-label={`${fee.label} — booked`}
+                />
+              ) : (
+                <input
+                  type="number"
+                  min={0}
+                  max={999}
+                  value={qty}
+                  onChange={(e) =>
+                    setQuantities((prev) => ({
+                      ...prev,
+                      [fee.id]: Math.max(0, Math.min(999, Number(e.target.value) || 0)),
+                    }))
+                  }
+                  className="w-20 border rounded px-2 py-1 text-sm text-right tabular-nums"
+                  style={{ borderColor: 'var(--border)' }}
+                  aria-label={`${fee.label} — quantity`}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {error && (
+        <p className="text-xs mt-2" style={{ color: 'var(--error-strong)' }} role="alert">
+          {error}
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={() => void save()}
+        disabled={!dirty || busy}
+        title={!dirty ? 'Nothing has changed.' : undefined}
+        className="mt-2 text-sm rounded px-3 py-1.5 disabled:opacity-50"
+        style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
+      >
+        {busy ? 'Saving…' : 'Save bookings'}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The office's credits and charges (migration 197): a signed amount and the
+ * reason the bill prints. A credit lowers what they owe — a tie stall given in
+ * place of a box stall, a comped stall — and a charge raises it, such as the
+ * cleaning fee for a stall nobody checked out. Not a payment: to give money
+ * back too, record a refund below.
+ */
+function AdjustmentsEditor({
+  showId,
+  account,
+  onChanged,
+}: {
+  showId: string;
+  account: FinancialAccount;
+  onChanged: () => void;
+}) {
+  const lines = account.bill.adjustment_lines ?? [];
+  const [kind, setKind] = useState<'credit' | 'charge'>('credit');
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  async function add() {
+    setError(null);
+    const dollars = Number.parseFloat(amount);
+    if (!Number.isFinite(dollars) || dollars <= 0) {
+      setError('Enter the amount.');
+      return;
+    }
+    if (!reason.trim()) {
+      setError('Say what it is for — it is printed on their bill.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const cents = Math.round(dollars * 100) * (kind === 'credit' ? -1 : 1);
+      const res = await fetch(`/api/shows/${showId}/adjustments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exhibitor_id: account.exhibitor_id,
+          amount_cents: cents,
+          reason: reason.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        setError(errorMessage(json, 'Could not add the adjustment.'));
+        return;
+      }
+      setAmount('');
+      setReason('');
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/shows/${showId}/adjustments/${id}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) {
+        const json = await res.json().catch(() => null);
+        setError(errorMessage(json, 'Could not remove the adjustment.'));
+        return;
+      }
+      setConfirmId(null);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-wide mb-0.5" style={{ color: 'var(--muted)' }}>
+        Adjustments
+      </h3>
+      <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
+        A credit or a charge, with the reason printed on their bill. To give money back as well,
+        record a refund below.
+      </p>
+      {lines.length > 0 && (
+        <ul className="space-y-1 mb-2">
+          {lines.map((line) => (
+            <li key={line.id} className="flex items-center justify-between gap-3 text-sm">
+              <span style={{ color: 'var(--text-deep)' }}>
+                {line.reason}
+                {line.recorded_by_name && (
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                    {' '}
+                    — {line.recorded_by_name}
+                  </span>
+                )}
+              </span>
+              <span className="flex items-center gap-3">
+                <span
+                  className="tabular-nums"
+                  style={{ color: line.amount_cents < 0 ? 'var(--success)' : 'var(--foreground)' }}
+                >
+                  {line.amount_cents < 0
+                    ? `−${formatMoney(-line.amount_cents)}`
+                    : formatMoney(line.amount_cents)}
+                </span>
+                {confirmId === line.id ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void remove(line.id)}
+                      disabled={busy}
+                      className="text-xs underline"
+                      style={{ color: 'var(--error-strong)' }}
+                    >
+                      Remove it
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmId(null)}
+                      className="text-xs underline"
+                      style={{ color: 'var(--muted)' }}
+                    >
+                      Keep
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmId(line.id)}
+                    className="text-xs underline"
+                    style={{ color: 'var(--muted)' }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
+          <span className="block mb-1">Kind</span>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as 'credit' | 'charge')}
+            className="border rounded px-2 py-1.5 text-sm"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            <option value="credit">Credit (they owe less)</option>
+            <option value="charge">Charge (they owe more)</option>
+          </select>
+        </label>
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
+          <span className="block mb-1">Amount ($)</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="w-28 border rounded px-2 py-1.5 text-sm"
+            style={{ borderColor: 'var(--border)' }}
+            placeholder="e.g. 50.00"
+            aria-label="Adjustment amount"
+          />
+        </label>
+        <label className="text-xs flex-1 min-w-[12rem]" style={{ color: 'var(--muted)' }}>
+          <span className="block mb-1">Reason (printed on their bill)</span>
+          <input
+            type="text"
+            value={reason}
+            maxLength={200}
+            onChange={(e) => setReason(e.target.value)}
+            className="w-full border rounded px-2 py-1.5 text-sm"
+            style={{ borderColor: 'var(--border)' }}
+            placeholder="e.g. Box stalls full — moved to a tie stall"
+            aria-label="Adjustment reason"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => void add()}
+          disabled={busy}
+          className="text-sm rounded px-3 py-1.5 disabled:opacity-50"
+          style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
         >
-          <dt style={{ color: 'var(--foreground)' }}>Total billed</dt>
-          <dd className="tabular-nums" style={{ color: 'var(--foreground)' }}>
-            {formatMoney(bill.total_cents)}
-          </dd>
-        </div>
-      </dl>
+          Add
+        </button>
+      </div>
+      {error && (
+        <p className="text-xs mt-2" style={{ color: 'var(--error-strong)' }} role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

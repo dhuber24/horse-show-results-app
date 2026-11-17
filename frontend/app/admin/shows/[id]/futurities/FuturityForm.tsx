@@ -10,6 +10,7 @@ import {
   type Futurity,
 } from './futurity-shared';
 import { hashNumber } from '@/lib/class-number';
+import { timeForDay } from '@/lib/default-time';
 
 /**
  * Every question a futurity entry form asks, in one place.
@@ -311,7 +312,11 @@ export default function FuturityForm({
             <input
               type="date"
               value={value.deadline}
-              onChange={(e) => onChange({ deadline: e.target.value })}
+              onChange={(e) =>
+                // Noon when the day is picked with no hour, as every time
+                // field (`lib/default-time.ts`); clearing the day clears it.
+                onChange({ deadline: e.target.value, deadlineTime: timeForDay(e.target.value, value.deadlineTime) })
+              }
               className={inputClass}
               style={inputStyle}
             />

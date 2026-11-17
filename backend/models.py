@@ -204,6 +204,12 @@ class Show(Base):
     # optional; a time with no date is refused by a CHECK.
     stalls_open_date = Column(Date, nullable=True)
     stalls_open_time = Column(Time, nullable=True)
+    # Every horse entered needs its own stall (migration 194). The office's
+    # choice, and a flag, never a refusal: `stabling.stall_checks` tells an
+    # exhibitor (and the desk) when their horse stalls do not cover each horse
+    # on each day it shows, because who pays for whose stall is often somebody
+    # else and only the office can sort that out.
+    stall_per_horse_required = Column(Boolean, nullable=False, server_default="false")
     # General show notes (migration 184), both written on Step 1. `public_notes`
     # is for exhibitors and rides the public show payload onto the show page and
     # the generated bill. `office_notes` is the office's own and must never reach
@@ -2397,6 +2403,48 @@ class ShowFee(Base):
     # rate may be set, and enforced in the router for the same reason: the unit
     # families live in billing.py rather than in the schema.
     min_quantity = Column(Integer, nullable=False, server_default="0")
+    # What a `per_stall` line sells (migration 194): `horse`, `tack` or
+    # `add_on`. NULL is not stated, and is read from the line itself -- never
+    # read this column directly, read `stall_kind_effective`
+    # (`stabling.stall_kind_of`), or an imported tack stall counts as a horse
+    # stall.
+    stall_kind = Column(
+        Text,
+        CheckConstraint(
+            "stall_kind IS NULL OR stall_kind IN ('box', 'tie', 'tack', 'add_on')",
+            name="ck_show_fees_stall_kind",
+        ),
+        nullable=True,
+    )
+    # The stall period this line is sold for (migration 194). NULL is the whole
+    # show; a period deleted from under the line makes it one.
+    stall_period_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "show_stall_periods.id", ondelete="SET NULL", name="fk_show_fees_stall_period"
+        ),
+        nullable=True,
+    )
+    # On a tack stall: the fewest horse stalls in the same period for each tack
+    # stall booked (migration 194). Flagged, never refused.
+    horses_per_tack_stall = Column(
+        SmallInteger,
+        CheckConstraint(
+            "horses_per_tack_stall IS NULL OR horses_per_tack_stall BETWEEN 1 AND 20",
+            name="ck_show_fees_horses_per_tack_stall",
+        ),
+        nullable=True,
+    )
+    # When holders of a per-stall line may move in (migration 195): the Early
+    # Move-In Pass's own day and optional hour, wall-clock at the venue and
+    # printed as typed, like `shows.stalls_open_*`. A time needs a day (a CHECK
+    # in the migration, and `show_fees._check_move_in`).
+    move_in_date = Column(Date, nullable=True)
+    move_in_time = Column(Time, nullable=True)
+    # An add-on booked at most once per exhibitor and priced per exhibitor
+    # rather than per stall (migration 196) -- the show's choice for an Early
+    # Move-In Pass. Billing is unchanged: the quantity is 0 or 1.
+    one_per_exhibitor = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     # Eager, like `Class.sanctioning` and for the identical reason: every path
@@ -2421,6 +2469,53 @@ class ShowFee(Base):
         the payload. Empty is the whole schedule -- see `ShowFeeClass`.
         """
         return [row.class_id for row in self.scoped_classes]
+
+    @property
+    def stall_kind_effective(self) -> "str | None":
+        """What this line sells, stated or read from the line (migration 194).
+
+        None on anything not priced per stall. `ShowFeeOut.stall_kind` reads
+        this rather than the column, so no screen has to repeat the reading."""
+        from stabling import stall_kind_of
+
+        return stall_kind_of(self)
+
+
+class ShowStallPeriod(Base):
+    """A window a stall is sold for (migration 194): full show, pleasure days,
+    games days.
+
+    Its own move-in and move-out, wall-clock at the venue and printed as typed,
+    like `shows.stalls_open_*`. `move_out_note` holds a move-out no clock
+    states ("1 hour after your last class"). A show with no periods sells every
+    stall for the whole show. Which days a period counts for a horse's classes
+    is `stabling.period_days`.
+    """
+    __tablename__ = "show_stall_periods"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    move_in_date = Column(Date, nullable=False)
+    move_in_time = Column(Time, nullable=True)
+    move_out_date = Column(Date, nullable=False)
+    move_out_time = Column(Time, nullable=True)
+    move_out_note = Column(Text, nullable=True)
+    # What exhibitors should know about moving in for this period (migration
+    # 199, the show's own from 195 before that): unloading, where stall
+    # assignments are posted, barn office hours. Printed with the period on
+    # Show Details, the show bill and the sign-up form. Line breaks kept; blank
+    # is NULL.
+    move_in_notes = Column(Text, nullable=True)
+    sort_order = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("move_out_date >= move_in_date", name="ck_show_stall_periods_dates"),
+        CheckConstraint(
+            "char_length(btrim(name)) BETWEEN 1 AND 60", name="ck_show_stall_periods_name"
+        ),
+    )
 
 
 class ShowFeeClass(Base):
@@ -2588,6 +2683,15 @@ class ShowEntry(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     cancellation_reason = Column(Text, nullable=True)
+    # Checked out at the desk (migration 200): the office looked the stalls
+    # over, charged what was still owed and marked them out. A record, never a
+    # gate. The name is kept beside the id, as on a payment, so it still reads
+    # after the staff account is gone; an undo clears all three.
+    checked_out_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    checked_out_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    checked_out_by_name = Column(Text, nullable=True)
     arrival_date = Column(Date, nullable=True)
     departure_date = Column(Date, nullable=True)
     registration_notes = Column(Text, nullable=True)
@@ -2615,6 +2719,13 @@ class ShowEntry(Base):
     )
     payments = relationship(
         "ShowPayment", back_populates="show_entry", cascade="all, delete-orphan"
+    )
+    # The office's changes to what they owe (migration 197), on the bill.
+    adjustments = relationship(
+        "ShowAccountAdjustment",
+        back_populates="show_entry",
+        cascade="all, delete-orphan",
+        order_by="ShowAccountAdjustment.created_at",
     )
     side_pot_entries = relationship(
         "SidePotEntry", back_populates="show_entry", cascade="all, delete-orphan"
@@ -2928,6 +3039,43 @@ class ShowEntryReservation(Base):
 
     show_entry = relationship("ShowEntry", back_populates="reservations")
     show_fee = relationship("ShowFee")
+
+
+class ShowAccountAdjustment(Base):
+    """An office change to what an exhibitor owes at a show (migration 197).
+
+    A signed amount and the reason the bill prints: positive is a charge (the
+    $50 cleaning fee for a stall nobody checked out), negative a credit (box
+    stalls ran out and they got a cheaper tie stall, a comped stall). On the bill
+    through `billing.build_bill` like every other line, so Financials, the desk
+    and the exhibitor's own bill read one total.
+
+    Not a payment: money that moved is `ShowPayment`, and a refund is a negative
+    payment there. An adjustment changes what is owed, not what was paid.
+    """
+    __tablename__ = "show_account_adjustments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_entry_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_entries.id", ondelete="CASCADE"), nullable=False
+    )
+    amount_cents = Column(Integer, nullable=False)
+    reason = Column(Text, nullable=False)
+    recorded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Kept beside the id for the reason `ShowPayment.recorded_by_name` is: staff
+    # accounts do not outlive the show.
+    recorded_by_name = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("amount_cents <> 0", name="ck_show_account_adjustments_amount_nonzero"),
+        CheckConstraint(
+            "char_length(btrim(reason)) BETWEEN 1 AND 200",
+            name="ck_show_account_adjustments_reason",
+        ),
+    )
+
+    show_entry = relationship("ShowEntry", back_populates="adjustments")
 
 
 class ShowPayment(Base):

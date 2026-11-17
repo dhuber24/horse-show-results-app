@@ -99,6 +99,8 @@ export type FinancialTotals = {
   sanction_total_cents: number;
   reservation_total_cents: number;
   charge_total_cents: number;
+  /** The office's adjustments, charges less credits (migration 197). */
+  adjustment_total_cents?: number;
   billed_cents: number;
   collected_cents: number;
   refunded_cents: number;

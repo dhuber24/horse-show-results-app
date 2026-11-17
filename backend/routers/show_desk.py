@@ -43,6 +43,8 @@ excluded, as they are on Financials: the desk carries every exhibitor's balance.
 """
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -76,10 +78,12 @@ from models import (
     Horse,
     Show,
     ShowEntry,
+    ShowFee,
     SidePot,
+    User,
 )
 from routers.people import ExhibitorBasic, _exhibitor_basic, picker_exhibitors
-from routers.show_financials import _load_financials
+from routers.show_financials import _account_row, _load_financials
 from routers.show_office import build_verification_checklist
 from routers.shows import _assert_show_access
 from exhibitor_merge import (
@@ -90,6 +94,13 @@ from exhibitor_merge import (
 )
 from rules.apha import division_for_class
 from teams import is_team_class, team_out, teammates_of
+from stabling import (
+    STALL_UNIT,
+    booked_by_exhibitor,
+    horse_days_by_exhibitor,
+    load_stall_periods,
+    stall_checks,
+)
 from club_points import club_names, declared_clubs, held_clubs, load_settings, seat_clubs_for, settings_out
 from schemas import (
     ExhibitorMergeCandidate,
@@ -100,6 +111,8 @@ from schemas import (
     ShowDeskOut,
     ShowDeskRosterRow,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/shows/{show_id}/desk",
@@ -289,6 +302,31 @@ async def get_desk(
             "derived": bool(declared and declared.derived),
         }
 
+    # Stall checks (migration 194): everybody's at once, from three queries for
+    # the show rather than three per exhibitor. Only for somebody on the roster
+    # -- a cancelled registration has no stalls to cover anything.
+    stall_fees = list(
+        (
+            await db.execute(
+                select(ShowFee).where(ShowFee.show_id == show_id, ShowFee.unit == STALL_UNIT)
+            )
+        ).scalars().all()
+    )
+    stall_periods = await load_stall_periods(db, show_id) if stall_fees else []
+    stall_booked = await booked_by_exhibitor(db, show_id) if stall_fees else {}
+    stall_horse_days = await horse_days_by_exhibitor(db, show_id) if stall_fees else {}
+
+    def stall_checks_for(exhibitor_id, account) -> list[dict]:
+        if not stall_fees or not account["signed_up"] or account["cancelled_at"]:
+            return []
+        return stall_checks(
+            show=show,
+            fees=stall_fees,
+            periods=stall_periods,
+            booked=stall_booked.get(exhibitor_id, {}),
+            horse_days=stall_horse_days.get(exhibitor_id, {}),
+        )
+
     exhibitors_out = []
     for account in financials["accounts"]:
         exhibitor_id = account["exhibitor_id"]
@@ -309,6 +347,9 @@ async def get_desk(
             # payments to settle, and a cancelled exhibitor who vanishes from
             # the desk is one nobody can refund.
             "cancelled_at": account["cancelled_at"],
+            # Checked out at the desk (migration 200).
+            "checked_out_at": account["checked_out_at"],
+            "checked_out_by_name": account["checked_out_by_name"],
             # Stabling requests, so whoever draws the stall chart can read them
             # off the roster instead of opening each registration. Kept apart
             # from the general notes because the two are read at different
@@ -316,6 +357,7 @@ async def get_desk(
             "stall_request": account["stall_request"],
             "arrival_date": account["arrival_date"],
             "departure_date": account["departure_date"],
+            "stall_checks": stall_checks_for(exhibitor_id, account),
             "entries": entries_by_exhibitor.get(exhibitor_id, []),
             "team_rides": team_rides_by_exhibitor.get(exhibitor_id, []),
             "clubs": clubs_for(exhibitor_id),
@@ -955,3 +997,62 @@ async def remove_exhibitor_from_roster(
         await remove_registration(show_entry, show_id, db)
     except CancellationBlocked as blocked:
         raise HTTPException(409, {"code": blocked.code, "message": blocked.message}) from None
+
+
+# -- Checkout (migration 200) ---------------------------------------------------
+
+@router.post("/exhibitors/{exhibitor_id}/checkout", status_code=204)
+async def check_out_exhibitor(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark an exhibitor checked out: when, and by whom.
+
+    The desk's last step with somebody leaving -- the stalls looked over, any
+    charge still owed added (an office charge, `POST /shows/{id}/adjustments`)
+    and the balance settled. A record, never a gate: a balance still owing is
+    the office's to chase, and nothing here refuses over it. Checking out again
+    moves the time to now.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show_entry = await _account_row(show_id, exhibitor_id, db)
+    actor = await db.get(User, safe_uuid(x_user_id))
+    show_entry.checked_out_at = datetime.now(timezone.utc)
+    show_entry.checked_out_by = actor.id if actor else None
+    show_entry.checked_out_by_name = actor.full_name if actor else None
+    await db.commit()
+    logger.info(
+        "Checked out: show=%s exhibitor=%s by=%s",
+        show_id,
+        exhibitor_id,
+        show_entry.checked_out_by_name or "unknown",
+    )
+
+
+@router.delete("/exhibitors/{exhibitor_id}/checkout", status_code=204)
+async def undo_check_out(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Undo a checkout made by mistake, or for somebody who has come back."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show_entry = (
+        await db.execute(
+            select(ShowEntry).where(ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor_id)
+        )
+    ).scalar_one_or_none()
+    if show_entry is None or show_entry.checked_out_at is None:
+        return
+    show_entry.checked_out_at = None
+    show_entry.checked_out_by = None
+    show_entry.checked_out_by_name = None
+    await db.commit()
+    logger.info("Checkout undone: show=%s exhibitor=%s", show_id, exhibitor_id)

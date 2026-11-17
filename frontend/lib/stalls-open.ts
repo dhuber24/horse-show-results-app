@@ -8,6 +8,8 @@
  * means noon at the barn, wherever the exhibitor reads it from.
  */
 
+import { unitLabel } from './fee-units';
+
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -50,33 +52,116 @@ export function arrivesBeforeStallsOpen(
 
 /**
  * The Early Move-In Pass: what an exhibitor pays to move into their stalls
- * before they open. It is an ordinary reservable `show_fees` row, priced per
- * stall, offered with a tick box under *Move-in* on the Lodging step — so the
- * bill, the desk and the price list charge and print it like any other line.
+ * before they open. It is an ordinary reservable `show_fees` row, offered with a
+ * tick box on the Lodging step's *Stalls & move-in* card — so the bill, the desk
+ * and the price list charge and print it like any other line.
+ *
+ * Move-in is set only by stall period, so a show offers one pass per period,
+ * each the office's choice (migration 196): code `early_move_in_<period>`,
+ * carrying the period's id. Each is priced per stall or once per exhibitor
+ * (`one_per_exhibitor`), and moves holders in at a day of its own
+ * (`move_in_date` / `move_in_time`, migration 195). A whole-show pass — code
+ * `early_move_in`, no period — is one from before stall periods, or one the
+ * show bill import read; the Lodging step moves it into the first period
+ * unless exhibitors have booked it as it is.
  *
  * Found by `code`, as every Lodging step line is. `early_arrival_stall` is the
- * code the show bill import and the MNSPHC seed gave the same line before the
- * step offered it — "Early arrival — stall, Thursday after 6:00 PM" — so that
- * row is the pass, not a second one beside it.
+ * code the show bill import and the MNSPHC seed gave the whole-show pass before
+ * the step offered it — "Early arrival — stall, Thursday after 6:00 PM" — so
+ * that row is the pass, not a second one beside it.
  */
 export const EARLY_MOVE_IN_CODE = 'early_move_in';
 export const EARLY_MOVE_IN_CODES: readonly string[] = [EARLY_MOVE_IN_CODE, 'early_arrival_stall'];
+/** A stall period's own pass: `early_move_in_` and a few characters of the
+ *  period's id (mirrors `stabling.EARLY_MOVE_IN_PREFIX`). */
+export const EARLY_MOVE_IN_PREFIX = 'early_move_in_';
 
-/** The show's Early Move-In Pass, if it offers one: its own code first. */
-export function earlyMoveInPass<T extends { code: string }>(fees: readonly T[]): T | undefined {
+/** Whether a fee line is an Early Move-In Pass, the whole show's or a period's. */
+export function isEarlyMoveInPass(fee: { code: string }): boolean {
+  return EARLY_MOVE_IN_CODES.includes(fee.code) || fee.code.startsWith(EARLY_MOVE_IN_PREFIX);
+}
+
+/** The whole show's Early Move-In Pass, if it offers one: its own code first.
+ *  A period's pass is not this one — see `periodPass`. */
+export function earlyMoveInPass<T extends { code: string; stall_period_id?: string | null }>(
+  fees: readonly T[],
+): T | undefined {
   for (const code of EARLY_MOVE_IN_CODES) {
-    const fee = fees.find((f) => f.code === code);
+    const fee = fees.find((f) => f.code === code && !f.stall_period_id);
     if (fee) return fee;
   }
   return undefined;
 }
 
+/** A stall period's own Early Move-In Pass, if the office offers one for it. */
+export function periodPass<T extends { code: string; stall_period_id?: string | null }>(
+  fees: readonly T[],
+  periodId: string,
+): T | undefined {
+  return fees.find((f) => isEarlyMoveInPass(f) && f.stall_period_id === periodId);
+}
+
+/** How a pass is priced, as the price is printed: "per stall" or "per
+ *  exhibitor" (migration 196). */
+export function passBasisLabel(pass: { unit: string; one_per_exhibitor?: boolean }): string {
+  return pass.one_per_exhibitor ? 'per exhibitor' : unitLabel(pass.unit);
+}
+
+/**
+ * When Early Move-In Pass holders may move in (migration 195), printed the way
+ * the move-in day is — "Thursday, May 13 at 6:00 PM" — or null when the office
+ * has not said, which leaves the pass reading "before stalls open".
+ */
+export function passMoveIn(
+  pass: { move_in_date?: string | null; move_in_time?: string | null } | null | undefined,
+): string | null {
+  return pass ? formatStallsOpen(pass.move_in_date, pass.move_in_time) : null;
+}
+
+/**
+ * Whether pass holders move in before stalls open, which is the whole point of
+ * the pass. True when there is nothing to compare. On the same day it needs
+ * both hours to say yes: "stalls open Friday" with no hour gives an 8 AM pass
+ * on that Friday nothing to beat.
+ */
+export function passMovesInFirst(
+  passDate: string | null | undefined,
+  passTime: string | null | undefined,
+  openDate: string | null | undefined,
+  openTime: string | null | undefined,
+): boolean {
+  if (!passDate || !openDate) return true;
+  if (passDate !== openDate) return passDate < openDate;
+  return Boolean(passTime && openTime && passTime.slice(0, 5) < openTime.slice(0, 5));
+}
+
 /** The hour stalls open when the office has not said: noon. */
 export const DEFAULT_STALLS_OPEN_TIME = '12:00';
 
-/** The move-in a show starts with when nothing is on file: the day before its
- *  first day, at noon. Read as date parts and built in UTC so no zone can move
- *  the day, and month and year ends roll over on their own. */
+/**
+ * The move-in an Early Move-In Pass starts with when none is on file
+ * (migration 195): the day before its stall period moves in, at the hour it
+ * moves in — a pass is a day early unless the office says otherwise — or at
+ * noon when the period moves in on a day with no hour. Null with no move-in
+ * day: there is nothing to be early for. Read as date parts and built in UTC, as `defaultMoveIn` is.
+ */
+export function defaultPassMoveIn(
+  openDate: string | null | undefined,
+  openTime: string | null | undefined,
+): { date: string; time: string } | null {
+  if (!openDate) return null;
+  const [y, mo, d] = openDate.split('-').map(Number);
+  if (!y || !mo || !d) return null;
+  const dayBefore = new Date(Date.UTC(y, mo - 1, d - 1));
+  return {
+    date: dayBefore.toISOString().slice(0, 10),
+    time: (openTime || DEFAULT_STALLS_OPEN_TIME).slice(0, 5),
+  };
+}
+
+/** When a show's first stall period moves in unless the office says otherwise:
+ *  the day before its first day, at noon. Read as date parts and built in UTC
+ *  so no zone can move the day, and month and year ends roll over on their own. */
 export function defaultMoveIn(showStartDate: string | null | undefined): { date: string; time: string } | null {
   if (!showStartDate) return null;
   const [y, mo, d] = showStartDate.split('-').map(Number);

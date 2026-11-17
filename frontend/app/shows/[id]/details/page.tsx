@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { fetchShow, fetchShowFeesPublic, fetchShowMaps } from '@/lib/api';
+import { fetchShow, fetchShowFeesPublic, fetchShowMaps, fetchShowStallPeriodsPublic } from '@/lib/api';
 import { MAP_KINDS, mapFileHref } from '@/lib/show-maps';
 import { unitLabel } from '@/lib/fee-units';
 import { classEntryText, signupClosedText, signupDeadlineText } from '@/lib/registration-window';
@@ -7,7 +7,7 @@ import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
 import BackToShow from '../_components/BackToShow';
 import VenueMapLink from '@/components/VenueMapLink';
-import { earlyMoveInPass, formatStallsOpen } from '@/lib/stalls-open';
+import MoveInSummary, { hasMoveInSummary, type MoveInFee } from '../_components/MoveInSummary';
 
 /**
  * The show, described.
@@ -66,10 +66,11 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default async function ShowDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, fees, maps] = await Promise.all([
+  const [show, fees, maps, stallPeriods] = await Promise.all([
     fetchShow(id),
     fetchShowFeesPublic(id),
     fetchShowMaps(id),
+    fetchShowStallPeriodsPublic(id),
   ]);
   // The stall and RV maps the office uploaded at setup (migration 182).
   const mapsOnFile = MAP_KINDS.filter(({ kind }) => maps[kind]);
@@ -78,11 +79,15 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
   // the show bill's Rules & paperwork. A show whose Lodging step was skipped
   // has no bags to order, and saying it does is a promise nobody keeps.
   const sellsBedding = (fees as { unit: string }[]).some((fee) => fee.unit === 'per_bag');
-  // When stalls open (migration 181): the venue's own day and hour.
-  const stallsOpen = formatStallsOpen(show.stalls_open_date, show.stalls_open_time);
-  // The Early Move-In Pass, beside the day it beats. Booked at sign-up with the
-  // stalls; this page has no price list, so this line is where it is read.
-  const pass = earlyMoveInPass(fees as { code: string; unit: string; amount_cents: number }[]);
+  // When and how exhibitors move in — stalls open or each stall period with its
+  // Early Move-In Pass and move-in notes — worded as the show bill words it
+  // (`MoveInSummary`). This page has no price list, so the passes are read here.
+  const moveIn = {
+    stallsOpenDate: show.stalls_open_date,
+    stallsOpenTime: show.stalls_open_time,
+    periods: stallPeriods,
+    fees: fees as MoveInFee[],
+  };
 
   const clubs: {
     association_id: string;
@@ -112,15 +117,9 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
           {formatDate(show.start_date)}
           {show.end_date !== show.start_date && <> – {formatDate(show.end_date)}</>}
         </Row>
-        {(stallsOpen || pass) && (
+        {hasMoveInSummary(moveIn) && (
           <Row label="Move-in">
-            {stallsOpen && <div>Stalls open {stallsOpen}</div>}
-            {pass && (
-              <div className={stallsOpen ? 'mt-0.5' : undefined} style={{ color: 'var(--muted)' }}>
-                Early Move-In Pass: {formatMoney(pass.amount_cents)} {unitLabel(pass.unit)}, added at
-                sign-up.
-              </div>
-            )}
+            <MoveInSummary {...moveIn} />
           </Row>
         )}
         {mapsOnFile.length > 0 && (
