@@ -1,6 +1,12 @@
 // Globals are imported rather than declared ambiently: see `safe-next.test.ts`.
 import { describe, expect, it } from '@jest/globals';
-import { arrivesBeforeStallsOpen, defaultMoveIn, formatStallsOpen, formatWallClock } from './stalls-open';
+import {
+  arrivesBeforeStallsOpen,
+  defaultMoveIn,
+  earlyMoveInPass,
+  formatStallsOpen,
+  formatWallClock,
+} from './stalls-open';
 
 describe('formatStallsOpen', () => {
   it('prints the day and the hour', () => {
@@ -55,5 +61,27 @@ describe('defaultMoveIn', () => {
   it('has nothing to offer without a start date', () => {
     expect(defaultMoveIn('')).toBeNull();
     expect(defaultMoveIn(null)).toBeNull();
+  });
+});
+
+describe('earlyMoveInPass', () => {
+  it('finds the row the Lodging step writes', () => {
+    const fees = [{ code: 'stall' }, { code: 'early_move_in' }];
+    expect(earlyMoveInPass(fees)).toEqual({ code: 'early_move_in' });
+  });
+
+  it('takes an early-arrival stall the show bill import or the seed made', () => {
+    expect(earlyMoveInPass([{ code: 'stall' }, { code: 'early_arrival_stall' }])).toEqual({
+      code: 'early_arrival_stall',
+    });
+  });
+
+  it('prefers its own code when both are on file', () => {
+    const fees = [{ code: 'early_arrival_stall', id: 'a' }, { code: 'early_move_in', id: 'b' }];
+    expect(earlyMoveInPass(fees)?.id).toBe('b');
+  });
+
+  it('is nothing at a show that does not offer one', () => {
+    expect(earlyMoveInPass([{ code: 'stall' }, { code: 'tack_stall' }])).toBeUndefined();
   });
 });

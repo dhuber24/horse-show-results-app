@@ -7,7 +7,7 @@ import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
 import BackToShow from '../_components/BackToShow';
 import VenueMapLink from '@/components/VenueMapLink';
-import { formatStallsOpen } from '@/lib/stalls-open';
+import { earlyMoveInPass, formatStallsOpen } from '@/lib/stalls-open';
 
 /**
  * The show, described.
@@ -80,6 +80,9 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
   const sellsBedding = (fees as { unit: string }[]).some((fee) => fee.unit === 'per_bag');
   // When stalls open (migration 181): the venue's own day and hour.
   const stallsOpen = formatStallsOpen(show.stalls_open_date, show.stalls_open_time);
+  // The Early Move-In Pass, beside the day it beats. Booked at sign-up with the
+  // stalls; this page has no price list, so this line is where it is read.
+  const pass = earlyMoveInPass(fees as { code: string; unit: string; amount_cents: number }[]);
 
   const clubs: {
     association_id: string;
@@ -109,7 +112,17 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
           {formatDate(show.start_date)}
           {show.end_date !== show.start_date && <> – {formatDate(show.end_date)}</>}
         </Row>
-        {stallsOpen && <Row label="Move-in">Stalls open {stallsOpen}</Row>}
+        {(stallsOpen || pass) && (
+          <Row label="Move-in">
+            {stallsOpen && <div>Stalls open {stallsOpen}</div>}
+            {pass && (
+              <div className={stallsOpen ? 'mt-0.5' : undefined} style={{ color: 'var(--muted)' }}>
+                Early Move-In Pass: {formatMoney(pass.amount_cents)} {unitLabel(pass.unit)}, added at
+                sign-up.
+              </div>
+            )}
+          </Row>
+        )}
         {mapsOnFile.length > 0 && (
           <Row label="Maps">
             <ul className="space-y-0.5">

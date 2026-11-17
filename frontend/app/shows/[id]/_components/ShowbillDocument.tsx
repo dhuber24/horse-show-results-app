@@ -21,7 +21,7 @@
 
 import { groupFees, unitLabel } from '@/lib/fee-units';
 import { runsOf } from '@/lib/class-order';
-import { formatStallsOpen, formatWallClock } from '@/lib/stalls-open';
+import { earlyMoveInPass, formatStallsOpen, formatWallClock } from '@/lib/stalls-open';
 import { classEntryText, signupDeadlineText } from '@/lib/registration-window';
 import { hashOrName } from '@/lib/class-number';
 
@@ -60,6 +60,7 @@ type Club = {
 type Judge = { id: string; first_name: string; last_name: string };
 type Fee = {
   id: string;
+  code: string;
   label: string;
   unit: string;
   amount_cents: number;
@@ -343,6 +344,7 @@ export default function ShowbillDocument({
   // shavings to order there either.
   const sellsBedding = fees.some((fee) => fee.unit === 'per_bag');
   const stallsOpen = formatStallsOpen(show.stalls_open_date, show.stalls_open_time);
+  const pass = earlyMoveInPass(fees);
 
   return (
     <article
@@ -376,7 +378,17 @@ export default function ShowbillDocument({
           </Fact>
           {/* Migration 181. Beside the dates, since it is the date a trailer
               is planned around. Venue wall-clock, printed as the office set it. */}
-          {stallsOpen && <Fact label="Move-in">Stalls open {stallsOpen}.</Fact>}
+          {(stallsOpen || pass) && (
+            <Fact label="Move-in">
+              {stallsOpen && <>Stalls open {stallsOpen}.</>}
+              {stallsOpen && pass && ' '}
+              {pass && (
+                <>
+                  Early Move-In Pass {formatMoney(pass.amount_cents)} {unitLabel(pass.unit)}.
+                </>
+              )}
+            </Fact>
+          )}
           {/* The show office's two registration answers (migration 159). Printed
               beside the dates because they are dates of a kind — when somebody
               reading the bill has to have acted by. */}

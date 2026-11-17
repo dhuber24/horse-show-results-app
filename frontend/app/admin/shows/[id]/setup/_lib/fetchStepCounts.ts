@@ -3,11 +3,20 @@ import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
 import { registrationAnswered } from '@/lib/registration-window';
+import { EARLY_MOVE_IN_CODES } from '@/lib/stalls-open';
 import type { SkipKey, WizardStepsInput } from '../../../_wizard/steps';
 
-// Mirrors LODGING_CODES in setup/lodging/page.tsx — `hookup` is the pre-108
-// code for the camping line and still counts as lodging that is configured.
-const LODGING_CODES = new Set(['stall', 'shavings', 'camping', 'hookup']);
+/** The rows the Lodging step manages, found by `code` — also what that step
+ *  hands its client. `hookup` is the pre-108 code for the camping line, and the
+ *  Early Move-In Pass answers to two codes (`EARLY_MOVE_IN_CODES`); both still
+ *  count as lodging that is configured. */
+export const LODGING_CODES: ReadonlySet<string> = new Set([
+  'stall',
+  'shavings',
+  'camping',
+  'hookup',
+  ...EARLY_MOVE_IN_CODES,
+]);
 
 type FeeRow = {
   id: string;

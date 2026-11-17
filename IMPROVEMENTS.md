@@ -2,6 +2,20 @@
 
 ## November 2026
 
+### A show can sell an Early Move-In Pass
+
+- **Under *Stalls open on*, the show office ticks a box and sets a price** to let
+  exhibitors pay to move into their stalls before they open. It is priced per
+  stall and is an ordinary stall line, so the bill, the desk and the price list
+  charge and print it.
+- **Exhibitors add it at sign-up beside their stalls.** Picking an arrival day
+  before stalls open now points them at the pass, and Show Details and the show
+  bill print it beside the move-in day.
+- **A show read off its bill gets its early-arrival stall as the pass**, and the
+  shows that already had one show it ticked.
+- **Fixed: saving the Lodging step twice without leaving it added a second stall
+  line** (or shavings, or camping), which billed every exhibitor twice.
+
 ### A show read off its bill is filled in, and what to look over is in its notes
 
 - **Nothing waits on an Accept any more.** The show is created as a draft with

@@ -48,6 +48,29 @@ export function arrivesBeforeStallsOpen(
   return Boolean(arrival && stallsOpen && arrival < stallsOpen);
 }
 
+/**
+ * The Early Move-In Pass: what an exhibitor pays to move into their stalls
+ * before they open. It is an ordinary reservable `show_fees` row, priced per
+ * stall, offered with a tick box under *Move-in* on the Lodging step — so the
+ * bill, the desk and the price list charge and print it like any other line.
+ *
+ * Found by `code`, as every Lodging step line is. `early_arrival_stall` is the
+ * code the show bill import and the MNSPHC seed gave the same line before the
+ * step offered it — "Early arrival — stall, Thursday after 6:00 PM" — so that
+ * row is the pass, not a second one beside it.
+ */
+export const EARLY_MOVE_IN_CODE = 'early_move_in';
+export const EARLY_MOVE_IN_CODES: readonly string[] = [EARLY_MOVE_IN_CODE, 'early_arrival_stall'];
+
+/** The show's Early Move-In Pass, if it offers one: its own code first. */
+export function earlyMoveInPass<T extends { code: string }>(fees: readonly T[]): T | undefined {
+  for (const code of EARLY_MOVE_IN_CODES) {
+    const fee = fees.find((f) => f.code === code);
+    if (fee) return fee;
+  }
+  return undefined;
+}
+
 /** The hour stalls open when the office has not said: noon. */
 export const DEFAULT_STALLS_OPEN_TIME = '12:00';
 

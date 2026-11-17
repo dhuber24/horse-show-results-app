@@ -4,7 +4,12 @@ import { useMemo, useState } from 'react';
 
 import type { CancellationWindow, ProfileStatus } from '../register/types';
 import type { RegistrationWindow } from '@/lib/registration-window';
-import { arrivesBeforeStallsOpen, formatStallsOpen, formatWallClock } from '@/lib/stalls-open';
+import {
+  arrivesBeforeStallsOpen,
+  earlyMoveInPass,
+  formatStallsOpen,
+  formatWallClock,
+} from '@/lib/stalls-open';
 
 /**
  * Stalls, shavings, camping, arrival dates and a note to the office — the whole
@@ -350,6 +355,12 @@ export default function ReservationFields({
     return out;
   }, [rawQuantities, floors]);
 
+  // The Early Move-In Pass, if the show offers one: a per-stall line booked
+  // like any other, and what an exhibitor arriving before stalls open is
+  // pointed at, rather than only being told to ring the office.
+  const pass = earlyMoveInPass(fee_options);
+  const passBooked = pass ? (quantities[pass.id] ?? 0) > 0 : false;
+
   const reservationTotal = fee_options.reduce(
     (sum, fee) => sum + fee.rate_cents * (quantities[fee.id] ?? 0),
     0,
@@ -518,6 +529,13 @@ export default function ReservationFields({
                           )}
                           {fee.notes && <> · {fee.notes}</>}
                         </div>
+                        {fee.id === pass?.id && (
+                          <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+                            {stallsOpen
+                              ? `Move in before stalls open (${stallsOpen}).`
+                              : 'Move in before stalls open.'}
+                          </div>
+                        )}
                         <EarlyRateNote fee={fee} noun={noun} />
                         {/* Where the number came from rides on the `title` when
                             it came from the show's shavings policy rather than a
@@ -670,16 +688,21 @@ export default function ReservationFields({
             />
             {/* Said where the day is picked, and flagged rather than refused:
                 an early arrival is the office's to allow, and a `min` on the
-                input would stop the form saving over it. */}
+                input would stop the form saving over it. Where the show sells
+                an Early Move-In Pass that is the way to ask, so it is named. */}
             {stallsOpen && (
               <span
                 id="stalls-open-note"
                 className="block mt-1"
-                style={{ color: arrivesEarly ? 'var(--warning)' : 'var(--muted)' }}
+                style={{ color: arrivesEarly && !passBooked ? 'var(--warning)' : 'var(--muted)' }}
               >
-                {arrivesEarly
-                  ? `That's before stalls open (${stallsOpen}). Check with the show office first.`
-                  : `Stalls open ${stallsOpen}.`}
+                {!arrivesEarly
+                  ? `Stalls open ${stallsOpen}.`
+                  : passBooked
+                    ? `That's before stalls open (${stallsOpen}). You've added an Early Move-In Pass.`
+                    : pass
+                      ? `That's before stalls open (${stallsOpen}). Add an Early Move-In Pass above, or check with the show office.`
+                      : `That's before stalls open (${stallsOpen}). Check with the show office first.`}
               </span>
             )}
           </label>

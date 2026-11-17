@@ -3,7 +3,7 @@ import ShowMapsCard from './ShowMapsCard';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import LodgingClient, { type FeeRow } from './LodgingClient';
 import StepLayout from '../_lib/StepLayout';
-import { fetchStepCounts } from '../_lib/fetchStepCounts';
+import { fetchStepCounts, LODGING_CODES } from '../_lib/fetchStepCounts';
 
 async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
   const headers = await getAuthHeaders();
@@ -13,11 +13,11 @@ async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
   return res.json();
 }
 
-// `hookup` is the pre-108 code for what is now the one camping line. Kept so a
-// row that somehow escaped the migration is still handed to the slot that
-// manages it, instead of sitting outside this screen while a new `camping` row
-// is created next to it and both are billed.
-const LODGING_CODES = new Set(['stall', 'shavings', 'camping', 'hookup']);
+// `LODGING_CODES` carries the older code of each line as well as its own —
+// `hookup` for camping, `early_arrival_stall` for the Early Move-In Pass — so a
+// row written under it is handed to the card that manages it, instead of
+// sitting outside this screen while a new row is created next to it and both
+// are billed.
 
 export default async function SetupLodgingPage({
   params,
@@ -40,7 +40,7 @@ export default async function SetupLodgingPage({
       current="lodging"
       width="form"
       title="Lodging & Boarding"
-      subtitle="When stalls open, the stall and RV maps, then stall fees, shavings and camping — each its own card, each optional."
+      subtitle="When stalls open and any Early Move-In Pass, the stall and RV maps, then stall fees, shavings and camping — each its own card, each optional."
       stepsInput={{ ...stepsInput, lodgingFeeCount: lodgingFees.length }}
       skip={
         lodgingFees.length === 0

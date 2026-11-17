@@ -434,13 +434,33 @@ _LODGING_SLOTS = (
     ("shavings", ("per_bag",)),
     ("camping", ("per_night", "per_day", "per_show")),
 )
-# `hookup` is the pre-108 name for the camping line, and the Lodging step still
-# claims a row carrying it; no imported fee may be handed it.
-_RESERVED_CODES = {"stall", "shavings", "camping", "hookup"}
+# The Early Move-In Pass, offered under Move-in on the same step: a stall line
+# the bill sells for moving in before stalls open ("Early arrival — stall").
+_EARLY_MOVE_IN_CODE = "early_move_in"
+_EARLY_MOVE_IN = re.compile(
+    r"\b(early[\s-]+(arrival|move[\s-]*in)|priority[\s-]+move[\s-]*in|move[\s-]*in[\s-]+early)\b",
+    re.IGNORECASE,
+)
+_TACK = re.compile(r"\btack\b", re.IGNORECASE)
+# `hookup` is the pre-108 name for the camping line, and `early_arrival_stall`
+# what this import called the pass before the step offered one; the Lodging
+# step still claims a row carrying either, so no imported fee may be handed it.
+_RESERVED_CODES = {
+    "stall",
+    "shavings",
+    "camping",
+    "hookup",
+    _EARLY_MOVE_IN_CODE,
+    "early_arrival_stall",
+}
 # A stall line that is not *the* stall: the bill's tack stall, its early-arrival
-# and late-departure nights. Those are real reservable lines, and they live on
-# the Boarding Fees screen rather than in a Lodging step slot.
-_NOT_THE_MAIN_LINE = re.compile(r"\b(tack|early|late|arrival|departure|extra|additional)\b", re.IGNORECASE)
+# or priority move-in, its late-departure nights. Those are real reservable
+# lines, and they live on the Boarding Fees screen rather than in a Lodging step
+# slot -- bar the first early-arrival stall, which is the Early Move-In Pass.
+_NOT_THE_MAIN_LINE = re.compile(
+    r"\b(tack|early|late|arrival|departure|extra|additional|priority|move[\s-]*in)\b",
+    re.IGNORECASE,
+)
 
 
 def fee_codes(fees: Iterable[tuple[str, str]]) -> list[str]:
@@ -450,7 +470,8 @@ def fee_codes(fees: Iterable[tuple[str, str]]) -> list[str]:
     -- what `seed_mnsphc_paint_o_rama.py` does by hand -- so that step opens on
     the rows the bill priced rather than beside them. Only a line that reads as
     the main one is given a slot: a bill whose only stall price is for early
-    arrival has not priced a stall. Everything else gets the slug
+    arrival has not priced a stall. The first early-arrival stall line is the
+    step's Early Move-In Pass (`early_move_in`). Everything else gets the slug
     `ShowChargesEditor.codeFromLabel` makes, with a counter where two labels
     fold to one, and never one of the reserved slot codes.
     """
@@ -467,6 +488,22 @@ def fee_codes(fees: Iterable[tuple[str, str]]) -> list[str]:
         )
         if main is not None:
             codes[main] = slot
+
+    # The pass is priced per stall, like the stall itself; an early-arrival
+    # night or hook-up is a different line, and so is an early tack stall.
+    early = next(
+        (
+            i
+            for i, (label, unit) in enumerate(fees)
+            if codes[i] is None
+            and unit == "per_stall"
+            and _EARLY_MOVE_IN.search(label)
+            and not _TACK.search(label)
+        ),
+        None,
+    )
+    if early is not None:
+        codes[early] = _EARLY_MOVE_IN_CODE
 
     used = set(_RESERVED_CODES)
     for i, (label, _unit) in enumerate(fees):

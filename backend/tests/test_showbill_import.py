@@ -627,8 +627,9 @@ def test_fee_codes_are_unique_within_the_show():
 
 
 def test_the_main_lodging_lines_take_the_lodging_steps_own_codes():
-    """The MNSPHC bill's order: the horse stall is the Stalls slot, the tack
-    stall and the early-arrival nights are extra lines beside it."""
+    """The MNSPHC bill's order: the horse stall is the Stalls slot, the
+    early-arrival stall is the Early Move-In Pass, and the tack stall and the
+    late-departure hook-up are extra lines beside them."""
     fees = [
         ("Early arrival — stall", "per_stall"),
         ("Horse stall", "per_stall"),
@@ -638,7 +639,7 @@ def test_the_main_lodging_lines_take_the_lodging_steps_own_codes():
         ("Late departure — hook-up", "per_show"),
     ]
     assert fee_codes(fees) == [
-        "early_arrival_stall",
+        "early_move_in",
         "stall",
         "tack_stall",
         "shavings",
@@ -648,7 +649,41 @@ def test_the_main_lodging_lines_take_the_lodging_steps_own_codes():
 
 
 def test_a_bill_with_no_main_stall_line_does_not_fill_the_stalls_slot():
-    assert fee_codes([("Early arrival stall", "per_stall")]) == ["early_arrival_stall"]
+    assert fee_codes([("Early arrival stall", "per_stall")]) == ["early_move_in"]
+
+
+def test_only_the_first_early_stall_line_is_the_early_move_in_pass():
+    """A second early-arrival stall is a line of its own, and is never handed
+    `early_arrival_stall`, the code the Lodging step reads as the pass."""
+    fees = [
+        ("Stall", "per_stall"),
+        ("Early arrival stall (Wednesday)", "per_stall"),
+        ("Early arrival stall", "per_stall"),
+    ]
+    assert fee_codes(fees) == ["stall", "early_move_in", "early_arrival_stall_2"]
+
+
+@pytest.mark.parametrize(
+    "label",
+    ["Priority move-in — stall", "Early move-in stall", "Move in early (per stall)"],
+)
+def test_a_priority_or_early_move_in_stall_is_the_pass_not_the_stall(label):
+    assert fee_codes([(label, "per_stall"), ("Stall", "per_stall")]) == ["early_move_in", "stall"]
+
+
+def test_early_lines_that_are_not_a_stall_are_not_the_pass():
+    """Early arrival is sold by the night, by the hook-up and as a tack stall
+    too; the pass is the per-stall line, so those keep a code of their own."""
+    fees = [
+        ("Early arrival — night", "per_night"),
+        ("Early arrival — electrical hook-up", "per_show"),
+        ("Early arrival tack stall", "per_stall"),
+    ]
+    assert fee_codes(fees) == [
+        "early_arrival_night",
+        "early_arrival_electrical_hook_up",
+        "early_arrival_tack_stall",
+    ]
 
 
 def test_no_other_fee_is_handed_a_lodging_slot_code():
