@@ -1,10 +1,12 @@
 """User invitation tokens.
 
 Replaces the inline-password "create scribe" flow on the Show Staff page.
-A manager/secretary submits first/last/email and gets back an invite URL they
-can share with the prospective scribe. The invitee opens the URL,
-chooses a password, and lands as a SCRIBE assigned to the show that
-issued the invite.
+A manager/secretary submits first/last/email and a role -- scribe, gate
+steward, or show secretary -- and gets back an invite URL they can share. The
+invitee opens the URL, chooses a password, and lands with that role, assigned
+to the show that issued the invite. A secretary invited this way works that
+show from outside its company: their own company, as every show secretary has
+one (migration 143), and the show's `show_secretaries` row.
 
 SMTP email delivery is intentionally out of scope for this pass — the
 `accept_url` is returned in the create response so the issuer can paste it
@@ -31,7 +33,7 @@ from dependencies import (
     require_api_key,
     safe_uuid,
 )
-from models import Show, ShowCompanyCrew, ShowGateSteward, ShowScribe, User, UserInvite
+from models import Show, ShowCompanyCrew, ShowGateSteward, ShowScribe, ShowSecretary, User, UserInvite
 from show_access import works_show
 from schemas import (
     UserInviteAcceptBody,
@@ -41,13 +43,13 @@ from schemas import (
     UserInviteOut,
 )
 from routers.show_companies import _load as _load_company
-from show_companies import ALL_FEATURE_ROLES, SHOW_OFFICE_ROLES, add_company_member, show_freeze
+from show_companies import ALL_FEATURE_ROLES, SHOW_OFFICE_ROLES, add_company_member, place_in_company, show_freeze
 from welcome_email import send_welcome_email
 
 router = APIRouter(prefix="/user-invites", tags=["User Invites"])
 
 INVITE_TTL_DAYS = 14
-ROLE_ALLOWED = {"SCRIBE", "GATE_STEWARD"}
+ROLE_ALLOWED = {"SCRIBE", "GATE_STEWARD", "SHOW_SECRETARY"}
 
 
 def _public_app_url() -> str:
@@ -94,7 +96,7 @@ async def create_invite(
 ):
     if body.role not in ROLE_ALLOWED:
         raise HTTPException(400, f"Invite role must be one of: {', '.join(sorted(ROLE_ALLOWED))}")
-    if body.role in ("SCRIBE", "GATE_STEWARD") and body.show_id is None:
+    if body.show_id is None:
         raise HTTPException(400, "show_id is required for staff invites")
 
     if body.show_id is not None:
@@ -288,9 +290,20 @@ async def accept_invite(
             db.add(ShowScribe(show_id=invite.show_id, user_id=user.id))
         elif invite.role == "GATE_STEWARD":
             db.add(ShowGateSteward(show_id=invite.show_id, user_id=user.id))
-        # And onto the crew of the company that runs it (migration 169), so the
-        # office can pick them for its next show without inviting them again.
-        if invite.show is not None and invite.show.company_id is not None:
+        elif invite.role == "SHOW_SECRETARY":
+            # A guest on this show, not a member of the company that runs it:
+            # adding somebody to a company is a request an admin approves
+            # (migration 149). Their own company, like any secretary account.
+            db.add(ShowSecretary(show_id=invite.show_id, user_id=user.id))
+            await place_in_company(user, db)
+        # A scribe or gate steward also joins the crew of the company that runs
+        # it (migration 169), so the office can pick them for its next show
+        # without inviting them again.
+        if (
+            invite.role in ("SCRIBE", "GATE_STEWARD")
+            and invite.show is not None
+            and invite.show.company_id is not None
+        ):
             db.add(
                 ShowCompanyCrew(
                     company_id=invite.show.company_id, user_id=user.id, added_by_user_id=invite.invited_by_user_id

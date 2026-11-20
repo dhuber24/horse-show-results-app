@@ -1,8 +1,7 @@
 import { fetchShow, fetchVenues, fetchShowTypes, fetchShowCategories } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import EditShowForm from '../EditShowForm';
-import ShowCompanyStaff, { type ShowCompanyStaffPayload } from '../ShowCompanyStaff';
-import ShowStaffPanel, { type PendingInvite } from '../ShowStaffPanel';
+import ShowCompanyStaff, { type PendingInvite, type ShowCompanyStaffPayload } from '../ShowCompanyStaff';
 import StepLayout from '../setup/_lib/StepLayout';
 import { fetchStepCounts } from '../setup/_lib/fetchStepCounts';
 import { auth } from '@/auth';
@@ -86,8 +85,9 @@ export default async function EditShowDetailsPage({
             </h2>
             <p className="text-sm" style={{ color: 'var(--muted)' }}>
               The company that runs this show staffs it: its managers and secretaries run setup and
-              the registration desk. Scribes, who enter placings, and gate stewards, who run the
-              in-gate, are hired for this show.
+              the registration desk. Anybody hired for this show alone (a guest secretary, the
+              scribes who enter placings, the gate stewards who run the in-gate) is listed from
+              outside the company.
             </p>
           </div>
           {companyStaff ? (
@@ -96,6 +96,11 @@ export default async function EditShowDetailsPage({
               initial={companyStaff}
               availableManagers={availableManagers}
               availableSecretaries={availableSecretaries}
+              scribes={scribes}
+              gateStewards={gateStewards}
+              pendingInvites={pendingInvites}
+              allUsers={allUsers}
+              companyCrew={companyCrew}
               isAdmin={isAdmin}
             />
           ) : (
@@ -103,15 +108,6 @@ export default async function EditShowDetailsPage({
               The show&apos;s staff could not be loaded. Reload the page to try again.
             </p>
           )}
-          <ShowStaffPanel
-            showId={id}
-            initialScribes={scribes}
-            initialGateStewards={gateStewards}
-            allUsers={allUsers}
-            isAdmin={isAdmin}
-            initialPendingInvites={pendingInvites}
-            companyCrew={companyCrew}
-          />
         </div>
       </div>
     </StepLayout>

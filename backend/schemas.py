@@ -546,7 +546,8 @@ class UserInviteCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
-    role: Literal["SCRIBE", "GATE_STEWARD"] = "SCRIBE"
+    # A show secretary invited from a show is a guest on that show alone.
+    role: Literal["SCRIBE", "GATE_STEWARD", "SHOW_SECRETARY"] = "SCRIBE"
     show_id: Optional[UUID] = None
 
 class UserInviteOut(BaseModel):

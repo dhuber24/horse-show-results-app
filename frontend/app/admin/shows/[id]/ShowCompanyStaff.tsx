@@ -33,9 +33,21 @@ export type ShowCompanyStaffPayload = {
 
 type Account = { id: string; full_name: string; email: string; role: string };
 
+/** An invite to sign up as a scribe, gate steward or secretary for this show, not yet accepted. */
+export type PendingInvite = {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+  expires_at: string;
+};
+
 const ROLE_LABELS: Record<string, string> = {
   SHOW_MANAGER: 'Show Manager',
   SHOW_SECRETARY: 'Show Secretary',
+  SCRIBE: 'Scribe',
+  GATE_STEWARD: 'Gate Steward',
 };
 
 const card = { borderColor: 'var(--border)', backgroundColor: 'var(--surface)' } as const;
@@ -73,15 +85,20 @@ function PersonLine({ name, email, role, badge }: { name: string; email: string;
  * the same rules. Adding is a request a GaitDesk admin approves (migration
  * 149), unless an admin is the one adding.
  *
- * Below it, anybody working this show from outside the company — a guest
- * secretary hired for the weekend — on the per-show assignment they always had.
- * Scribes and gate stewards are hired per show and stay in `ShowStaffPanel`.
+ * Below it, everybody working this show from outside the company, in one
+ * card (`GuestStaff`): a guest secretary hired for the weekend, the scribes and
+ * the gate stewards, each on the per-show assignment they always had.
  */
 export default function ShowCompanyStaff({
   showId,
   initial,
   availableManagers,
   availableSecretaries,
+  scribes = [],
+  gateStewards = [],
+  pendingInvites = [],
+  allUsers = [],
+  companyCrew = [],
   isAdmin,
 }: {
   showId: string;
@@ -89,6 +106,15 @@ export default function ShowCompanyStaff({
   /** Approved SHOW_MANAGER accounts, from `/users/by-role`, for the guest picker. */
   availableManagers: Account[];
   availableSecretaries: Account[];
+  /** On this show now (`show_scribes`, `show_gate_stewards`). */
+  scribes?: Account[];
+  gateStewards?: Account[];
+  pendingInvites?: PendingInvite[];
+  /** Every account, for an admin's picker; empty for anybody else. */
+  allUsers?: Account[];
+  /** The scribes and gate stewards on the crew of the company that runs the
+   *  show (migration 169): who its office picks from. */
+  companyCrew?: Account[];
   isAdmin: boolean;
 }) {
   const [staff, setStaff] = useState<ShowCompanyStaffPayload>(initial);
@@ -465,6 +491,11 @@ export default function ShowCompanyStaff({
         guests={staff.guests}
         availableManagers={availableManagers}
         availableSecretaries={availableSecretaries}
+        initialScribes={scribes}
+        initialGateStewards={gateStewards}
+        initialPendingInvites={pendingInvites}
+        allUsers={allUsers}
+        companyCrew={companyCrew}
         isAdmin={isAdmin}
         onChanged={reload}
       />
@@ -472,12 +503,43 @@ export default function ShowCompanyStaff({
   );
 }
 
-const emptySecretaryForm = { first_name: '', last_name: '', email: '', password: '' };
+const emptyInviteForm = { first_name: '', last_name: '', email: '', role: 'SCRIBE' as InviteRole };
+
+type InviteRole = 'SCRIBE' | 'GATE_STEWARD' | 'SHOW_SECRETARY';
+
+/** One person on the card: a guest manager or secretary, a scribe, a gate steward. */
+type OutsidePerson = { user_id: string; full_name: string; email: string; role: string };
+
+const ROLE_ORDER = ['SHOW_MANAGER', 'SHOW_SECRETARY', 'SCRIBE', 'GATE_STEWARD'];
+
+/** The per-show endpoint each role is assigned through, as the backend requires. */
+function tableFor(role: string): string {
+  switch (role) {
+    case 'SHOW_MANAGER': return 'managers';
+    case 'SCRIBE': return 'scribes';
+    case 'GATE_STEWARD': return 'gate-stewards';
+    default: return 'admins';
+  }
+}
+
+function byRoleThenName(a: { role: string; full_name: string }, b: { role: string; full_name: string }) {
+  const order = ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role);
+  return order !== 0 ? order : a.full_name.localeCompare(b.full_name);
+}
 
 /**
- * Managers and secretaries on a per-show row who are not in the show's
- * company: somebody hired for this show alone. On a show with no company yet,
- * that is everybody who works it.
+ * Everybody hired for this show alone, in one list: managers and secretaries
+ * from outside the show's company (a secretary hired for the weekend), the
+ * scribes who enter placings, and the gate stewards who run the in-gate. On a
+ * show with no company yet, that is everybody who works it.
+ *
+ * Each role keeps its own per-show table (`show_managers`, `show_secretaries`,
+ * `show_scribes`, `show_gate_stewards`); adding somebody goes to the one their
+ * account's role names. Scribes and gate stewards are picked from the company's
+ * crew on My Company (migration 169) -- an admin picks from everybody. Anybody
+ * new is invited by email with the role the office chooses: a scribe or gate
+ * steward also joins the crew when they accept, a secretary works this show
+ * only (`routers/user_invites.py`).
  */
 function GuestStaff({
   showId,
@@ -486,6 +548,11 @@ function GuestStaff({
   guests,
   availableManagers,
   availableSecretaries,
+  initialScribes,
+  initialGateStewards,
+  initialPendingInvites,
+  allUsers,
+  companyCrew,
   isAdmin,
   onChanged,
 }: {
@@ -495,138 +562,222 @@ function GuestStaff({
   guests: ShowGuest[];
   availableManagers: Account[];
   availableSecretaries: Account[];
+  initialScribes: Account[];
+  initialGateStewards: Account[];
+  initialPendingInvites: PendingInvite[];
+  allUsers: Account[];
+  companyCrew: Account[];
   isAdmin: boolean;
   onChanged: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [mode, setMode] = useState<'pick' | 'create'>('pick');
+  const [mode, setMode] = useState<'pick' | 'invite'>('pick');
   const [selected, setSelected] = useState('');
-  const [newSecretary, setNewSecretary] = useState(emptySecretaryForm);
+  const [inviteForm, setInviteForm] = useState(emptyInviteForm);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  // Scribes and gate stewards are not in the company-staff payload, so this
+  // card keeps them itself; the guests come back with every reload.
+  const [crew, setCrew] = useState<Account[]>([...initialScribes, ...initialGateStewards]);
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(
+    initialPendingInvites.filter((i) => ['SCRIBE', 'GATE_STEWARD', 'SHOW_SECRETARY'].includes(i.role)),
+  );
+  const [lastInvite, setLastInvite] = useState<{ name: string; url: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const guestIds = new Set(guests.map((g) => g.user_id));
-  const pool = [...availableManagers, ...availableSecretaries]
-    .filter((u) => !guestIds.has(u.id) && !companyMemberIds.has(u.id))
-    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+  const people: OutsidePerson[] = [
+    ...guests,
+    ...crew.map((u) => ({ user_id: u.id, full_name: u.full_name, email: u.email, role: u.role })),
+  ].sort(byRoleThenName);
 
-  // The per-show table follows the account's role, as the endpoints require.
-  const tableFor = (role: string) => (role === 'SHOW_MANAGER' ? 'managers' : 'admins');
+  const onShow = new Set(people.map((p) => p.user_id));
+  // An admin assigns any scribe or gate steward; the show's office assigns its company's crew.
+  const crewPool = (isAdmin ? allUsers : companyCrew).filter(
+    (u) => u.role === 'SCRIBE' || u.role === 'GATE_STEWARD',
+  );
+  const pool = [...availableManagers, ...availableSecretaries, ...crewPool]
+    .filter((u, i, all) => all.findIndex((x) => x.id === u.id) === i)
+    .filter((u) => !onShow.has(u.id) && !companyMemberIds.has(u.id))
+    .sort(byRoleThenName);
 
-  async function run(action: () => Promise<Response>, fallback: string): Promise<boolean> {
-    setBusy(true);
+  function close() {
+    setAdding(false);
+    setMode('pick');
+    setSelected('');
+    setInviteForm(emptyInviteForm);
     setError(null);
-    try {
-      const res = await action();
-      if (!res.ok && res.status !== 204) {
-        const body = await res.json().catch(() => null);
-        setError(errorMessage(body, fallback));
-        return false;
-      }
-      await onChanged();
-      return true;
-    } finally {
-      setBusy(false);
-    }
+  }
+
+  async function failed(res: Response, fallback: string): Promise<boolean> {
+    if (res.ok || res.status === 204) return false;
+    const body = await res.json().catch(() => null);
+    setError(errorMessage(body, fallback));
+    return true;
   }
 
   async function add() {
     const person = pool.find((u) => u.id === selected);
     if (!person) return;
-    const ok = await run(
-      () => fetch(`/api/shows/${showId}/${tableFor(person.role)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: person.id }),
-      }),
-      'They could not be added to this show.',
-    );
-    if (ok) { setSelected(''); setAdding(false); }
-  }
-
-  /** Create the account and put it on this show in one go (admin only): a
-   *  secretary hired for the weekend needs a working login before the show. */
-  async function createSecretary(e: React.FormEvent) {
-    e.preventDefault();
-    if (newSecretary.password.length < 8) {
-      setError('Password must be at least 8 characters.');
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
-      const userRes = await fetch('/api/users', {
+      const res = await fetch(`/api/shows/${showId}/${tableFor(person.role)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          first_name: newSecretary.first_name.trim(),
-          last_name: newSecretary.last_name.trim(),
-          email: newSecretary.email.trim(),
-          password: newSecretary.password,
-          role: 'SHOW_SECRETARY',
-        }),
+        body: JSON.stringify({ user_id: person.id }),
       });
-      const userJson = await userRes.json().catch(() => null);
-      if (!userRes.ok) {
-        setError(errorMessage(userJson, 'The secretary account could not be created.'));
-        return;
+      if (await failed(res, 'They could not be added to this show.')) return;
+      if (person.role === 'SCRIBE' || person.role === 'GATE_STEWARD') {
+        setCrew((prev) => [...prev, person]);
+      } else {
+        await onChanged();
       }
-      const assignRes = await fetch(`/api/shows/${showId}/admins`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userJson.id }),
-      });
-      if (!assignRes.ok && assignRes.status !== 409) {
-        const j = await assignRes.json().catch(() => null);
-        setError(errorMessage(j, 'The account was created, but putting it on this show failed.'));
-        return;
-      }
-      setNewSecretary(emptySecretaryForm);
-      setMode('pick');
-      setAdding(false);
-      await onChanged();
+      close();
     } finally {
       setBusy(false);
     }
   }
 
-  async function remove(guest: ShowGuest) {
-    const ok = await run(
-      () => fetch(`/api/shows/${showId}/${tableFor(guest.role)}/${guest.user_id}`, { method: 'DELETE' }),
-      'They could not be taken off this show.',
-    );
-    if (ok) setConfirmRemove(null);
+  async function remove(person: OutsidePerson) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/shows/${showId}/${tableFor(person.role)}/${person.user_id}`, { method: 'DELETE' });
+      if (await failed(res, 'They could not be taken off this show.')) return;
+      if (person.role === 'SCRIBE' || person.role === 'GATE_STEWARD') {
+        setCrew((prev) => prev.filter((u) => u.id !== person.user_id));
+      } else {
+        await onChanged();
+      }
+      setConfirmRemove(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Somebody with no account, by email, in the role chosen: the backend
+   *  issues a token, and the link works until email delivery is configured. */
+  async function sendInvite(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/user-invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: inviteForm.first_name.trim(),
+          last_name: inviteForm.last_name.trim(),
+          email: inviteForm.email.trim(),
+          role: inviteForm.role,
+          show_id: showId,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(errorMessage(json, 'The invite could not be sent.'));
+        return;
+      }
+      setPendingInvites((prev) => [
+        {
+          id: json.id,
+          email: json.email,
+          first_name: json.first_name,
+          last_name: json.last_name,
+          role: json.role,
+          expires_at: json.expires_at,
+        },
+        ...prev,
+      ]);
+      setLastInvite({ name: `${json.first_name} ${json.last_name}`, url: json.accept_url });
+      close();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelInvite(inviteId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/user-invites/${inviteId}`, { method: 'DELETE' });
+      if (await failed(res, 'The invite could not be cancelled.')) return;
+      setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // The clipboard can fail outside a secure context; the link is still selectable.
+    }
   }
 
   const inputClass = 'border rounded px-3 py-2 text-sm w-full';
+  const modes: { key: 'pick' | 'invite'; label: string }[] = [
+    { key: 'pick', label: 'Pick existing' },
+    { key: 'invite', label: 'Invite someone new' },
+  ];
 
   return (
     <section className="p-5 rounded-lg border space-y-3" style={card}>
       <div>
         <h3 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>
-          {companyName ? `From outside ${companyName}` : 'Managers and secretaries'}
+          {companyName ? `From outside ${companyName}` : 'Show staff'}
         </h3>
         <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           {companyName
-            ? `People who work this show only, such as a secretary hired for the weekend. They aren't part of ${companyName} and don't see its other shows.`
-            : 'Everyone who works this show until it has a company.'}
+            ? `People who work this show only: a manager or secretary hired for the weekend, the scribes who enter placings, and the gate stewards who run the in-gate. They aren't part of ${companyName} and don't see its other shows.`
+            : 'Everyone who works this show until it has a company: managers, secretaries, scribes and gate stewards.'}
         </p>
       </div>
 
-      {guests.length === 0 ? (
+      {lastInvite && (
+        <div className="rounded border p-3 space-y-2" style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)' }}>
+          <p className="text-sm" style={{ color: 'var(--success-strong)' }}>
+            Invite for <strong>{lastInvite.name}</strong> created. Share this link until email delivery is configured:
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              readOnly
+              value={lastInvite.url}
+              aria-label="Invite link"
+              className="flex-1 min-w-0 border rounded px-2 py-1 text-xs font-mono"
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <button type="button" onClick={() => copyLink(lastInvite.url)}
+              className="text-xs px-2 py-1 rounded border"
+              style={{ borderColor: 'var(--success-border)', color: 'var(--success-strong)', backgroundColor: 'var(--surface)' }}>
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+            <button type="button" onClick={() => setLastInvite(null)}
+              className="text-xs px-2 py-1 hover:underline" style={{ color: 'var(--success-strong)' }}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {people.length === 0 ? (
         <p className="text-sm" style={{ color: 'var(--muted)' }}>
           {companyName ? 'Nobody from outside the company.' : 'Nobody is assigned to this show.'}
         </p>
       ) : (
         <ul className="divide-y rounded border" style={listStyle}>
-          {guests.map((guest) => (
-            <li key={guest.user_id} className="flex items-center justify-between gap-3 flex-wrap px-3 py-2" style={listStyle}>
-              <PersonLine name={guest.full_name} email={guest.email} role={guest.role} />
+          {people.map((person) => (
+            <li key={person.user_id} className="flex items-center justify-between gap-3 flex-wrap px-3 py-2" style={listStyle}>
+              <PersonLine name={person.full_name} email={person.email} role={person.role} />
               <div className="flex items-center gap-3 text-sm">
-                {confirmRemove === guest.user_id ? (
+                {confirmRemove === person.user_id ? (
                   <>
-                    <button type="button" onClick={() => remove(guest)} disabled={busy}
+                    <button type="button" onClick={() => remove(person)} disabled={busy}
                       className="font-medium hover:underline disabled:opacity-50" style={{ color: 'var(--error)' }}>
                       Confirm remove
                     </button>
@@ -636,7 +787,7 @@ function GuestStaff({
                     </button>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setConfirmRemove(guest.user_id)} disabled={busy}
+                  <button type="button" onClick={() => setConfirmRemove(person.user_id)} disabled={busy}
                     className="hover:underline disabled:opacity-50" style={{ color: 'var(--error)' }}>
                     Remove
                   </button>
@@ -647,41 +798,59 @@ function GuestStaff({
         </ul>
       )}
 
+      {pendingInvites.length > 0 && (
+        <div className="rounded border p-3 space-y-2" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--warning-bg)' }}>
+          <p className="text-xs font-medium" style={{ color: 'var(--text-deep)' }}>Invited, not signed up yet</p>
+          <ul className="space-y-1">
+            {pendingInvites.map((inv) => (
+              <li key={inv.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="min-w-0" style={{ color: 'var(--foreground)' }}>
+                  {inv.first_name} {inv.last_name}{' '}
+                  <span className="break-all" style={{ color: 'var(--muted)' }}>({inv.email}) · {ROLE_LABELS[inv.role] ?? inv.role}</span>
+                </span>
+                <button type="button" disabled={busy} onClick={() => cancelInvite(inv.id)}
+                  className="text-xs hover:underline disabled:opacity-50 shrink-0" style={{ color: 'var(--error)' }}>
+                  Cancel
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {!adding ? (
         <button type="button" onClick={() => setAdding(true)}
           className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
-          {companyName ? '+ Add someone for this show only' : '+ Add a manager or secretary'}
+          {companyName ? '+ Add someone for this show only' : '+ Add someone to this show'}
         </button>
       ) : (
         <div className="space-y-3">
-          {isAdmin && (
-            <div className="flex gap-2 flex-wrap">
-              {(['pick', 'create'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => { setMode(m); setError(null); }}
-                  aria-pressed={mode === m}
-                  className="text-sm rounded px-3 py-1.5 border"
-                  style={{
-                    borderColor: mode === m ? 'var(--text-deep)' : 'var(--border)',
-                    backgroundColor: mode === m ? 'var(--warning-bg)' : 'var(--surface)',
-                    color: mode === m ? 'var(--text-deep)' : 'var(--foreground)',
-                    fontWeight: mode === m ? 600 : 400,
-                  }}
-                >
-                  {m === 'pick' ? 'Pick existing' : 'Create a secretary'}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="flex gap-2 flex-wrap">
+            {modes.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => { setMode(m.key); setError(null); }}
+                aria-pressed={mode === m.key}
+                className="text-sm rounded px-3 py-1.5 border"
+                style={{
+                  borderColor: mode === m.key ? 'var(--text-deep)' : 'var(--border)',
+                  backgroundColor: mode === m.key ? 'var(--warning-bg)' : 'var(--surface)',
+                  color: mode === m.key ? 'var(--text-deep)' : 'var(--foreground)',
+                  fontWeight: mode === m.key ? 600 : 400,
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
 
           {mode === 'pick' && (
             pool.length > 0 ? (
               <div className="flex items-center gap-2 flex-wrap">
                 <select value={selected} onChange={(e) => setSelected(e.target.value)}
-                  aria-label="Manager or secretary" className="border rounded px-3 py-2 text-sm flex-1 min-w-0" style={inputStyle}>
-                  <option value="" disabled>Choose a manager or secretary…</option>
+                  aria-label="Person to add" className="border rounded px-3 py-2 text-sm flex-1 min-w-0" style={inputStyle}>
+                  <option value="" disabled>Choose someone…</option>
                   {pool.map((u) => (
                     <option key={u.id} value={u.id}>{u.full_name} ({u.email}) · {ROLE_LABELS[u.role] ?? u.role}</option>
                   ))}
@@ -691,7 +860,7 @@ function GuestStaff({
                   className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={primaryButton}>
                   {busy ? 'Adding…' : 'Add'}
                 </button>
-                <button type="button" onClick={() => { setAdding(false); setSelected(''); }}
+                <button type="button" onClick={close}
                   className="text-sm hover:underline" style={{ color: 'var(--muted)' }}>
                   Cancel
                 </button>
@@ -699,10 +868,9 @@ function GuestStaff({
             ) : (
               <div className="space-y-1">
                 <p className="text-xs" style={{ color: 'var(--muted)' }}>
-                  Everybody you can pick from already works this show.
-                  {isAdmin ? ' Use "Create a secretary" for someone new.' : ''}
+                  Everybody you can pick from already works this show. Use Invite someone new for anyone else.
                 </p>
-                <button type="button" onClick={() => setAdding(false)}
+                <button type="button" onClick={close}
                   className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>
                   Cancel
                 </button>
@@ -710,36 +878,42 @@ function GuestStaff({
             )
           )}
 
-          {isAdmin && mode === 'create' && (
-            <form onSubmit={createSecretary} className="space-y-3">
+          {mode === 'invite' && (
+            <form onSubmit={sendInvite} className="space-y-3">
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                We&apos;ll make an invite link. They open it, pick a password, and land ready to work this show.
+              </p>
+              <select value={inviteForm.role} aria-label="Role"
+                onChange={(e) => setInviteForm((f) => ({ ...f, role: e.target.value as InviteRole }))}
+                className={inputClass} style={inputStyle}>
+                <option value="SCRIBE">Scribe: enters placings</option>
+                <option value="GATE_STEWARD">Gate Steward: runs the in-gate</option>
+                <option value="SHOW_SECRETARY">Show Secretary: works the office for this show</option>
+              </select>
               <div className="grid sm:grid-cols-2 gap-3">
-                <input required placeholder="First name" className={inputClass} style={inputStyle}
-                  value={newSecretary.first_name}
-                  onChange={(e) => setNewSecretary((f) => ({ ...f, first_name: e.target.value }))} />
-                <input required placeholder="Last name" className={inputClass} style={inputStyle}
-                  value={newSecretary.last_name}
-                  onChange={(e) => setNewSecretary((f) => ({ ...f, last_name: e.target.value }))} />
+                <input required placeholder="First name" aria-label="First name" className={inputClass} style={inputStyle}
+                  value={inviteForm.first_name}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, first_name: e.target.value }))} />
+                <input required placeholder="Last name" aria-label="Last name" className={inputClass} style={inputStyle}
+                  value={inviteForm.last_name}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, last_name: e.target.value }))} />
               </div>
-              <input required type="email" placeholder="Email" autoComplete="off" className={inputClass} style={inputStyle}
-                value={newSecretary.email}
-                onChange={(e) => setNewSecretary((f) => ({ ...f, email: e.target.value }))} />
-              <input required type="password" placeholder="Initial password (≥ 8 characters)" autoComplete="new-password"
-                className={`${inputClass} font-mono`} style={inputStyle}
-                value={newSecretary.password}
-                onChange={(e) => setNewSecretary((f) => ({ ...f, password: e.target.value }))} />
+              <input required type="email" placeholder="Email" aria-label="Email" autoComplete="off" className={inputClass} style={inputStyle}
+                value={inviteForm.email}
+                onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))} />
               <div className="flex gap-2">
                 <button type="submit" disabled={busy}
                   className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={primaryButton}>
-                  {busy ? 'Creating…' : 'Create & add'}
+                  {busy ? 'Sending…' : 'Send invite'}
                 </button>
-                <button type="button"
-                  onClick={() => { setAdding(false); setNewSecretary(emptySecretaryForm); setError(null); }}
+                <button type="button" onClick={close}
                   className="text-sm hover:underline" style={{ color: 'var(--muted)' }}>
                   Cancel
                 </button>
               </div>
             </form>
           )}
+
         </div>
       )}
 

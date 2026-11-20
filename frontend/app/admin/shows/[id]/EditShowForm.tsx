@@ -69,9 +69,9 @@ const COLORS = {
 } as const;
 
 // Who runs the show is not a detail of the show record — it is the staff roster:
-// the company that runs it and its managers and secretaries in
-// `ShowCompanyStaff`, the scribes and gate stewards hired for it in
-// `ShowStaffPanel`. Step 1 renders all three.
+// the company that runs it and its managers and secretaries, then everybody
+// hired for this show alone -- guest managers and secretaries, scribes, gate
+// stewards -- in `ShowCompanyStaff`. Step 1 renders both.
 export default function EditShowForm({
   show,
   venues,
