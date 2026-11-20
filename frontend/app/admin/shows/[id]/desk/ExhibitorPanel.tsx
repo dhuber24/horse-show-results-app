@@ -833,14 +833,26 @@ export default function ExhibitorPanel({
     const released = desk.side_pots.filter(
       (pot) =>
         pot.status === 'open' &&
-        exhibitor.side_pot_ids.includes(pot.id) &&
-        (pot.class_ids ?? []).includes(entry.class_id) &&
-        !remaining.some((e) => (pot.class_ids ?? []).includes(e.class_id)),
+        (pot.per_run
+          ? // A pot paid on time holds this run itself (migration 205).
+            (entry.run_side_pot_ids ?? []).includes(pot.id)
+          : exhibitor.side_pot_ids.includes(pot.id) &&
+            (pot.class_ids ?? []).includes(entry.class_id) &&
+            !remaining.some((e) => (pot.class_ids ?? []).includes(e.class_id))),
     );
     if (released.length === 0) return '';
-    return `Also takes them out of ${released
-      .map((pot) => `${pot.name} (${formatMoney(pot.entry_fee_cents)} buy-in back)`)
-      .join(' and ')} — it was their last class in it.`;
+    const named = (pots: typeof released) =>
+      pots.map((pot) => `${pot.name} (${formatMoney(pot.entry_fee_cents)} buy-in back)`).join(' and ');
+    const runPots = released.filter((pot) => pot.per_run);
+    const classPots = released.filter((pot) => !pot.per_run);
+    return [
+      runPots.length > 0 ? `Also takes this run out of ${named(runPots)}.` : '',
+      classPots.length > 0
+        ? `Also takes them out of ${named(classPots)} — it was their last class in it.`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
   };
 
   /** The same warning for a futurity entry, which a scratch releases the

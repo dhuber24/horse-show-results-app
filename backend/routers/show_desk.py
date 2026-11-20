@@ -261,6 +261,16 @@ async def get_desk(
         .order_by(SidePot.created_at)
     )
     pots = list(pot_result.scalars().all())
+    # The runs bought into a pot paid on time (migration 205), on each entry:
+    # scratching the run takes its buy-in with it, and the Remove link says so.
+    run_pot_ids: dict[UUID, list[UUID]] = {}
+    for pot in pots:
+        for pe in pot.pot_entries:
+            if pe.entry_id:
+                run_pot_ids.setdefault(pe.entry_id, []).append(pot.id)
+    for rows in entries_by_exhibitor.values():
+        for row in rows:
+            row["run_side_pot_ids"] = run_pot_ids.get(row["entry_id"], [])
 
     futurity_result = await db.execute(
         select(Futurity)
@@ -480,6 +490,9 @@ async def get_desk(
                 # the buy-in on the classes that oblige it rather than leaving
                 # `POST .../entries` to refuse them.
                 "class_ids": [pc.class_id for pc in pot.pot_classes],
+                # A pot paid on time obliges nobody: it is bought into run by
+                # run on its own screen (migration 205).
+                "per_run": pot.scoring_method == "fastest_time",
             }
             for pot in pots
         ],

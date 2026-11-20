@@ -68,6 +68,47 @@ def test_score_type_comes_back_with_the_discipline(name, score_type):
     assert classify_class_name(name)[1] == score_type
 
 
+@pytest.mark.parametrize(
+    "name,discipline",
+    [
+        # Every speed class on the 2026 WSCA Championship Show bill, as the
+        # bill reader returned them -- each came in as Unassigned / placings
+        # when the table only knew "BARREL RACING" and "POLE BENDING".
+        ("Sr. Pennant", "Pennant Race"),
+        ("Sr++ Poles", "Pole Bending"),
+        ("Pet Pony Poles", "Pole Bending"),
+        ("PW Key Race", "Key Race"),
+        ("4-In-A-Line", "Four in Line"),
+        ("Unassisted Canter Pole Weaving", "Pole Weaving"),
+        ("Assisted Walk Trot Key Race", "Key Race"),
+        ("Assisted Walk Trot Barrels", "Barrel Racing"),
+        ("Sr++ Jumping F8", "Jumping Figure 8"),
+        ("Rescue Race", "Rescue Race"),
+        ("Ribbon Race", "Ribbon Race"),
+        ("Int. Barrels", "Barrel Racing"),
+        ("$1,000 Added SIDEPOT 5D Barrels", "Barrel Racing"),
+        ("Futurity 4D Sidepot Barrels", "Barrel Racing"),
+        # Other spellings of the same games.
+        ("4 In A Line Barrels", "Four in Line"),
+        ("Jr Keyhole", "Keyhole Race"),
+        ("Two Barrel Flags", "Flag Race"),
+    ],
+)
+def test_saddle_club_games_are_timed(name, discipline):
+    assert classify_class_name(name) == (discipline, "time")
+
+
+def test_egg_and_spoon_is_not_timed():
+    """The one WSCA game the rulebook calls a "Game event" rather than a
+    "Timed event": run by elimination, so it stays on placings."""
+    assert classify_class_name("Jr. Egg & Spoon Games") is None
+
+
+def test_jumping_figure_8_is_timed_but_plain_jumping_is_judged():
+    assert classify_class_name("Jr. Jumping F8")[1] == "time"
+    assert classify_class_name("Open Jumping") == ("Jumping", "pattern")
+
+
 def test_padded_abbreviations_do_not_match_bare_words():
     """`" HUS "` is padded on purpose so it cannot fire inside an unrelated
     word. Losing the padding is an easy "tidy-up" to make by accident."""

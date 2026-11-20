@@ -181,6 +181,7 @@ from side_pot_membership import (
     load_show_pots,
     pots_covering_class,
     release_scratched_pots,
+    settled_run_refusal,
     requirement_detail,
     unmet_pots,
 )
@@ -2479,6 +2480,10 @@ async def withdraw_entry(
     refusal = scratch_refusal(entry.class_, result_exists.scalar_one_or_none() is not None)
     if refusal:
         raise HTTPException(409, refusal)
+    # A run in a settled time pot funded its payouts (migration 205).
+    refusal = await settled_run_refusal([entry.id], db)
+    if refusal:
+        raise HTTPException(409, refusal)
 
     scratched_class_id = entry.class_id
     scratched_horse_id = entry.horse_id
@@ -3050,6 +3055,10 @@ async def withdraw_from_futurity(
             refusal = scratch_refusal(entry.class_, entry.id in with_results)
             if refusal:
                 raise HTTPException(409, refusal)
+    # A run in a settled time pot funded its payouts (migration 205).
+    refusal = await settled_run_refusal([entry.id for entry in class_entries], db)
+    if refusal:
+        raise HTTPException(409, refusal)
 
     scratched_class_ids = [entry.class_id for entry in class_entries]
     for entry in class_entries:

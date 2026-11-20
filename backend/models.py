@@ -3483,12 +3483,23 @@ class SidePot(Base):
     status = Column(Text, nullable=False, server_default="open")
     settled_at = Column(TIMESTAMP(timezone=True), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    # Migration 205. Added money goes into the pool on top of the buy-ins'
+    # payback, for any pot. The D columns are read only by a `fastest_time`
+    # pot: how many Ds, how far apart their lines are behind the fastest time,
+    # and each D's share of the pool (fastest D first, summing to 100).
+    added_money_cents = Column(Integer, nullable=False, server_default="0", default=0)
+    d_count = Column(Integer, nullable=False, server_default="1", default=1)
+    d_split_ms = Column(Integer, nullable=False, server_default="500", default=500)
+    d_percents = Column(JSONB, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
-            "scoring_method IN ('sum_placings','sum_scores')",
+            "scoring_method IN ('sum_placings','sum_scores','fastest_time')",
             name="ck_side_pots_scoring_method",
         ),
+        CheckConstraint("added_money_cents >= 0", name="ck_side_pots_added_money_nonneg"),
+        CheckConstraint("d_count BETWEEN 1 AND 10", name="ck_side_pots_d_count_range"),
+        CheckConstraint("d_split_ms > 0", name="ck_side_pots_d_split_positive"),
         CheckConstraint(
             "eligibility_rule IN ('all_classes','any_class')",
             name="ck_side_pots_eligibility_rule",
@@ -3558,11 +3569,33 @@ class SidePotEntry(Base):
     )
     paid = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    # The run a `fastest_time` pot's buy-in is for (migration 205); NULL for a
+    # per-exhibitor pot. CASCADE: scratching the run takes its buy-in with it.
+    entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="CASCADE"), nullable=True)
 
-    __table_args__ = (UniqueConstraint("side_pot_id", "show_entry_id"),)
+    # One buy-in per exhibitor in a per-exhibitor pot, one per run in a time
+    # pot -- two partial indexes, since a run-level pot has many rows per
+    # exhibitor (migration 205).
+    __table_args__ = (
+        Index(
+            "side_pot_entries_pot_show_entry_uniq",
+            "side_pot_id",
+            "show_entry_id",
+            unique=True,
+            postgresql_where=text("entry_id IS NULL"),
+        ),
+        Index(
+            "side_pot_entries_pot_run_uniq",
+            "side_pot_id",
+            "entry_id",
+            unique=True,
+            postgresql_where=text("entry_id IS NOT NULL"),
+        ),
+    )
 
     side_pot = relationship("SidePot", back_populates="pot_entries")
     show_entry = relationship("ShowEntry", back_populates="side_pot_entries")
+    entry = relationship("Entry")
 
 
 class SidePotPayout(Base):
@@ -3584,9 +3617,28 @@ class SidePotPayout(Base):
     aggregate_value = Column(Numeric(12, 3), nullable=False)
     tiebreaker_notes = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    # A `fastest_time` pot's payout (migration 205): the run it paid, and the D
+    # it was won in (1 = fastest); `place` is then the place inside that D.
+    entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="SET NULL"), nullable=True)
+    d_number = Column(Integer, nullable=True)
 
+    # One payout per exhibitor in a per-exhibitor pot, one per run in a time
+    # pot, where a rider can win in two Ds on two horses (migration 205).
     __table_args__ = (
-        UniqueConstraint("side_pot_id", "show_entry_id"),
+        Index(
+            "side_pot_payouts_pot_show_entry_uniq",
+            "side_pot_id",
+            "show_entry_id",
+            unique=True,
+            postgresql_where=text("d_number IS NULL"),
+        ),
+        Index(
+            "side_pot_payouts_pot_run_uniq",
+            "side_pot_id",
+            "entry_id",
+            unique=True,
+            postgresql_where=text("entry_id IS NOT NULL"),
+        ),
         CheckConstraint("place > 0", name="ck_side_pot_payouts_place_positive"),
         CheckConstraint(
             "payout_cents >= 0",

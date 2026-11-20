@@ -714,6 +714,7 @@ def test_an_empty_side_pot_pays_out_nothing():
     money = billing.side_pot_money(make_side_pot(), paid_entry_count=0, payouts=[])
     assert money == {
         "buy_ins_cents": 0,
+        "added_money_cents": 0,
         "payout_pool_cents": 0,
         "paid_out_cents": 0,
         "retained_cents": 0,

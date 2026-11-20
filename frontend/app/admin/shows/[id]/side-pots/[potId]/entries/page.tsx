@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { fetchShow } from '@/lib/api';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import { loadPot, loadPotEntries, loadPotRoster } from '../../loadPot';
+import { loadPot, loadPotEntries, loadPotRoster, loadPotRuns } from '../../loadPot';
 import { BackToPot, formatCents, potCrumbs } from '../../pot-shared';
 import SidePotEntriesPanel from './SidePotEntriesPanel';
 
@@ -20,11 +20,12 @@ export default async function SidePotEntriesPage({
   params: Promise<{ id: string; potId: string }>;
 }) {
   const { id, potId } = await params;
-  const [show, pot, entries, roster] = await Promise.all([
+  const [show, pot, entries, roster, runs] = await Promise.all([
     fetchShow(id),
     loadPot(id, potId),
     loadPotEntries(id, potId),
     loadPotRoster(id, potId),
+    loadPotRuns(id, potId),
   ]);
 
   if (!pot) notFound();
@@ -37,8 +38,18 @@ export default async function SidePotEntriesPage({
           Side Pot Entries
         </h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          {pot.name} — {formatCents(pot.entry_fee_cents)} per exhibitor. Exhibitors join the
-          pot at the show level, so one entry here covers every bundled class.
+          {pot.per_run ? (
+            <>
+              {pot.name} — {formatCents(pot.entry_fee_cents)} per run. A pot paid on time is
+              bought into one run at a time: each run here counts the time it made in its class,
+              and is a buy-in on that rider&rsquo;s bill.
+            </>
+          ) : (
+            <>
+              {pot.name} — {formatCents(pot.entry_fee_cents)} per exhibitor. Exhibitors join the
+              pot at the show level, so one entry here covers every bundled class.
+            </>
+          )}
         </p>
       </div>
 
@@ -47,6 +58,7 @@ export default async function SidePotEntriesPage({
         pot={pot}
         initialEntries={entries}
         roster={roster}
+        runs={runs}
       />
 
       <BackToPot showId={id} pot={pot} />

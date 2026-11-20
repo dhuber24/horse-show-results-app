@@ -928,8 +928,10 @@ def side_pot_lines(side_pots: Iterable) -> tuple[list[dict], int]:
     the caller filters them, the way it filters `futurities`.
 
     One buy-in per pot, however many of the pot's classes they entered, because
-    membership hangs off `show_entries` rather than off a class entry. **Every
-    pot they are in is charged, whatever its status and whatever `paid` says.**
+    membership hangs off `show_entries` rather than off a class entry -- except
+    a pot paid on time, which is bought into run by run (migration 205): the
+    caller passes it once per run, and it is one line with a `quantity`.
+    **Every pot they are in is charged, whatever its status and whatever `paid` says.**
     Status decides whether a pot can *oblige* an entry, not whether an existing
     membership is owed; and `paid` is a flag the UI never sets (it defaults
     true), so billing only the unpaid rows would make the bill jump by a figure
@@ -937,17 +939,25 @@ def side_pot_lines(side_pots: Iterable) -> tuple[list[dict], int]:
     """
     lines: list[dict] = []
     total = 0
-    for pot in sorted(side_pots, key=lambda p: (p.name or "").lower()):
+    by_pot: dict = {}
+    for pot in side_pots:
+        if pot.id in by_pot:
+            by_pot[pot.id][1] += 1
+        else:
+            by_pot[pot.id] = [pot, 1]
+    for pot, quantity in sorted(by_pot.values(), key=lambda pq: (pq[0].name or "").lower()):
+        line_total = pot.entry_fee_cents * quantity
         lines.append(
             {
                 "side_pot_id": pot.id,
-                "name": pot.name,
+                "name": pot.name if quantity == 1 else f"{pot.name} × {quantity} runs",
                 "status": pot.status,
                 "class_count": len(pot.pot_classes),
-                "line_total_cents": pot.entry_fee_cents,
+                "quantity": quantity,
+                "line_total_cents": line_total,
             }
         )
-        total += pot.entry_fee_cents
+        total += line_total
     return lines, total
 
 
@@ -1349,13 +1359,19 @@ def side_pot_money(pot, paid_entry_count: int, payouts: Iterable) -> dict:
     pay out.
     """
     taken = pot.entry_fee_cents * paid_entry_count
-    pool = (taken * pot.payback_percent) // 100
+    kept = taken - (taken * pot.payback_percent) // 100
+    # Added money is the show's own, paid into the pool on top of the buy-ins'
+    # payback (migration 205), so it raises the pool without touching what the
+    # show keeps of the buy-ins.
+    added = getattr(pot, "added_money_cents", 0) or 0
+    pool = taken - kept + added
     paid_out = sum(p.payout_cents for p in payouts)
     return {
         "buy_ins_cents": taken,
+        "added_money_cents": added,
         "payout_pool_cents": pool,
         "paid_out_cents": paid_out,
-        "retained_cents": taken - pool,
+        "retained_cents": kept,
     }
 
 

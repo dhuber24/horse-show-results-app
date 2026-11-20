@@ -719,7 +719,9 @@ Settling is one-way; reopening a pot is not currently supported.
 
 ### Configuration
 
-- **`scoring_method`**: `sum_placings` (lowest sum wins, works for any class type) or `sum_scores` (highest sum wins, requires every bundled class to be `pattern` or `time`).
+- **`scoring_method`**: `sum_placings` (lowest sum wins, works for any class type), `sum_scores` (highest sum wins, requires every bundled class to be `pattern` or `time`), or `fastest_time` (migration 205: a barrel or pole sidepot — every bundled class timed, bought into **one run at a time**, ranked on that run's time, lowest first, and paid in Ds).
+- **`added_money_cents`**: money the show adds to the pool on top of the buy-ins' payback ("$1,000 Added"). Any pot.
+- **`d_count` / `d_split_ms` / `d_percents`** (time pots): how many Ds, how far apart their lines are behind the fastest time (500 = half-second splits), and each D's share of the pool, fastest first. Each D pays places by `payout_schedule`; money a D cannot pay — no runners, or fewer than its paid places — is spread over the Ds that have runners by their shares. Standings group the runs by D and show each D's line and what it pays.
 - **`eligibility_rule`**: `all_classes` requires a result in every bundled class to be ranked; `any_class` lets missing classes count as last place + 1.
 - **`payout_schedule`**: JSONB map keyed by paid-entry count band, e.g. `{"1-3":[100], "4-7":[70,30], "8-15":[60,30,10], "16+":[40,25,15,12,8]}`. Defaults are seeded by the API; producers can override per pot.
 - **Tie breaking**: `most 1sts -> most 2nds -> most 3rds ...`. If still tied, entries split the combined share evenly. Rounding remainder goes to first place.
@@ -727,7 +729,7 @@ Settling is one-way; reopening a pot is not currently supported.
 ### Operational Flow
 
 1. Secretary creates a pot at `/admin/shows/[id]/side-pots`, picks classes (the picker hides classes that do not match the scoring method). Class selection is editable afterwards on the pot's **Settings** screen.
-2. On **Side Pot Entries** (`/admin/shows/[id]/side-pots/[potId]/entries`) the secretary picks an exhibitor from the show's roster (`GET .../side-pots/{potId}/roster`, sent as `show_entry_id`). One entry covers every bundled class, and whoever is already in is filtered out of the picker. There is no paid tick: buy-ins settle with the exhibitor's bill at the end of the show, so `paid` defaults to true and everyone in the pot funds the pool.
+2. On **Side Pot Entries** (`/admin/shows/[id]/side-pots/[potId]/entries`) the secretary picks an exhibitor from the show's roster (`GET .../side-pots/{potId}/roster`, sent as `show_entry_id`) — or, for a pot paid on time, a **run** from the entries in its classes (`GET .../side-pots/{potId}/runs`, sent as `entry_id`): a rider on two horses can buy in either or both, each a buy-in on their bill, and buying in is never a condition of entering the class. One entry covers every bundled class, and whoever is already in is filtered out of the picker. There is no paid tick: buy-ins settle with the exhibitor's bill at the end of the show, so `paid` defaults to true and everyone in the pot funds the pool.
 3. **Standings** (`/admin/shows/[id]/side-pots/[potId]/standings`) shows live ranking + projected payouts as the underlying class results land. Refresh button re-runs the computation.
 4. Once results are final, secretary clicks **Settle** on that same Standings screen — it freezes exactly the table above the button. The backend writes one `side_pot_payouts` row per eligible entry (place + cents) and locks the pot.
 5. The frozen payouts table then appears below the ranking for handoff to whoever cuts checks.

@@ -155,6 +155,9 @@ export interface DeskSidePot {
    *  oblige it. `?? []` at every use: a frontend deployed ahead of the backend
    *  that adds the field should ask for nothing rather than break the desk. */
   class_ids?: string[];
+  /** Paid on time and bought into run by run on the pot's own screen
+   *  (migration 205): never a condition of entering its classes. */
+  per_run?: boolean;
 }
 
 export interface DeskEntry {
@@ -181,6 +184,9 @@ export interface DeskEntry {
   team_overlaps?: DeskTeamOverlap[];
   /** The club the entrant rides for on this team, where not their primary. */
   entrant_club_id?: string | null;
+  /** The pots paid on time this run is bought into (migration 205); removing
+   *  the entry takes those buy-ins with it. */
+  run_side_pot_ids?: string[];
 }
 
 export interface DeskTeamOverlap {
@@ -510,7 +516,7 @@ export const COLORS = {
  */
 export function potsForClass(desk: Desk, classId: string): DeskSidePot[] {
   return desk.side_pots.filter(
-    (pot) => pot.status === 'open' && (pot.class_ids ?? []).includes(classId),
+    (pot) => pot.status === 'open' && !pot.per_run && (pot.class_ids ?? []).includes(classId),
   );
 }
 

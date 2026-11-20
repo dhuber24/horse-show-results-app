@@ -424,12 +424,22 @@ async def _fold_show_entry(db: AsyncSession, keep: ShowEntry, remove: ShowEntry)
         .values(show_entry_id=keep.id)
         .execution_options(synchronize_session=False)
     )
+    # A run's buy-in in a pot paid on time (migration 205) is unique on its run,
+    # not its exhibitor, so it always moves -- keeping both people's runs is
+    # what the merged exhibitor bought. A per-exhibitor buy-in moves only where
+    # the kept record is not in that pot already.
     await db.execute(
         update(SidePotEntry)
         .where(
             SidePotEntry.show_entry_id == remove.id,
-            SidePotEntry.side_pot_id.not_in(
-                select(SidePotEntry.side_pot_id).where(SidePotEntry.show_entry_id == keep.id)
+            or_(
+                SidePotEntry.entry_id.is_not(None),
+                SidePotEntry.side_pot_id.not_in(
+                    select(SidePotEntry.side_pot_id).where(
+                        SidePotEntry.show_entry_id == keep.id,
+                        SidePotEntry.entry_id.is_(None),
+                    )
+                ),
             ),
         )
         .values(show_entry_id=keep.id)
@@ -440,8 +450,11 @@ async def _fold_show_entry(db: AsyncSession, keep: ShowEntry, remove: ShowEntry)
         update(SidePotPayout)
         .where(
             SidePotPayout.show_entry_id == remove.id,
-            SidePotPayout.side_pot_id.not_in(
-                select(SidePotPayout.side_pot_id).where(SidePotPayout.show_entry_id == keep.id)
+            or_(
+                SidePotPayout.entry_id.is_not(None),
+                SidePotPayout.side_pot_id.not_in(
+                    select(SidePotPayout.side_pot_id).where(SidePotPayout.show_entry_id == keep.id)
+                ),
             ),
         )
         .values(show_entry_id=keep.id)

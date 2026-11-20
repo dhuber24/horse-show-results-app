@@ -244,6 +244,9 @@ export type BillSidePotLine = {
   status: string;
   /** How many classes the pot bundles, so the line can say what it covers. */
   class_count: number;
+  /** Buy-ins on the line: 1, or the runs bought into a pot paid on time
+   *  (migration 205). The name already says "× N runs". */
+  quantity?: number;
   line_total_cents: number;
 };
 

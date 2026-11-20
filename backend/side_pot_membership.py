@@ -29,6 +29,13 @@ already paid out are exactly the case, and they go in without it.
 off `show_entries`, so joining is one buy-in however many of the pot's classes
 somebody enters, and a second entry in another of its classes asks for nothing.
 
+**A pot paid on time obliges nobody** (`fastest_time`, migration 205). A barrel
+sidepot is bought into one run at a time on the pot's own screen ("must be
+entered into sidepot before barrels start"), and most of the riders in its
+classes never buy in at all, so none of this module's rules reach it: it covers
+no class here, cannot be opted into from an entry form, and scratching a run
+takes that run's buy-in with it by the foreign key's CASCADE.
+
 **And it is given up the same way it is taken.** Scratching the last class an
 exhibitor holds in a pot releases the buy-in (`release_scratched_pots`), because
 buying in is now a consequence of entering rather than a decision of its own —
@@ -66,12 +73,20 @@ async def load_show_pots(show_id: UUID, db: AsyncSession) -> list[SidePot]:
     return list(result.scalars().all())
 
 
+def obliges_entry(pot: SidePot) -> bool:
+    """Whether entering this pot's classes means buying in: every pot but one
+    paid on time, which is bought into run by run (migration 205)."""
+    return getattr(pot, "scoring_method", None) != "fastest_time"
+
+
 def pots_covering_class(pots: list[SidePot], class_id: UUID) -> list[SidePot]:
-    """The open pots that bundle this class, in name order for stable messages."""
+    """The open pots that bundle this class and oblige its entrants to buy in,
+    in name order for stable messages."""
     covering = [
         pot
         for pot in pots
         if pot.status in OPEN_POT_STATUSES
+        and obliges_entry(pot)
         and any(pc.class_id == class_id for pc in pot.pot_classes)
     ]
     return sorted(covering, key=lambda p: (p.name or "").lower())
@@ -101,9 +116,19 @@ def billed_pots(pots: list[SidePot], show_entry_id: UUID | None) -> list[SidePot
     whether a buy-in already taken is owed. A pot settled on the Saturday still
     charges the people who were in it — its payouts were funded by exactly that
     money.
+
+    **Once per buy-in row**, so a pot paid on time with two of their runs in it
+    comes back twice and is charged twice (migration 205); a per-exhibitor pot
+    has one row each, so it comes back once as it always has.
     """
-    joined = joined_pot_ids(pots, show_entry_id)
-    return [pot for pot in pots if pot.id in joined]
+    if show_entry_id is None:
+        return []
+    return [
+        pot
+        for pot in pots
+        for entry in pot.pot_entries
+        if entry.show_entry_id == show_entry_id
+    ]
 
 
 def pot_bill_index(pots: list[SidePot]) -> dict[UUID, list[SidePot]]:
@@ -195,6 +220,12 @@ def assert_pots_joinable(
         pot = by_id.get(pot_id)
         if pot is None:
             raise ValueError("That side pot is not open for entries at this show")
+        if not obliges_entry(pot):
+            # It would buy in a person, and a time pot's buy-in is a run that
+            # does not exist until this entry does.
+            raise ValueError(
+                f"The {pot.name} pot is bought into run by run at the show office, not with the entry"
+            )
         if not any(pc.class_id in class_ids for pc in pot.pot_classes):
             raise ValueError(
                 f"The {pot.name} pot does not cover any of the classes being entered"
@@ -304,6 +335,35 @@ async def release_scratched_pots(
     return releasing
 
 
+async def settled_run_refusal(entry_ids: list[UUID], db: AsyncSession) -> dict | None:
+    """The 409 body refusing to delete a run bought into a settled time pot.
+
+    A run's buy-in goes with the run (`side_pot_entries.entry_id` CASCADE),
+    which is right while the pot is open and wrong once it has settled: that
+    buy-in funded payouts already written, and deleting it would change the
+    money of a pot nothing may change. Same code as cancelling a registration
+    in a settled pot. None when nothing stands in the way.
+    """
+    if not entry_ids:
+        return None
+    names = (
+        await db.execute(
+            select(SidePot.name)
+            .join(SidePotEntry, SidePotEntry.side_pot_id == SidePot.id)
+            .where(SidePotEntry.entry_id.in_(entry_ids), SidePot.status == "settled")
+        )
+    ).scalars().all()
+    if not names:
+        return None
+    return {
+        "code": "SIDE_POT_SETTLED",
+        "message": (
+            f"This run was bought into {', '.join(sorted(set(names)))}, which has already "
+            "been settled, so it cannot be removed. The show secretary handles it from here."
+        ),
+    }
+
+
 def join_pots(show_entry_id: UUID, pots: list[SidePot], db: AsyncSession) -> list[SidePotEntry]:
     """Buy this show entry into each pot, skipping any it is already in.
 
@@ -318,6 +378,8 @@ def join_pots(show_entry_id: UUID, pots: list[SidePot], db: AsyncSession) -> lis
     """
     created: list[SidePotEntry] = []
     for pot in pots:
+        if not obliges_entry(pot):
+            continue
         if any(entry.show_entry_id == show_entry_id for entry in pot.pot_entries):
             continue
         row = SidePotEntry(side_pot_id=pot.id, show_entry_id=show_entry_id, paid=True)

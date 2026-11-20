@@ -3,8 +3,10 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
+import { useRegisterStepAutosave, useRegisterUnsavedChanges } from '../setup/_lib/StepAutosave';
 import {
   StatusPill,
+  dSummary,
   formatCents,
   type ClassItem,
   type EligibilityRule,
@@ -12,6 +14,8 @@ import {
   type SidePot,
 } from './pot-shared';
 import { hashNumber } from '@/lib/class-number';
+import { errorMessage } from '@/lib/api-error';
+import TimePotFields, { timePotPayload, timePotState, type TimePotState } from './TimePotFields';
 
 export default function SidePotsManager({
   showId,
@@ -92,10 +96,17 @@ export default function SidePotsManager({
                           style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                           title="Scoring method"
                         >
-                          {pot.scoring_method === 'sum_scores'
-                            ? 'Sum scores'
-                            : 'Sum placings'}
+                          {pot.scoring_method === 'fastest_time'
+                            ? dSummary(pot)
+                            : pot.scoring_method === 'sum_scores'
+                              ? 'Sum scores'
+                              : 'Sum placings'}
                         </span>
+                        {(pot.added_money_cents ?? 0) > 0 && (
+                          <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                            · {formatCents(pot.added_money_cents ?? 0)} added
+                          </span>
+                        )}
                       </div>
                       {pot.description && (
                         <p
@@ -111,7 +122,14 @@ export default function SidePotsManager({
                       >
                         {pot.classes.length} class
                         {pot.classes.length === 1 ? '' : 'es'} ·{' '}
-                        {pot.entry_count} {pot.entry_count === 1 ? 'entry' : 'entries'}{' '}
+                        {pot.entry_count}{' '}
+                        {pot.per_run
+                          ? pot.entry_count === 1
+                            ? 'run'
+                            : 'runs'
+                          : pot.entry_count === 1
+                            ? 'entry'
+                            : 'entries'}{' '}
                         ({pot.paid_count} paid)
                       </p>
                     </div>
@@ -150,6 +168,7 @@ function CreatePotForm({
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(
     new Set(),
   );
+  const [timeState, setTimeState] = useState<TimePotState>(() => timePotState());
   const [classFilter, setClassFilter] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -159,6 +178,9 @@ function CreatePotForm({
       return classes.filter(
         (c) => c.score_type === 'pattern' || c.score_type === 'time',
       );
+    }
+    if (scoringMethod === 'fastest_time') {
+      return classes.filter((c) => c.score_type === 'time');
     }
     return classes;
   }, [classes, scoringMethod]);
@@ -182,25 +204,48 @@ function CreatePotForm({
     });
   };
 
-  const handleSubmit = async () => {
+  // Leaving the setup step creates the pot as Create would (`StepAutosave`),
+  // once it has a name and a class — the least a pot can be created with. A
+  // form started but short of either asks instead: stay and finish, or leave
+  // without it, as a half-typed new fee does on Fees. Touched means a name, a
+  // description or a class: the buy-in, payback and scoring fields open
+  // filled in, so changing those alone is not a pot.
+  const touched = () => Boolean(name.trim() || description.trim() || selectedClassIds.size > 0);
+  const creatable = () => Boolean(name.trim()) && selectedClassIds.size > 0;
+  useRegisterStepAutosave(
+    async () => {
+      if (!creatable()) return;
+      if (!(await create())) throw new Error('The side pot could not be created.');
+    },
+    creatable,
+  );
+  useRegisterUnsavedChanges(() => touched() && !creatable());
+
+  /** The new pot's id; null with the reason on screen. */
+  const create = async (): Promise<string | null> => {
     setError(null);
     if (!name.trim()) {
       setError('Name is required.');
-      return;
+      return null;
     }
     if (selectedClassIds.size === 0) {
       setError('Select at least one class.');
-      return;
+      return null;
     }
     const feeCents = Math.round(parseFloat(feeDollars || '0') * 100);
     if (Number.isNaN(feeCents) || feeCents < 0) {
       setError('Buy-in must be a non-negative number.');
-      return;
+      return null;
     }
     const payback = parseInt(paybackPercent, 10);
     if (Number.isNaN(payback) || payback < 0 || payback > 100) {
       setError('Payback percent must be between 0 and 100.');
-      return;
+      return null;
+    }
+    const timeFields = timePotPayload(timeState, scoringMethod);
+    if (!timeFields.ok) {
+      setError(timeFields.error);
+      return null;
     }
 
     setSaving(true);
@@ -214,17 +259,33 @@ function CreatePotForm({
         payback_percent: payback,
         scoring_method: scoringMethod,
         eligibility_rule: eligibilityRule,
-        class_ids: Array.from(selectedClassIds),
+        ...timeFields.body,
+        class_ids: Array.from(selectedClassIds).filter((cid) =>
+          eligibleClasses.some((c) => c.id === cid),
+        ),
       }),
     });
     setSaving(false);
-    if (res.ok) {
-      const pot = await res.json();
-      router.push(`/admin/shows/${showId}/side-pots/${pot.id}`);
-      router.refresh();
-    } else {
+    if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? 'Failed to create side pot.');
+      setError(errorMessage(err, 'Failed to create side pot.'));
+      return null;
+    }
+    const pot = await res.json();
+    // Created: emptied so a save on the way out does not make a second one.
+    setName('');
+    setDescription('');
+    setSelectedClassIds(new Set());
+    return pot.id as string;
+  };
+
+  // The Create button goes on to the new pot's page; leaving the step by
+  // Back or Next goes where that was headed.
+  const handleSubmit = async () => {
+    const id = await create();
+    if (id) {
+      router.push(`/admin/shows/${showId}/side-pots/${id}`);
+      router.refresh();
     }
   };
 
@@ -309,13 +370,14 @@ function CreatePotForm({
                 setScoringMethod(e.target.value as ScoringMethod)
               }
               className="w-full border rounded px-3 py-2"
-              title="Sum placings: lowest sum of class placings wins. Sum scores: highest sum of raw judge scores wins (only for pattern/time classes)."
+              title="Sum placings: lowest sum of class placings wins. Sum scores: highest sum of raw judge scores wins (only for pattern/time classes). Fastest time: a barrel or pole sidepot, bought into run by run and paid in Ds."
             >
               <option value="sum_placings">Sum of placings (lowest wins)</option>
               <option value="sum_scores">Sum of scores (highest wins)</option>
+              <option value="fastest_time">Fastest time, paid in Ds (barrels, poles)</option>
             </select>
           </div>
-          <div className="flex-1">
+          <div className="flex-1" hidden={scoringMethod === 'fastest_time'}>
             <label className="text-sm text-gray-500 block mb-1">
               Eligibility
             </label>
@@ -336,6 +398,13 @@ function CreatePotForm({
             </select>
           </div>
         </div>
+        <TimePotFields state={timeState} onChange={setTimeState} scoringMethod={scoringMethod} />
+        {scoringMethod === 'fastest_time' && (
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
+            Bought into one run at a time on the pot&rsquo;s Entries screen, and never a condition of
+            entering its classes. Each run counts the time it made in its class.
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -357,6 +426,12 @@ function CreatePotForm({
           <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Showing only pattern and timed classes. Mark a class as Pattern or
             Timed in the class editor to make it eligible here.
+          </p>
+        )}
+        {scoringMethod === 'fastest_time' && (
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
+            Showing only timed classes — the classes whose runs the pot takes its times from.
+            Mark a class as Timed in the class editor to make it eligible here.
           </p>
         )}
         <div
@@ -421,7 +496,11 @@ function CreatePotForm({
         </div>
       </div>
 
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {error && (
+        <p className="text-red-600 text-sm" role="alert">
+          {error}
+        </p>
+      )}
 
       <div className="flex gap-2">
         <button

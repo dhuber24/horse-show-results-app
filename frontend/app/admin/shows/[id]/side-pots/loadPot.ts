@@ -1,6 +1,7 @@
 import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import type {
   PotEntry,
+  PotRun,
   Payout,
   RosterEntry,
   SidePot,
@@ -52,6 +53,12 @@ export async function loadPotRoster(
   potId: string,
 ): Promise<RosterEntry[]> {
   return (await potFetch(`/shows/${showId}/side-pots/${potId}/roster`)) ?? [];
+}
+
+/** The runs a pot paid on time can be bought into (migration 205); empty for
+ *  any other pot. */
+export async function loadPotRuns(showId: string, potId: string): Promise<PotRun[]> {
+  return (await potFetch(`/shows/${showId}/side-pots/${potId}/runs`)) ?? [];
 }
 
 export async function loadPotStandings(

@@ -8,6 +8,11 @@ schedule.
 
 Standings are computed on demand from the current `results` rows. They are
 materialized into `side_pot_payouts` only when the pot is settled.
+
+A `fastest_time` pot (migration 205) is the barrel sidepot: bought into one run
+at a time (`side_pot_entries.entry_id`), ranked on that run's time, lowest
+first, and paid in D splits by `side_pot_time`. Its standings, projected
+payouts and settled payouts are per run, keyed by the buy-in row.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backnumbers import back_numbers_for_show
-from class_numbers import class_label
+from class_numbers import class_label, hash_label
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from show_companies import refuse_frozen_show
@@ -39,7 +44,12 @@ from models import (
     SidePotPayout,
 )
 from placings import is_placed, place_key
+from side_pot_time import TimedRun, time_pot
 from schemas import (
+    SidePotDLine,
+    SidePotRun,
+    default_d_percents,
+    validate_d_percents,
     SidePotCreate,
     SidePotEntryCreate,
     SidePotEntryOut,
@@ -102,6 +112,31 @@ def _require_not_settled(pot: SidePot) -> None:
         raise HTTPException(409, "Side pot is settled and cannot be modified")
 
 
+TIME_POT = "fastest_time"
+
+
+def is_time_pot(pot: SidePot) -> bool:
+    """A pot bought into one run at a time and paid on that run's time."""
+    return pot.scoring_method == TIME_POT
+
+
+def _d_percents(pot: SidePot) -> list[int]:
+    """The pot's D shares, or the default for its D count when none are stored
+    or they no longer fit it."""
+    stored = pot.d_percents
+    if isinstance(stored, list) and len(stored) == pot.d_count and sum(stored) == 100:
+        return list(stored)
+    return default_d_percents(pot.d_count)
+
+
+def run_label(entry: Entry) -> str:
+    """'#100 Int. Barrels · Smokin Doc', the run a time pot's buy-in names."""
+    cls = entry.class_
+    horse = entry.horse.name if entry.horse else None
+    label = hash_label(cls) if cls else "A class"
+    return f"{label} · {horse}" if horse else label
+
+
 async def _validate_class_ids_for_show(
     show_id: UUID,
     class_ids: list[UUID],
@@ -127,6 +162,14 @@ async def _validate_class_ids_for_show(
                 f"scoring_method 'sum_scores' requires every class to be score_type "
                 f"'pattern' or 'time'; {class_label(non_score[0])} is "
                 f"'{non_score[0].score_type}'",
+            )
+    if scoring_method == TIME_POT:
+        untimed = [c for c in classes if c.score_type != "time"]
+        if untimed:
+            raise HTTPException(
+                400,
+                f"A pot paid on time takes its times from timed classes; "
+                f"{class_label(untimed[0])} is not timed. Mark it Timed in the class editor.",
             )
     return classes
 
@@ -156,6 +199,11 @@ def _serialize_pot(pot: SidePot) -> dict:
         "status": pot.status,
         "settled_at": pot.settled_at,
         "created_at": pot.created_at,
+        "added_money_cents": pot.added_money_cents or 0,
+        "d_count": pot.d_count or 1,
+        "d_split_ms": pot.d_split_ms or 500,
+        "d_percents": _d_percents(pot),
+        "per_run": is_time_pot(pot),
         "classes": classes,
         "entry_count": len(pot.pot_entries),
         "paid_count": sum(1 for e in pot.pot_entries if e.paid),
@@ -183,6 +231,10 @@ async def create_pot(
         scoring_method=body.scoring_method,
         eligibility_rule=body.eligibility_rule,
         payout_schedule=body.payout_schedule,
+        added_money_cents=body.added_money_cents,
+        d_count=body.d_count,
+        d_split_ms=body.d_split_ms,
+        d_percents=body.d_percents,
     )
     db.add(pot)
     await db.flush()
@@ -229,12 +281,38 @@ async def update_pot(
     new_class_ids: Optional[list[UUID]] = updates.pop("class_ids", None)
     new_method = updates.get("scoring_method", pot.scoring_method)
 
+    # A time pot's buy-ins are runs and every other pot's are exhibitors, so a
+    # pot with buy-ins cannot change between the two: its rows would mean the
+    # wrong thing.
+    if (new_method == TIME_POT) != is_time_pot(pot) and pot.pot_entries:
+        raise HTTPException(
+            409,
+            "This pot already has entries. A pot paid on time is bought into run by run, "
+            "so take everybody out before changing how it is scored.",
+        )
+
     if new_class_ids is not None:
         await _validate_class_ids_for_show(show_id, new_class_ids, new_method, db)
-    elif "scoring_method" in updates and new_method == "sum_scores":
+    elif "scoring_method" in updates and new_method in ("sum_scores", TIME_POT):
         # method changed without changing classes; re-validate existing class set
         existing_ids = [pc.class_id for pc in pot.pot_classes]
         await _validate_class_ids_for_show(show_id, existing_ids, new_method, db)
+
+    # The D shares must fit the D count the update leaves the pot with; a new
+    # count with no shares takes that count's default rather than failing.
+    if "d_count" in updates or "d_percents" in updates:
+        new_count = updates.get("d_count") or pot.d_count
+        shares = updates.get("d_percents")
+        if shares is None:
+            shares = (
+                pot.d_percents
+                if "d_count" not in updates or new_count == pot.d_count
+                else default_d_percents(new_count)
+            ) or default_d_percents(new_count)
+        try:
+            updates["d_percents"] = validate_d_percents(list(shares), new_count)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     for k, v in updates.items():
         setattr(pot, k, v)
@@ -321,6 +399,24 @@ async def _hydrate_entry(
     show_entry = rows.scalar_one_or_none()
     numbers = await back_numbers_for_show(show_id, db)
     exhibitor_id = show_entry.exhibitor_id if show_entry else None
+    run = await _load_run(pot_entry.entry_id, db) if pot_entry.entry_id else None
+    if run is not None:
+        # A run's buy-in is that horse's number, at a show that numbers horses.
+        number = numbers.for_entry(run)
+        return {
+            "id": pot_entry.id,
+            "side_pot_id": pot_entry.side_pot_id,
+            "show_entry_id": pot_entry.show_entry_id,
+            "back_number": number,
+            "back_numbers": [number] if number is not None else [],
+            "exhibitor_name": (
+                show_entry.exhibitor.full_name if show_entry and show_entry.exhibitor else None
+            ),
+            "paid": pot_entry.paid,
+            "created_at": pot_entry.created_at,
+            "entry_id": run.id,
+            "run_label": run_label(run),
+        }
     return {
         "id": pot_entry.id,
         "side_pot_id": pot_entry.side_pot_id,
@@ -337,6 +433,16 @@ async def _hydrate_entry(
         "paid": pot_entry.paid,
         "created_at": pot_entry.created_at,
     }
+
+
+async def _load_run(entry_id: UUID, db: AsyncSession) -> Optional[Entry]:
+    """A class entry with what `run_label` and the back number read."""
+    rows = await db.execute(
+        select(Entry)
+        .where(Entry.id == entry_id)
+        .options(selectinload(Entry.class_), selectinload(Entry.horse))
+    )
+    return rows.scalar_one_or_none()
 
 
 @router.get("/{pot_id}/entries", response_model=list[SidePotEntryOut])
@@ -393,6 +499,89 @@ async def list_show_roster(
     return roster
 
 
+@router.get("/{pot_id}/runs", response_model=list[SidePotRun])
+async def list_runs(show_id: UUID, pot_id: UUID, db: AsyncSession = Depends(get_db)):
+    """The runs a time pot can be bought into: every entry in its classes.
+
+    A time pot's buy-in is a run, not a person -- a rider on two horses can buy
+    both in, and the futurity pot must pay on the futurity horse's time -- so
+    its Entries screen picks from these rather than from the show roster.
+    `joined` marks the runs already in. Empty for any other pot.
+    """
+    pot = await _get_pot_or_404(show_id, pot_id, db)
+    if not is_time_pot(pot):
+        return []
+    class_ids = [pc.class_id for pc in pot.pot_classes]
+    if not class_ids:
+        return []
+    rows = await db.execute(
+        select(Entry)
+        .where(Entry.class_id.in_(class_ids))
+        .options(
+            selectinload(Entry.class_),
+            selectinload(Entry.horse),
+            selectinload(Entry.exhibitor),
+        )
+    )
+    entries = list(rows.scalars().all())
+    se_rows = await db.execute(select(ShowEntry).where(ShowEntry.show_id == show_id))
+    show_entry_by_exhibitor = {se.exhibitor_id: se.id for se in se_rows.scalars().all()}
+    numbers = await back_numbers_for_show(show_id, db)
+    joined = {pe.entry_id for pe in pot.pot_entries if pe.entry_id}
+    runs = [
+        {
+            "entry_id": e.id,
+            "show_entry_id": show_entry_by_exhibitor.get(e.exhibitor_id),
+            "back_number": numbers.for_entry(e),
+            "exhibitor_name": e.exhibitor.full_name if e.exhibitor else None,
+            "horse_name": e.horse.name if e.horse else None,
+            "class_id": e.class_id,
+            "class_number": e.class_.class_number,
+            "class_name": e.class_.class_name,
+            "run_label": run_label(e),
+            "joined": e.id in joined,
+        }
+        for e in entries
+    ]
+    runs.sort(
+        key=lambda r: (
+            r["back_number"] is None,
+            r["back_number"] or 0,
+            (r["exhibitor_name"] or "").lower(),
+            r["run_label"],
+        )
+    )
+    return runs
+
+
+async def _add_run(pot: SidePot, show_id: UUID, body: SidePotEntryCreate, db: AsyncSession) -> SidePotEntry:
+    """Buy one run into a time pot. The run names its exhibitor, so nothing
+    else on the request is read."""
+    if body.entry_id is None:
+        raise HTTPException(
+            422, "This pot is paid on time, so it is bought into one run at a time: pick the run."
+        )
+    run = await _load_run(body.entry_id, db)
+    if run is None or run.class_ is None or run.class_.show_id != show_id:
+        raise HTTPException(400, "That entry is not at this show")
+    if run.class_id not in {pc.class_id for pc in pot.pot_classes}:
+        raise HTTPException(
+            400, f"{class_label(run.class_)} is not one of this pot's classes, so its time cannot count here."
+        )
+    if any(pe.entry_id == run.id for pe in pot.pot_entries):
+        raise HTTPException(409, "This run is already in the pot")
+    show_entry = (
+        await db.execute(
+            select(ShowEntry).where(
+                ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == run.exhibitor_id
+            )
+        )
+    ).scalar_one_or_none()
+    if show_entry is None:
+        raise HTTPException(409, "This rider is not signed up to the show, so there is no bill to put the buy-in on")
+    return SidePotEntry(side_pot_id=pot.id, show_entry_id=show_entry.id, entry_id=run.id, paid=body.paid)
+
+
 @router.post("/{pot_id}/entries", response_model=SidePotEntryOut, status_code=201)
 async def add_entry(
     show_id: UUID,
@@ -402,6 +591,17 @@ async def add_entry(
 ):
     pot = await _get_pot_or_404(show_id, pot_id, db)
     _require_not_settled(pot)
+
+    if is_time_pot(pot):
+        pe = await _add_run(pot, show_id, body, db)
+        db.add(pe)
+        await db.commit()
+        await db.refresh(pe)
+        return await _hydrate_entry(pe, db, show_id)
+    if body.entry_id is not None:
+        raise HTTPException(
+            422, "This pot is joined once per exhibitor, not run by run: pick the exhibitor."
+        )
 
     if body.show_entry_id is not None:
         show_entry = await db.get(ShowEntry, body.show_entry_id)
@@ -414,6 +614,7 @@ async def add_entry(
         select(SidePotEntry).where(
             SidePotEntry.side_pot_id == pot_id,
             SidePotEntry.show_entry_id == show_entry.id,
+            SidePotEntry.entry_id.is_(None),
         )
     )
     if existing.scalar_one_or_none():
@@ -733,16 +934,149 @@ def _project_payouts(
     return payouts
 
 
+def pot_pools(pot: SidePot, paid_count: int) -> tuple[int, int]:
+    """(buy-ins taken, payout pool). The pool is the buy-ins' payback plus any
+    money the show added (migration 205) -- the same figures as
+    `billing.side_pot_money`."""
+    total_pool_cents = pot.entry_fee_cents * paid_count
+    payout_pool_cents = (total_pool_cents * pot.payback_percent) // 100 + (pot.added_money_cents or 0)
+    return total_pool_cents, payout_pool_cents
+
+
+async def _compute_time_pot(pot: SidePot, db: AsyncSession):
+    """A time pot's standings, one per run bought in, and what each is paid.
+
+    A run's time is the fastest placed time it has in the pot's classes --
+    normally its one age-division run; a run with no placed time (no time,
+    knocked out, disqualified) is in the pot but unranked. Only paid buy-ins
+    count toward the pool and the payout band, as in every pot; an unpaid
+    run is ranked and flagged but paid nothing.
+    """
+    rows_by_id = {pe.id: pe for pe in pot.pot_entries if pe.entry_id}
+    run_ids = [pe.entry_id for pe in rows_by_id.values()]
+    class_ids = {pc.class_id for pc in pot.pot_classes}
+
+    runs: dict[UUID, Entry] = {}
+    times: dict[UUID, Optional[float]] = {}
+    if run_ids:
+        entry_rows = await db.execute(
+            select(Entry)
+            .where(Entry.id.in_(run_ids))
+            .options(selectinload(Entry.class_), selectinload(Entry.horse))
+        )
+        runs = {e.id: e for e in entry_rows.scalars().all()}
+        result_rows = await db.execute(
+            select(Result).where(Result.entry_id.in_(run_ids), Result.class_id.in_(class_ids))
+        )
+        for r in result_rows.scalars().all():
+            if not is_placed(r) or r.raw_score is None:
+                continue
+            current = times.get(r.entry_id)
+            if current is None or r.raw_score < current:
+                times[r.entry_id] = r.raw_score
+
+    paid_rows = [pe for pe in rows_by_id.values() if pe.paid]
+    total_pool_cents, payout_pool_cents = pot_pools(pot, len(paid_rows))
+    splits = _resolve_payout_splits(pot.payout_schedule, len(paid_rows))
+    d_percents = _d_percents(pot)
+    result = time_pot(
+        [TimedRun(key=pe.id, time=times.get(pe.entry_id)) for pe in paid_rows],
+        payout_pool_cents,
+        pot.d_count,
+        pot.d_split_ms,
+        d_percents,
+        splits,
+    )
+    # Unpaid runs are ranked for the office to see but take no money, so they
+    # are placed into the Ds the paid field set, and never move its lines.
+    ranked = {st.key: st for st in result.standings}
+    fastest = min((st.time_ms for st in result.standings), default=None)
+
+    se_ids = {pe.show_entry_id for pe in rows_by_id.values()}
+    se_rows = await db.execute(
+        select(ShowEntry).where(ShowEntry.id.in_(se_ids)).options(selectinload(ShowEntry.exhibitor))
+    ) if se_ids else None
+    se_by_id = {se.id: se for se in se_rows.scalars().all()} if se_rows is not None else {}
+    numbers = await back_numbers_for_show(pot.show_id, db)
+
+    standings: list[SidePotStanding] = []
+    for pe in rows_by_id.values():
+        run = runs.get(pe.entry_id)
+        se = se_by_id.get(pe.show_entry_id)
+        time = times.get(pe.entry_id)
+        st = ranked.get(pe.id)
+        d_number = st.d_number if st else None
+        behind = st.behind_ms if st else None
+        if st is None and time is not None and fastest is not None:
+            behind = max(int(round(float(time) * 1000)) - fastest, 0)
+            d_number = min(behind // pot.d_split_ms, pot.d_count - 1) + 1
+        number = numbers.for_entry(run) if run else None
+        standings.append(
+            SidePotStanding(
+                show_entry_id=pe.show_entry_id,
+                back_number=number,
+                back_numbers=[number] if number is not None else [],
+                exhibitor_name=se.exhibitor.full_name if se and se.exhibitor else None,
+                aggregate_value=float(time) if time is not None else 0.0,
+                place=st.place if st else None,
+                is_eligible=time is not None,
+                missing_class_ids=[] if time is not None or run is None else [run.class_id],
+                paid=pe.paid,
+                side_pot_entry_id=pe.id,
+                entry_id=pe.entry_id,
+                run_label=run_label(run) if run else None,
+                d_number=d_number,
+                behind_ms=behind,
+            )
+        )
+    standings.sort(
+        key=lambda s: (
+            s.d_number is None,
+            s.d_number or 0,
+            s.place is None,
+            s.place or 9999,
+            s.aggregate_value,
+            s.back_number or 0,
+        )
+    )
+    d_lines = [
+        SidePotDLine(
+            d_number=line.d_number,
+            percent=line.percent,
+            from_time=None if line.from_ms is None else line.from_ms / 1000,
+            runners=line.runners,
+            paid_places=line.paid_places,
+            amount_cents=line.amount_cents,
+        )
+        for line in result.d_lines
+    ]
+    return standings, result, total_pool_cents, payout_pool_cents, d_lines
+
+
 @router.get("/{pot_id}/standings", response_model=SidePotStandingsOut)
 async def get_standings(
     show_id: UUID, pot_id: UUID, db: AsyncSession = Depends(get_db)
 ):
     pot = await _get_pot_or_404(show_id, pot_id, db)
+    if is_time_pot(pot):
+        standings, result, total_pool_cents, payout_pool_cents, d_lines = await _compute_time_pot(pot, db)
+        return SidePotStandingsOut(
+            side_pot_id=pot.id,
+            status=pot.status,
+            scoring_method=pot.scoring_method,
+            eligibility_rule=pot.eligibility_rule,
+            total_pool_cents=total_pool_cents,
+            payout_pool_cents=payout_pool_cents,
+            standings=standings,
+            projected_payouts={str(k): v for k, v in result.payouts.items()},
+            added_money_cents=pot.added_money_cents or 0,
+            d_lines=d_lines,
+            unawarded_cents=result.unawarded_cents,
+        )
     standings = await _compute_standings(pot, db)
 
     paid_count = sum(1 for s in standings if s.paid)
-    total_pool_cents = pot.entry_fee_cents * paid_count
-    payout_pool_cents = (total_pool_cents * pot.payback_percent) // 100
+    total_pool_cents, payout_pool_cents = pot_pools(pot, paid_count)
     splits = _resolve_payout_splits(pot.payout_schedule, paid_count)
     projected = _project_payouts(standings, payout_pool_cents, splits)
 
@@ -755,6 +1089,7 @@ async def get_standings(
         payout_pool_cents=payout_pool_cents,
         standings=standings,
         projected_payouts=projected,
+        added_money_cents=pot.added_money_cents or 0,
     )
 
 
@@ -769,10 +1104,43 @@ async def settle_pot(
     if pot.status == "settled":
         raise HTTPException(409, "Side pot is already settled")
 
+    written: list[SidePotPayout] = []
+    if is_time_pot(pot):
+        standings, result, *_ = await _compute_time_pot(pot, db)
+        for s in standings:
+            if not s.paid or s.place is None:
+                continue
+            same = [
+                o for o in standings
+                if o.paid and o.d_number == s.d_number and o.place == s.place
+            ]
+            payout = SidePotPayout(
+                side_pot_id=pot.id,
+                show_entry_id=s.show_entry_id,
+                place=s.place,
+                payout_cents=result.payouts.get(s.side_pot_entry_id, 0),
+                aggregate_value=s.aggregate_value,
+                tiebreaker_notes=(
+                    f"Tied with {len(same) - 1} other run{'s' if len(same) > 2 else ''} "
+                    f"at place {s.place} in the {s.d_number}D; share split evenly."
+                    if len(same) > 1
+                    else None
+                ),
+                entry_id=s.entry_id,
+                d_number=s.d_number,
+            )
+            db.add(payout)
+            written.append(payout)
+        pot.status = "settled"
+        pot.settled_at = datetime.now(timezone.utc)
+        await db.commit()
+        for p in written:
+            await db.refresh(p)
+        return await _payouts_out(show_id, written, db)
+
     standings = await _compute_standings(pot, db)
     paid_count = sum(1 for s in standings if s.paid)
-    total_pool_cents = pot.entry_fee_cents * paid_count
-    payout_pool_cents = (total_pool_cents * pot.payback_percent) // 100
+    total_pool_cents, payout_pool_cents = pot_pools(pot, paid_count)
     splits = _resolve_payout_splits(pot.payout_schedule, paid_count)
     place_amounts = _split_payouts(payout_pool_cents, splits)
 
@@ -780,7 +1148,6 @@ async def settle_pot(
     eligible = [s for s in standings if s.is_eligible and s.place is not None]
     eligible.sort(key=lambda s: s.place)
 
-    written: list[SidePotPayout] = []
     i = 0
     while i < len(eligible):
         place = eligible[i].place
@@ -820,40 +1187,60 @@ async def settle_pot(
     await db.commit()
     for p in written:
         await db.refresh(p)
+    return await _payouts_out(show_id, written, db)
 
-    # Hydrate output with back numbers + names
+
+async def _payouts_out(show_id: UUID, payouts: list[SidePotPayout], db: AsyncSession) -> list[dict]:
+    """Payout rows with their back numbers and names -- and, for a time pot's,
+    the run they paid, whose own number is the one printed."""
+    if not payouts:
+        return []
     se_rows = await db.execute(
         select(ShowEntry)
-        .where(ShowEntry.id.in_([p.show_entry_id for p in written]))
+        .where(ShowEntry.id.in_([p.show_entry_id for p in payouts]))
         .options(selectinload(ShowEntry.exhibitor))
     )
     se_by_id = {se.id: se for se in se_rows.scalars().all()}
+    run_ids = [p.entry_id for p in payouts if p.entry_id]
+    runs: dict[UUID, Entry] = {}
+    if run_ids:
+        run_rows = await db.execute(
+            select(Entry)
+            .where(Entry.id.in_(run_ids))
+            .options(selectinload(Entry.class_), selectinload(Entry.horse))
+        )
+        runs = {e.id: e for e in run_rows.scalars().all()}
     numbers = await back_numbers_for_show(show_id, db)
-    return [
-        {
-            "id": p.id,
-            "side_pot_id": p.side_pot_id,
-            "show_entry_id": p.show_entry_id,
-            "back_number": numbers.first_for_exhibitor(
-                se_by_id[p.show_entry_id].exhibitor_id if p.show_entry_id in se_by_id else None
-            ),
-            "back_numbers": numbers.for_exhibitor(
-                se_by_id[p.show_entry_id].exhibitor_id if p.show_entry_id in se_by_id else None
-            ),
-            "exhibitor_name": (
-                se_by_id[p.show_entry_id].exhibitor.full_name
-                if p.show_entry_id in se_by_id
-                and se_by_id[p.show_entry_id].exhibitor
-                else None
-            ),
-            "place": p.place,
-            "payout_cents": p.payout_cents,
-            "aggregate_value": float(p.aggregate_value),
-            "tiebreaker_notes": p.tiebreaker_notes,
-            "created_at": p.created_at,
-        }
-        for p in written
-    ]
+    out = []
+    for p in payouts:
+        se = se_by_id.get(p.show_entry_id)
+        exhibitor_id = se.exhibitor_id if se else None
+        run = runs.get(p.entry_id) if p.entry_id else None
+        if run is not None:
+            number = numbers.for_entry(run)
+            back_number, back_numbers = number, ([number] if number is not None else [])
+        else:
+            back_number = numbers.first_for_exhibitor(exhibitor_id)
+            back_numbers = numbers.for_exhibitor(exhibitor_id)
+        out.append(
+            {
+                "id": p.id,
+                "side_pot_id": p.side_pot_id,
+                "show_entry_id": p.show_entry_id,
+                "back_number": back_number,
+                "back_numbers": back_numbers,
+                "exhibitor_name": se.exhibitor.full_name if se and se.exhibitor else None,
+                "place": p.place,
+                "payout_cents": p.payout_cents,
+                "aggregate_value": float(p.aggregate_value),
+                "tiebreaker_notes": p.tiebreaker_notes,
+                "created_at": p.created_at,
+                "entry_id": p.entry_id,
+                "d_number": p.d_number,
+                "run_label": run_label(run) if run else None,
+            }
+        )
+    return out
 
 
 @router.get("/{pot_id}/payouts", response_model=list[SidePotPayoutOut])
@@ -864,40 +1251,6 @@ async def list_payouts(
     rows = await db.execute(
         select(SidePotPayout)
         .where(SidePotPayout.side_pot_id == pot.id)
-        .order_by(SidePotPayout.place)
+        .order_by(SidePotPayout.d_number.nulls_first(), SidePotPayout.place)
     )
-    payouts = list(rows.scalars().all())
-    if not payouts:
-        return []
-    se_rows = await db.execute(
-        select(ShowEntry)
-        .where(ShowEntry.id.in_([p.show_entry_id for p in payouts]))
-        .options(selectinload(ShowEntry.exhibitor))
-    )
-    se_by_id = {se.id: se for se in se_rows.scalars().all()}
-    numbers = await back_numbers_for_show(show_id, db)
-    return [
-        {
-            "id": p.id,
-            "side_pot_id": p.side_pot_id,
-            "show_entry_id": p.show_entry_id,
-            "back_number": numbers.first_for_exhibitor(
-                se_by_id[p.show_entry_id].exhibitor_id if p.show_entry_id in se_by_id else None
-            ),
-            "back_numbers": numbers.for_exhibitor(
-                se_by_id[p.show_entry_id].exhibitor_id if p.show_entry_id in se_by_id else None
-            ),
-            "exhibitor_name": (
-                se_by_id[p.show_entry_id].exhibitor.full_name
-                if p.show_entry_id in se_by_id
-                and se_by_id[p.show_entry_id].exhibitor
-                else None
-            ),
-            "place": p.place,
-            "payout_cents": p.payout_cents,
-            "aggregate_value": float(p.aggregate_value),
-            "tiebreaker_notes": p.tiebreaker_notes,
-            "created_at": p.created_at,
-        }
-        for p in payouts
-    ]
+    return await _payouts_out(show_id, list(rows.scalars().all()), db)

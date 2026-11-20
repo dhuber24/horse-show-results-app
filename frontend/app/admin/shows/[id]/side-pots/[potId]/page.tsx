@@ -7,6 +7,7 @@ import {
   ELIGIBILITY_LABEL,
   SCORING_LABEL,
   StatusPill,
+  dSummary,
   formatCents,
   potCrumbs,
   potMoney,
@@ -140,7 +141,11 @@ export default async function SidePotDetailPage({
           href={`${base}/entries`}
           icon="🎟️"
           title="Side Pot Entries"
-          description="Add exhibitors to the pot, and see who is already in."
+          description={
+            pot.per_run
+              ? 'Buy runs into the pot, and see which are already in.'
+              : 'Add exhibitors to the pot, and see who is already in.'
+          }
           badge={
             pot.entry_count > 0
               ? { label: String(pot.entry_count), bg: 'var(--bg-subtle)', fg: 'var(--accent)' }
@@ -167,7 +172,15 @@ export default async function SidePotDetailPage({
           <Tile
             label="In the pot"
             value={String(pot.entry_count)}
-            detail={pot.entry_count === 1 ? 'exhibitor' : 'exhibitors'}
+            detail={
+              pot.per_run
+                ? pot.entry_count === 1
+                  ? 'run'
+                  : 'runs'
+                : pot.entry_count === 1
+                  ? 'exhibitor'
+                  : 'exhibitors'
+            }
           />
           <Tile
             label="Buy-ins"
@@ -177,9 +190,9 @@ export default async function SidePotDetailPage({
           <Tile
             label="Payout pool"
             value={formatCents(money.payoutPoolCents)}
-            detail={`${pot.payback_percent}% payback · show keeps ${formatCents(
-              money.retainedCents,
-            )}`}
+            detail={`${pot.payback_percent}% payback${
+              money.addedCents > 0 ? ` + ${formatCents(money.addedCents)} added` : ''
+            } · show keeps ${formatCents(money.retainedCents)}`}
           />
         </div>
         <p className="text-xs" style={{ color: 'var(--muted)' }}>
@@ -194,10 +207,20 @@ export default async function SidePotDetailPage({
           How it scores
         </h2>
         <dl className="text-sm rounded-lg border divide-y" style={{ borderColor: 'var(--border)' }}>
-          {[
-            ['Scoring', SCORING_LABEL[pot.scoring_method]],
-            ['Eligibility', ELIGIBILITY_LABEL[pot.eligibility_rule]],
-          ].map(([label, value]) => (
+          {(pot.scoring_method === 'fastest_time'
+            ? [
+                ['Scoring', SCORING_LABEL[pot.scoring_method]],
+                ['Ds', dSummary(pot)],
+                ...((pot.d_count ?? 1) > 1
+                  ? [['D shares', (pot.d_percents ?? []).map((p, i) => `${i + 1}D ${p}%`).join(' · ')]]
+                  : []),
+                ['Buy-in', 'One run at a time — never a condition of entering the classes'],
+              ]
+            : [
+                ['Scoring', SCORING_LABEL[pot.scoring_method]],
+                ['Eligibility', ELIGIBILITY_LABEL[pot.eligibility_rule]],
+              ]
+          ).map(([label, value]) => (
             <div key={label} className="flex flex-wrap gap-x-3 gap-y-1 px-4 py-2">
               <dt className="w-28 shrink-0" style={{ color: 'var(--muted)' }}>
                 {label}

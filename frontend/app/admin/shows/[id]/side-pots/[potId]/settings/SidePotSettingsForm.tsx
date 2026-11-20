@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ClassItem, SidePot, ScoringMethod, EligibilityRule } from '../../pot-shared';
 import { hashNumber } from '@/lib/class-number';
+import { errorMessage } from '@/lib/api-error';
+import TimePotFields, { timePotPayload, timePotState, type TimePotState } from '../../TimePotFields';
 
 /**
  * The pot's settings form. No heading of its own — the page title is the
@@ -34,6 +36,10 @@ export default function SidePotSettingsForm({
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(
     new Set(pot.classes.map((c) => c.class_id)),
   );
+  const [timeState, setTimeState] = useState<TimePotState>(() => timePotState(pot));
+  // A time pot's buy-ins are runs and every other pot's are people, so a pot
+  // with buy-ins keeps its kind (the backend refuses the change with a 409).
+  const kindLocked = pot.entry_count > 0;
   const [classFilter, setClassFilter] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -45,8 +51,12 @@ export default function SidePotSettingsForm({
     if (scoringMethod === 'sum_scores') {
       return classes.filter((c) => c.score_type === 'pattern' || c.score_type === 'time');
     }
+    if (scoringMethod === 'fastest_time') {
+      return classes.filter((c) => c.score_type === 'time');
+    }
     return classes;
   }, [classes, scoringMethod]);
+  const savedTime = timePotState(pot);
 
   const filtered = useMemo(() => {
     const q = classFilter.toLowerCase().trim();
@@ -65,6 +75,10 @@ export default function SidePotSettingsForm({
     parseInt(paybackPercent, 10) !== pot.payback_percent ||
     scoringMethod !== pot.scoring_method ||
     eligibilityRule !== pot.eligibility_rule ||
+    timeState.addedDollars !== savedTime.addedDollars ||
+    timeState.dCount !== savedTime.dCount ||
+    timeState.dSplitSeconds !== savedTime.dSplitSeconds ||
+    timeState.dPercents !== savedTime.dPercents ||
     selectedClassIds.size !== pot.classes.length ||
     pot.classes.some((c) => !selectedClassIds.has(c.class_id));
 
@@ -89,6 +103,11 @@ export default function SidePotSettingsForm({
       setError('Payback percent must be between 0 and 100.');
       return;
     }
+    const timeFields = timePotPayload(timeState, scoringMethod);
+    if (!timeFields.ok) {
+      setError(timeFields.error);
+      return;
+    }
     setSaving(true);
     const res = await fetch(`/api/shows/${showId}/side-pots/${pot.id}`, {
       method: 'PATCH',
@@ -100,18 +119,21 @@ export default function SidePotSettingsForm({
         payback_percent: payback,
         scoring_method: scoringMethod,
         eligibility_rule: eligibilityRule,
+        ...timeFields.body,
         class_ids: Array.from(selectedClassIds),
       }),
     });
     setSaving(false);
     if (res.ok) {
       // The response is the new baseline, so the Save button goes quiet again.
-      setPot(await res.json());
+      const next: SidePot = await res.json();
+      setPot(next);
+      setTimeState(timePotState(next));
       setSaved(true);
       router.refresh();
     } else {
       const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? 'Failed to save.');
+      setError(errorMessage(err, 'Failed to save.'));
     }
   };
 
@@ -195,13 +217,29 @@ export default function SidePotSettingsForm({
               value={scoringMethod}
               onChange={(e) => setScoringMethod(e.target.value as ScoringMethod)}
               className="w-full border rounded px-3 py-2 disabled:bg-gray-50"
-              title="Sum placings: lowest sum of class placings wins. Sum scores: highest sum of raw judge scores wins (only for pattern/time classes)."
+              title="Sum placings: lowest sum of class placings wins. Sum scores: highest sum of raw judge scores wins (only for pattern/time classes). Fastest time: a barrel or pole sidepot, bought into run by run and paid in Ds."
             >
-              <option value="sum_placings">Sum of placings (lowest wins)</option>
-              <option value="sum_scores">Sum of scores (highest wins)</option>
+              {(['sum_placings', 'sum_scores', 'fastest_time'] as const).map((method) => (
+                <option
+                  key={method}
+                  value={method}
+                  // Runs and people are different buy-ins: with entries in, a
+                  // pot can move between placings and scores but not to or
+                  // from time.
+                  disabled={
+                    kindLocked && (method === 'fastest_time') !== (pot.scoring_method === 'fastest_time')
+                  }
+                >
+                  {method === 'sum_placings'
+                    ? 'Sum of placings (lowest wins)'
+                    : method === 'sum_scores'
+                      ? 'Sum of scores (highest wins)'
+                      : 'Fastest time, paid in Ds (barrels, poles)'}
+                </option>
+              ))}
             </select>
           </div>
-          <div className="flex-1">
+          <div className="flex-1" hidden={scoringMethod === 'fastest_time'}>
             <label className="text-sm text-gray-500 block mb-1">Eligibility</label>
             <select
               value={eligibilityRule}
@@ -214,6 +252,8 @@ export default function SidePotSettingsForm({
             </select>
           </div>
         </div>
+
+        <TimePotFields state={timeState} onChange={setTimeState} scoringMethod={scoringMethod} />
 
         <div className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-baseline justify-between gap-2">
@@ -230,6 +270,11 @@ export default function SidePotSettingsForm({
           {scoringMethod === 'sum_scores' && (
             <p className="text-xs" style={{ color: 'var(--muted)' }}>
               Showing only pattern and timed classes.
+            </p>
+          )}
+          {scoringMethod === 'fastest_time' && (
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
+              Showing only timed classes — the runs the pot takes its times from.
             </p>
           )}
           <div

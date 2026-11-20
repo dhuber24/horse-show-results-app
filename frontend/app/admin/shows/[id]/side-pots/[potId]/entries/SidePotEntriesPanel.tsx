@@ -6,9 +6,11 @@ import {
   formatCents,
   potMoney,
   type PotEntry,
+  type PotRun,
   type RosterEntry,
   type SidePot,
 } from '../../pot-shared';
+import { errorMessage } from '@/lib/api-error';
 import { backNumbersLabel } from '@/lib/back-numbers';
 
 /**
@@ -23,18 +25,25 @@ import { backNumbersLabel } from '@/lib/back-numbers';
  * There is no "paid" tick. Pot money is settled with the rest of the
  * exhibitor's bill at the end of the show, so being in the pot is what owing
  * the buy-in means — see `SidePotEntryCreate.paid` in the backend schemas.
+ *
+ * A pot paid on time (migration 205) is bought into one run at a time, so its
+ * picker lists the runs in its classes — back number, rider, class and horse —
+ * rather than the roster: a rider on two horses can buy in either or both.
  */
 export default function SidePotEntriesPanel({
   showId,
   pot,
   initialEntries,
   roster,
+  runs = [],
 }: {
   showId: string;
   pot: SidePot;
   initialEntries: PotEntry[];
   roster: RosterEntry[];
+  runs?: PotRun[];
 }) {
+  const perRun = pot.per_run ?? false;
   const router = useRouter();
   const [entries, setEntries] = useState<PotEntry[]>(initialEntries);
   const [selected, setSelected] = useState('');
@@ -49,6 +58,22 @@ export default function SidePotEntriesPanel({
     const taken = new Set(entries.map((e) => e.show_entry_id));
     return roster.filter((r) => !taken.has(r.show_entry_id));
   }, [roster, entries]);
+  const availableRuns = useMemo(() => {
+    const taken = new Set(entries.map((e) => e.entry_id).filter(Boolean));
+    return runs.filter((r) => !taken.has(r.entry_id));
+  }, [runs, entries]);
+  const rosterLabel = (r: RosterEntry) =>
+    `${backNumbersLabel(r, '#') ?? 'No back number'} — ${
+      r.exhibitor_name ?? 'Unknown'
+    }`;
+  const options = perRun
+    ? availableRuns.map((r) => ({
+        value: r.entry_id,
+        label: `${r.back_number != null ? `#${r.back_number}` : 'No back number'} — ${
+          r.exhibitor_name ?? 'Unknown'
+        } · ${r.run_label}`,
+      }))
+    : available.map((r) => ({ value: r.show_entry_id, label: rosterLabel(r) }));
 
   // Keeps the hub's tiles and the Standings screen honest after a change here.
   const commit = (next: PotEntry[]) => {
@@ -59,14 +84,14 @@ export default function SidePotEntriesPanel({
   const handleAdd = async () => {
     setError(null);
     if (!selected) {
-      setError('Pick an exhibitor to add.');
+      setError(perRun ? 'Pick a run to add.' : 'Pick an exhibitor to add.');
       return;
     }
     setAdding(true);
     const res = await fetch(`/api/shows/${showId}/side-pots/${pot.id}/entries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ show_entry_id: selected }),
+      body: JSON.stringify(perRun ? { entry_id: selected } : { show_entry_id: selected }),
     });
     setAdding(false);
     if (res.ok) {
@@ -75,7 +100,7 @@ export default function SidePotEntriesPanel({
       setSelected('');
     } else {
       const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? 'Failed to add this exhibitor to the pot.');
+      setError(errorMessage(err, perRun ? 'Failed to add this run to the pot.' : 'Failed to add this exhibitor to the pot.'));
     }
   };
 
@@ -97,16 +122,12 @@ export default function SidePotEntriesPanel({
   const paidCount = entries.filter((e) => e.paid).length;
   const legacyUnpaid = entries.length - paidCount;
   const money = potMoney(pot, paidCount);
-  const rosterLabel = (r: RosterEntry) =>
-    `${backNumbersLabel(r, '#') ?? 'No back number'} — ${
-      r.exhibitor_name ?? 'Unknown'
-    }`;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
-          {entries.length} in the pot
+          {entries.length} {perRun ? (entries.length === 1 ? 'run' : 'runs') : ''} in the pot
         </p>
         <span className="text-sm" style={{ color: 'var(--text-deep)' }}>
           Buy-ins: {formatCents(money.buyInsCents)} · Payout pool:{' '}
@@ -132,23 +153,29 @@ export default function SidePotEntriesPanel({
               className="text-xs block mb-1"
               style={{ color: 'var(--muted)' }}
             >
-              Exhibitor
+              {perRun ? 'Run' : 'Exhibitor'}
             </label>
             <select
               id="pot-exhibitor"
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
-              disabled={available.length === 0}
+              disabled={options.length === 0}
               className="w-full border rounded px-3 py-2 text-sm disabled:bg-gray-50"
             >
               <option value="">
-                {available.length === 0
-                  ? 'Everyone on the roster is already in'
-                  : 'Select an exhibitor…'}
+                {options.length === 0
+                  ? perRun
+                    ? runs.length === 0
+                      ? 'Nobody is entered in this pot\u2019s classes yet'
+                      : 'Every run is already in'
+                    : 'Everyone on the roster is already in'
+                  : perRun
+                    ? 'Select a run…'
+                    : 'Select an exhibitor…'}
               </option>
-              {available.map((r) => (
-                <option key={r.show_entry_id} value={r.show_entry_id}>
-                  {rosterLabel(r)}
+              {options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </select>
@@ -156,14 +183,14 @@ export default function SidePotEntriesPanel({
           <button
             onClick={handleAdd}
             disabled={adding || !selected}
-            title={!selected ? 'Pick an exhibitor first' : undefined}
+            title={!selected ? (perRun ? 'Pick a run first' : 'Pick an exhibitor first') : undefined}
             className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
             style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
           >
             {adding ? 'Adding…' : 'Add to pot'}
           </button>
           {error && <p className="text-red-600 text-sm w-full">{error}</p>}
-          {roster.length === 0 && (
+          {!perRun && roster.length === 0 && (
             <p className="text-xs w-full" style={{ color: 'var(--muted)' }}>
               Nobody is on this show&rsquo;s roster yet — exhibitors appear here once they
               have signed up or been entered by the office.
@@ -200,6 +227,11 @@ export default function SidePotEntriesPanel({
                 </span>
                 <span style={{ color: 'var(--foreground)' }}>
                   {entry.exhibitor_name ?? 'Unknown'}
+                  {entry.run_label && (
+                    <span className="ml-2 text-xs" style={{ color: 'var(--muted)' }}>
+                      {entry.run_label}
+                    </span>
+                  )}
                 </span>
                 {!disabled && (
                   <button

@@ -117,6 +117,42 @@ DISCIPLINE_KEYWORDS: list[tuple[str, str, ScoreType]] = [
     ("STAKE RACING",                 "Stake Race",          "time"),
     ("GOAT TYING",                   "Goat Tying",          "time"),
 
+    # ── Saddle-club games (WSCA and the like) ──
+    # Saddle-club bills print the game's short name -- "Sr. Barrels", "Jr.
+    # Poles", "PW Key Race" -- never "Barrel Racing", so the rows above miss
+    # every one. Each is a "Timed event" in the WSCA rulebook's Game Classes,
+    # Four in Line included (stop watch, 5-second penalty per tipped marker).
+    # Egg & Spoon is not: the rulebook calls it a "Game event", run by
+    # elimination, so it is left to fall through to placings.
+    # A team game comes before "BARRELS": "4 In A Line Barrels" is Four in Line.
+    ("4-IN-A-LINE",                  "Four in Line",        "time"),
+    ("4 IN A LINE",                  "Four in Line",        "time"),
+    ("FOUR IN A LINE",               "Four in Line",        "time"),
+    ("FOUR-IN-A-LINE",               "Four in Line",        "time"),
+    ("FOUR IN LINE",                 "Four in Line",        "time"),
+    ("RESCUE RACE",                  "Rescue Race",         "time"),
+    ("RIBBON RACE",                  "Ribbon Race",         "time"),
+    ("RELAY RACE",                   "Relay Race",          "time"),
+    # Before "JUMPING" further down, which is the judged hunter/jumper class.
+    ("JUMPING FIGURE 8",             "Jumping Figure 8",    "time"),
+    ("JUMPING FIGURE EIGHT",         "Jumping Figure 8",    "time"),
+    ("JUMPING F8",                   "Jumping Figure 8",    "time"),
+    ("JUMPING F-8",                  "Jumping Figure 8",    "time"),
+    ("FIGURE 8 RACE",                "Figure Eight Race",   "time"),
+    ("FIGURE EIGHT RACE",            "Figure Eight Race",   "time"),
+    ("PENNANT",                      "Pennant Race",        "time"),
+    ("FLAG RACE",                    "Flag Race",           "time"),
+    ("FLAGS",                        "Flag Race",           "time"),
+    ("KEYHOLE",                      "Keyhole Race",        "time"),
+    ("KEY HOLE",                     "Keyhole Race",        "time"),
+    ("KEY RACE",                     "Key Race",            "time"),
+    ("POLE WEAVING",                 "Pole Weaving",        "time"),
+    ("SPEED AND ACTION",             "Speed and Action",    "time"),
+    ("SPEED & ACTION",               "Speed and Action",    "time"),
+    ("CLOVERLEAF",                   "Barrel Racing",       "time"),
+    ("BARRELS",                      "Barrel Racing",       "time"),
+    ("POLES",                        "Pole Bending",        "time"),
+
     # ── Ropings (timed) ──
     ("BREAKAWAY ROPING",             "Breakaway Roping",    "time"),
     ("TIE-DOWN ROPING",              "Tie-Down Roping",     "time"),

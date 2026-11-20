@@ -4481,6 +4481,10 @@ class ExhibitorCreateWithUser(BaseModel):
 # show. Exhibitors enter at the back-number (show_entry) level and pay a flat
 # buy-in. The pot ranks its entries by combined score across the bundled classes
 # and pays out per a producer-configurable schedule.
+#
+# A `fastest_time` pot (migration 205) is bought into one run at a time: each
+# buy-in names a class entry, the run's time is its standing, lower wins, and
+# the field is split into Ds behind the fastest time.
 
 DEFAULT_SIDE_POT_PAYOUT_SCHEDULE: dict[str, list[int]] = {
     "1-3":  [100],
@@ -4489,7 +4493,37 @@ DEFAULT_SIDE_POT_PAYOUT_SCHEDULE: dict[str, list[int]] = {
     "16+":  [40, 25, 15, 12, 8],
 }
 
-SidePotScoringMethod = Literal["sum_placings", "sum_scores"]
+# Each D's share of a `fastest_time` pot, fastest D first, when the office has
+# not said. Bills rarely print it, so the show bill import says it set these.
+DEFAULT_D_PERCENTS: dict[int, list[int]] = {
+    1: [100],
+    2: [60, 40],
+    3: [50, 30, 20],
+    4: [40, 30, 20, 10],
+    5: [30, 25, 20, 15, 10],
+}
+
+
+def default_d_percents(d_count: int) -> list[int]:
+    """The shares above, or an even split (remainder to the fastest D) past 5 Ds."""
+    if d_count in DEFAULT_D_PERCENTS:
+        return list(DEFAULT_D_PERCENTS[d_count])
+    even = [100 // d_count] * d_count
+    even[0] += 100 - sum(even)
+    return even
+
+
+def validate_d_percents(d_percents: list[int], d_count: int) -> list[int]:
+    if len(d_percents) != d_count:
+        raise ValueError(f"Give one share per D: {d_count} D{'s' if d_count != 1 else ''}, {len(d_percents)} shares.")
+    if any(p < 0 for p in d_percents):
+        raise ValueError("A D's share cannot be negative.")
+    if sum(d_percents) != 100:
+        raise ValueError(f"The Ds' shares must add up to 100%, not {sum(d_percents)}%.")
+    return d_percents
+
+
+SidePotScoringMethod = Literal["sum_placings", "sum_scores", "fastest_time"]
 SidePotEligibilityRule = Literal["all_classes", "any_class"]
 SidePotStatus = Literal["open", "closed", "settled"]
 
@@ -4517,12 +4551,24 @@ class SidePotCreate(BaseModel):
     payout_schedule: dict[str, list[int]] = Field(
         default_factory=lambda: dict(DEFAULT_SIDE_POT_PAYOUT_SCHEDULE)
     )
+    added_money_cents: int = Field(default=0, ge=0)
+    d_count: int = Field(default=1, ge=1, le=10)
+    d_split_ms: int = Field(default=500, gt=0, le=60000)
+    # Null takes `default_d_percents(d_count)`.
+    d_percents: Optional[list[int]] = None
     class_ids: list[UUID] = Field(min_length=1)
 
     @field_validator("payout_schedule")
     @classmethod
     def _check_schedule(cls, v: dict[str, list[int]]) -> dict[str, list[int]]:
         return _validate_payout_schedule(v)
+
+    @model_validator(mode="after")
+    def _check_ds(self):
+        if self.d_percents is None:
+            self.d_percents = default_d_percents(self.d_count)
+        validate_d_percents(self.d_percents, self.d_count)
+        return self
 
 
 class SidePotUpdate(BaseModel):
@@ -4535,6 +4581,12 @@ class SidePotUpdate(BaseModel):
     payout_schedule: Optional[dict[str, list[int]]] = None
     status: Optional[SidePotStatus] = None
     class_ids: Optional[list[UUID]] = None
+    added_money_cents: Optional[int] = Field(default=None, ge=0)
+    d_count: Optional[int] = Field(default=None, ge=1, le=10)
+    d_split_ms: Optional[int] = Field(default=None, gt=0, le=60000)
+    # Checked against the pot's D count in the router, which knows the count
+    # this update leaves the pot with.
+    d_percents: Optional[list[int]] = None
 
     @field_validator("payout_schedule")
     @classmethod
@@ -4569,6 +4621,13 @@ class SidePotOut(BaseModel):
     status: SidePotStatus
     settled_at: Optional[datetime]
     created_at: datetime
+    added_money_cents: int = 0
+    d_count: int = 1
+    d_split_ms: int = 500
+    d_percents: list[int] = Field(default_factory=lambda: [100])
+    # True for a `fastest_time` pot: bought into one run at a time, and never
+    # a condition of entering its classes (`side_pot_membership`).
+    per_run: bool = False
     classes: list[SidePotClassSummary] = []
     entry_count: int = 0
     paid_count: int = 0
@@ -4580,6 +4639,9 @@ class SidePotOut(BaseModel):
 class SidePotEntryCreate(BaseModel):
     show_entry_id: Optional[UUID] = None
     back_number: Optional[int] = None
+    # The run being bought in, for a `fastest_time` pot -- which takes nothing
+    # else, since the run names its exhibitor (migration 205).
+    entry_id: Optional[UUID] = None
     # Being in the pot *is* owing the buy-in — pot money is settled with the
     # rest of the exhibitor's bill at the end of the show, not collected per
     # entry at the desk. So `paid` defaults to true and the UI no longer asks:
@@ -4589,8 +4651,8 @@ class SidePotEntryCreate(BaseModel):
 
     @model_validator(mode="after")
     def _require_id_or_back_number(self):
-        if self.show_entry_id is None and self.back_number is None:
-            raise ValueError("Provide show_entry_id or back_number")
+        if self.show_entry_id is None and self.back_number is None and self.entry_id is None:
+            raise ValueError("Provide show_entry_id, back_number or entry_id")
         return self
 
 
@@ -4609,9 +4671,28 @@ class SidePotEntryOut(BaseModel):
     exhibitor_name: Optional[str] = None
     paid: bool
     created_at: datetime
+    # The run, for a `fastest_time` pot's buy-in (migration 205).
+    entry_id: Optional[UUID] = None
+    run_label: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class SidePotRun(BaseModel):
+    """One run a `fastest_time` pot can be bought into: an entry in one of its
+    classes. The pot's Entries screen picks from these (migration 205)."""
+
+    entry_id: UUID
+    show_entry_id: Optional[UUID] = None
+    back_number: Optional[int] = None
+    exhibitor_name: Optional[str] = None
+    horse_name: Optional[str] = None
+    class_id: UUID
+    class_number: str
+    class_name: str
+    run_label: str
+    joined: bool = False
 
 
 class SidePotRosterEntry(BaseModel):
@@ -4643,6 +4724,26 @@ class SidePotStanding(BaseModel):
     is_eligible: bool
     missing_class_ids: list[UUID] = []
     paid: bool = False
+    # A `fastest_time` pot's standing is a run (migration 205): the buy-in row,
+    # the run, the D its time falls in, and how far behind the fastest it was.
+    # `place` is then the place inside that D, and `aggregate_value` the time.
+    side_pot_entry_id: Optional[UUID] = None
+    entry_id: Optional[UUID] = None
+    run_label: Optional[str] = None
+    d_number: Optional[int] = None
+    behind_ms: Optional[int] = None
+
+
+class SidePotDLine(BaseModel):
+    """One D of a `fastest_time` pot: where it starts, who is in it, and what
+    it pays once unclaimed D money has been spread (migration 205)."""
+
+    d_number: int
+    percent: int
+    from_time: Optional[float] = None
+    runners: int = 0
+    paid_places: int = 0
+    amount_cents: int = 0
 
 
 class SidePotStandingsOut(BaseModel):
@@ -4653,7 +4754,14 @@ class SidePotStandingsOut(BaseModel):
     total_pool_cents: int
     payout_pool_cents: int
     standings: list[SidePotStanding] = []
+    # Keyed by show_entry_id (and back number) for a per-exhibitor pot, and by
+    # side_pot_entry_id for a `fastest_time` one, whose rows are runs.
     projected_payouts: dict[str, int] = {}
+    added_money_cents: int = 0
+    d_lines: list[SidePotDLine] = []
+    # Pool money no place can take: every D empty, or a schedule whose shares
+    # add up to less than 100%. The office decides what happens to it.
+    unawarded_cents: int = 0
 
 
 class SidePotPayoutOut(BaseModel):
@@ -4670,6 +4778,9 @@ class SidePotPayoutOut(BaseModel):
     aggregate_value: float
     tiebreaker_notes: Optional[str]
     created_at: datetime
+    entry_id: Optional[UUID] = None
+    d_number: Optional[int] = None
+    run_label: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -5261,6 +5372,9 @@ class BillSidePotLineOut(BaseModel):
     #: How many of the show's classes this pot bundles, so the line can say what
     #: the buy-in covers rather than quoting a bare amount.
     class_count: int = 0
+    #: Buy-ins on the line: 1, or the runs bought into a pot paid on time
+    #: (migration 205), each charged the buy-in.
+    quantity: int = 1
     line_total_cents: int
 
 
@@ -5423,6 +5537,8 @@ class FinancialSidePotOut(BaseModel):
     entry_count: int = 0
     paid_count: int = 0
     buy_ins_cents: int = 0
+    # Money the show adds to the pool (migration 205); already in the pool.
+    added_money_cents: int = 0
     payout_pool_cents: int = 0
     paid_out_cents: int = 0
     retained_cents: int = 0
@@ -5544,6 +5660,9 @@ class ShowDeskSidePotOut(BaseModel):
     # the press — the same shape and the same reason as a futurity's
     # `class_ids` beside it.
     class_ids: list[UUID] = Field(default_factory=list)
+    # Paid on time and bought into run by run on its own screen (migration
+    # 205), so it obliges no entry and the entry form leaves it alone.
+    per_run: bool = False
 
 
 class ShowDeskTeamOverlapOut(BaseModel):
@@ -5585,6 +5704,9 @@ class ShowDeskEntryOut(BaseModel):
     # Riders on this team who ride on another team in the same class too. Only
     # possible in a timed or pattern class, which runs one team at a time.
     team_overlaps: list[ShowDeskTeamOverlapOut] = Field(default_factory=list)
+    # The pots paid on time this run is bought into (migration 205). Removing
+    # the entry takes these buy-ins with it.
+    run_side_pot_ids: list[UUID] = Field(default_factory=list)
 
 
 class ShowDeskClubOptionOut(BaseModel):

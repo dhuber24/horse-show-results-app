@@ -32,6 +32,7 @@ from side_pot_membership import (
     join_pots,
     load_show_pots,
     release_scratched_pots,
+    settled_run_refusal,
     requirement_detail,
     unmet_pots,
 )
@@ -457,6 +458,10 @@ async def delete_entry(
         raise HTTPException(404, "Entry not found")
     exhibitor_id = entry.exhibitor_id
     horse_id = entry.horse_id
+    # A run in a settled time pot funded its payouts (migration 205).
+    refusal = await settled_run_refusal([entry.id], db)
+    if refusal:
+        raise HTTPException(409, refusal)
     await db.delete(entry)
     # Flushed before the pots are read: the release decides on what entries are
     # left, and an unflushed delete still counts the scratched class as one.
