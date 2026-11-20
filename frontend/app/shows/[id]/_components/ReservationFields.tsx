@@ -11,6 +11,7 @@ import {
   isEarlyMoveInPass,
 } from '@/lib/stalls-open';
 import { arrivalNote, departureNote, passLineText } from '@/lib/move-in';
+import { isPermit, permitNoun } from '@/lib/permits';
 import {
   isHorseStallKind,
   isStallType,
@@ -163,7 +164,23 @@ const UNIT_GROUPS: { key: string; heading: string; blurb: string; units: string[
     blurb: 'Space on the grounds.',
     units: ['per_night', 'per_day', 'per_show'],
   },
+  {
+    // A parking or other permit (`lib/permits.ts`) is priced per show or per
+    // day like a camping spot, and found by its code rather than its unit, so
+    // it is taken out of Camping and listed under its own heading.
+    key: 'permits',
+    heading: 'Parking & permits',
+    blurb: 'Permits for vehicles and other things on the grounds.',
+    units: ['per_show', 'per_day'],
+  },
 ];
+
+/** Which group a line is listed under: a permit under *Parking & permits*,
+ *  everything else by its unit. */
+function inGroup(groupKey: string, fee: { code: string; unit: string }, units: string[]): boolean {
+  if (groupKey === 'permits') return isPermit(fee) && units.includes(fee.unit);
+  return !isPermit(fee) && units.includes(fee.unit);
+}
 
 const UNIT_NOUN: Record<string, string> = {
   per_stall: 'stall',
@@ -172,6 +189,13 @@ const UNIT_NOUN: Record<string, string> = {
   per_day: 'day',
   per_show: 'spot',
 };
+
+/** What one of a line counts: a permit is a permit (or a day of one), not a
+ *  camping spot. */
+function nounOf(fee: { code: string; unit: string }): string {
+  if (isPermit(fee)) return permitNoun(fee.unit);
+  return UNIT_NOUN[fee.unit] ?? 'item';
+}
 
 /** What the number in the box counts, said next to the box. A per_night, a
  *  per_day and a per_show line look identical until you read the rate, and
@@ -345,7 +369,7 @@ export function reservationSummary(data: SignupData): { total_cents: number; par
       parts.push(`${r.quantity} early move-in pass${r.quantity === 1 ? '' : 'es'}`);
       continue;
     }
-    const noun = UNIT_NOUN[fee.unit] ?? 'item';
+    const noun = nounOf(fee);
     parts.push(`${r.quantity} ${noun}${r.quantity === 1 ? '' : 's'}`);
   }
   return { total_cents: total, parts };
@@ -410,7 +434,7 @@ export default function ReservationFields({
     () =>
       UNIT_GROUPS.map((group) => ({
         ...group,
-        fees: fee_options.filter((f) => group.units.includes(f.unit)),
+        fees: fee_options.filter((f) => inGroup(group.key, f, group.units)),
       })).filter((group) => group.fees.length > 0),
     [fee_options],
   );
@@ -590,7 +614,7 @@ export default function ReservationFields({
     // sentence next to the box it is about.
     const short = fee_options.find((f) => (quantities[f.id] ?? 0) < (floors[f.id] ?? 0));
     if (short) {
-      const noun = UNIT_NOUN[short.unit] ?? 'item';
+      const noun = nounOf(short);
       const floor = floors[short.id] ?? 0;
       setError(
         `This show requires at least ${floor} ${noun}${floor === 1 ? '' : 's'} of ` +
@@ -638,7 +662,7 @@ export default function ReservationFields({
    *  is what to call it where a heading already says the rest. */
   const renderFee = (fee: FeeOption, name?: string) => {
     const qty = quantities[fee.id] ?? 0;
-    const noun = UNIT_NOUN[fee.unit] ?? 'item';
+    const noun = nounOf(fee);
     const floor = floors[fee.id] ?? 0;
     const atFloor = floor > 0 && qty <= floor;
     return (

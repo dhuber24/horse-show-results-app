@@ -17,6 +17,56 @@ import {
   oneParagraph,
 } from './fields';
 import { StallsCard, useStallsEditor } from './StallsCard';
+import { OptionListCard, useOptionListEditor, type OptionListConfig } from './OptionListCard';
+import { campingCode, isCampingOption } from '@/lib/camping';
+import { isPermit, permitCode } from '@/lib/permits';
+
+// Camping and the electrical hook-up were two slots — one per_night, one
+// per_show — then one line with three ways to price it (migrations 108, 111).
+// A show can sell more than one: WSCA's Champ Show sells electrical for the
+// full show, Wednesday to Friday, and Friday to Monday, each at its own price.
+// So it is a list, each option named by the office (`lib/camping.ts`).
+const CAMPING: OptionListConfig = {
+  id: 'camping',
+  heading: 'Camping / electrical hook-up',
+  blurb:
+    'Each option exhibitors can book, at its own price — one for the whole show, or one for each part of it ' +
+    '(Full show, Wed–Fri, Fri–Mon). Per night or per day is charged for each one booked: a Friday-to-Sunday ' +
+    'show is three days and two nights.',
+  belongs: isCampingOption,
+  units: [
+    { value: 'per_show', choice: 'One price per spot', noun: 'spot' },
+    { value: 'per_night', choice: 'Per night', noun: 'night' },
+    { value: 'per_day', choice: 'Per day', noun: 'day' },
+  ],
+  codeFor: campingCode,
+  early: true,
+  noun: 'camping option',
+  namePlaceholder: 'e.g. Full show electrical (Wed–Mon)',
+  pricePlaceholder: 'e.g. 100.00',
+  notesPlaceholder: 'e.g. Electric included; spots are requested, not guaranteed',
+};
+
+// Parking and other permits (`lib/permits.ts`).
+const PERMITS: OptionListConfig = {
+  id: 'permits',
+  heading: 'Parking & permits',
+  blurb:
+    'A parking permit and any other permit the show sells, such as a side-by-side or an additional vehicle. ' +
+    'Exhibitors book how many they need when they register.',
+  belongs: isPermit,
+  units: [
+    { value: 'per_show', choice: 'Per permit', noun: 'permit' },
+    { value: 'per_day', choice: 'Per day', noun: 'day' },
+  ],
+  codeFor: permitCode,
+  early: true,
+  noun: 'permit',
+  namePlaceholder: 'e.g. Side-by-side permit',
+  pricePlaceholder: 'e.g. 20.00',
+  notesPlaceholder: 'e.g. Must be displayed on the dash. One per vehicle.',
+  starter: { label: 'Parking permit', button: '+ Add a parking permit', matches: /park/i },
+};
 
 export type FeeRow = {
   id: string;
@@ -105,7 +155,9 @@ type Slot = {
 };
 
 // Stalls are not a slot: every line priced per stall is the Stalls card's
-// (`StallsCard.tsx`, migration 194), found by unit rather than by code.
+// (`StallsCard.tsx`, migration 194), found by unit rather than by code. Nor are
+// camping and permits: a show sells several of each, each its own line
+// (`OptionListCard`, below).
 const SLOTS: readonly Slot[] = [
   {
     code: 'shavings',
@@ -115,40 +167,6 @@ const SLOTS: readonly Slot[] = [
     units: [{ value: 'per_bag', choice: 'Per bag', noun: 'bag', placeholder: 'e.g. 10.00' }],
     requirable: true,
     notesPlaceholder: '',
-  },
-  {
-    // Camping and the electrical hook-up were two slots — one per_night, one
-    // per_show — and that asked the manager which product the venue sells when
-    // the only real question is how they charge for the one spot. A manager
-    // who filled in both put two camping charges on the same bill with nothing
-    // to say so. One line, three ways to price it (migrations 108, 111): by
-    // the night, by the day, or one price for the whole show.
-    code: 'camping',
-    aliases: ['hookup'],
-    title: 'Camping / electrical hook-up',
-    createLabel: 'Camping / electrical hook-up',
-    units: [
-      {
-        value: 'per_night',
-        choice: 'Per night',
-        noun: 'night',
-        placeholder: 'e.g. 30.00',
-      },
-      {
-        value: 'per_day',
-        choice: 'Per day',
-        noun: 'day',
-        placeholder: 'e.g. 30.00',
-      },
-      {
-        value: 'per_show',
-        choice: 'One price for the whole show',
-        noun: 'spot',
-        placeholder: 'e.g. 60.00',
-      },
-    ],
-    requirable: false,
-    notesPlaceholder: 'e.g. Electric included; spots are requested, not guaranteed',
   },
 ];
 
@@ -272,6 +290,11 @@ export default function LodgingClient({
     stallsOpenTimeOnFile: initialStallsOpenTime,
   });
 
+  // The *Camping* and *Parking & permits* cards (`OptionListCard`): each a
+  // list of options the office names. Their saves run inside this one too.
+  const camping = useOptionListEditor(CAMPING, { showId, fees: initialFees, takenCodes: allFeeCodes });
+  const permits = useOptionListEditor(PERMITS, { showId, fees: initialFees, takenCodes: allFeeCodes });
+
   function setSlot(code: string, patch: Partial<SlotState>) {
     setSlots((prev) => ({ ...prev, [code]: { ...prev[code], ...patch } }));
   }
@@ -296,7 +319,9 @@ export default function LodgingClient({
     );
   }) ||
     banOutsideShavings !== initialShavingsBanOutside ||
-    stalls.dirty;
+    stalls.dirty ||
+    camping.dirty ||
+    permits.dirty;
 
   /** Returns whether everything was written. The step's autosave stops the
    *  navigation on a false — the row that failed has said why on screen, and
@@ -336,7 +361,7 @@ export default function LodgingClient({
         return false;
       }
 
-      // 3) Upsert / delete the shavings and camping slots.
+      // 3) Upsert / delete the shavings slot.
       for (const s of SLOTS) {
         const slot = slots[s.code];
         const cents = dollarsToCents(slot.dollars);
@@ -412,6 +437,11 @@ export default function LodgingClient({
             return false;
           }
         }
+      }
+
+      // 4) Camping options, and parking and other permits (`OptionListCard`).
+      for (const list of [camping, permits]) {
+        if (list.dirty && !(await list.save((message) => setError(message)))) return false;
       }
 
       setSuccessMsg('Lodging & boarding saved.');
@@ -738,6 +768,9 @@ export default function LodgingClient({
           </section>
         );
       })}
+
+      <OptionListCard editor={camping} />
+      <OptionListCard editor={permits} />
 
       <div className="flex justify-end">
         <button

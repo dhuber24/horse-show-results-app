@@ -4,6 +4,8 @@ import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
 import { registrationAnswered } from '@/lib/registration-window';
 import { EARLY_MOVE_IN_CODES } from '@/lib/stalls-open';
+import { isPermit } from '@/lib/permits';
+import { isCampingOption } from '@/lib/camping';
 import type { SkipKey, WizardStepsInput } from '../../../_wizard/steps';
 
 /** The rows the Lodging step manages, found by `code` — also what that step
@@ -18,11 +20,13 @@ export const LODGING_CODES: ReadonlySet<string> = new Set([
   ...EARLY_MOVE_IN_CODES,
 ]);
 
-/** Whether the Lodging step manages this fee: one of its coded rows, or any
+/** Whether the Lodging step manages this fee: one of its coded rows, any
  *  line priced per stall, which is the Stalls card's whatever its code
- *  (migration 194) — a tack stall imported off a show bill included. */
+ *  (migration 194) — a tack stall imported off a show bill included — a
+ *  camping option (`lib/camping.ts`) or a parking or other permit
+ *  (`lib/permits.ts`). */
 export function isLodgingStepFee(fee: { code: string; unit: string }): boolean {
-  return LODGING_CODES.has(fee.code) || fee.unit === 'per_stall';
+  return LODGING_CODES.has(fee.code) || fee.unit === 'per_stall' || isPermit(fee) || isCampingOption(fee);
 }
 
 type FeeRow = {
