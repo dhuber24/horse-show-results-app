@@ -37,22 +37,14 @@ ALTER TABLE side_pots DROP CONSTRAINT IF EXISTS ck_side_pots_scoring_method;
 ALTER TABLE side_pots ADD CONSTRAINT ck_side_pots_scoring_method
     CHECK (scoring_method IN ('sum_placings', 'sum_scores', 'fastest_time'));
 
-ALTER TABLE side_pots ADD COLUMN IF NOT EXISTS added_money_cents INTEGER;
-ALTER TABLE side_pots ADD COLUMN IF NOT EXISTS d_count INTEGER;
-ALTER TABLE side_pots ADD COLUMN IF NOT EXISTS d_split_ms INTEGER;
+-- NOT NULL with a DEFAULT in the ADD itself: every existing pot takes the
+-- default as the column is added, and the running release, which never writes
+-- these, inserts the default too. (`create_all` builds missing tables, never
+-- missing columns, so these cannot exist ahead of this migration.)
+ALTER TABLE side_pots ADD COLUMN IF NOT EXISTS added_money_cents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE side_pots ADD COLUMN IF NOT EXISTS d_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE side_pots ADD COLUMN IF NOT EXISTS d_split_ms INTEGER NOT NULL DEFAULT 500;
 ALTER TABLE side_pots ADD COLUMN IF NOT EXISTS d_percents JSONB;
-
--- Stated on their own: startup `create_all` may add the columns from the
--- model first, and defaults inside ADD COLUMN would be skipped with it.
-ALTER TABLE side_pots ALTER COLUMN added_money_cents SET DEFAULT 0;
-ALTER TABLE side_pots ALTER COLUMN d_count SET DEFAULT 1;
-ALTER TABLE side_pots ALTER COLUMN d_split_ms SET DEFAULT 500;
-UPDATE side_pots SET added_money_cents = 0 WHERE added_money_cents IS NULL;
-UPDATE side_pots SET d_count = 1 WHERE d_count IS NULL;
-UPDATE side_pots SET d_split_ms = 500 WHERE d_split_ms IS NULL;
-ALTER TABLE side_pots ALTER COLUMN added_money_cents SET NOT NULL;
-ALTER TABLE side_pots ALTER COLUMN d_count SET NOT NULL;
-ALTER TABLE side_pots ALTER COLUMN d_split_ms SET NOT NULL;
 
 ALTER TABLE side_pots DROP CONSTRAINT IF EXISTS ck_side_pots_added_money_nonneg;
 ALTER TABLE side_pots ADD CONSTRAINT ck_side_pots_added_money_nonneg
@@ -106,5 +98,8 @@ COMMENT ON COLUMN side_pot_payouts.entry_id IS
     'The run this payout paid, for a fastest_time pot (migration 205).';
 COMMENT ON COLUMN side_pot_payouts.d_number IS
     'The D this payout was won in, 1 = fastest, for a fastest_time pot; place is the place inside it (migration 205).';
+
+INSERT INTO _migrations (name) VALUES ('205_time_side_pots.sql')
+ON CONFLICT DO NOTHING;
 
 COMMIT;
