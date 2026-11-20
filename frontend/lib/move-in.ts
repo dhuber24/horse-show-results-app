@@ -28,6 +28,8 @@ export type MoveInLine = {
   stall_period_id?: string | null;
   move_in_date?: string | null;
   move_in_time?: string | null;
+  move_in_end_date?: string | null;
+  move_in_end_time?: string | null;
 };
 
 export type MoveInNote = { text: string; warn: boolean };

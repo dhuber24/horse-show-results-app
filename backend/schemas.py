@@ -1080,6 +1080,9 @@ class ShowFeeCreate(BaseModel):
     # Early Move-In Pass. Venue wall-clock; a time needs a day.
     move_in_date: Optional[date] = None
     move_in_time: Optional[time] = None
+    # When that window closes (migration 203); an end needs a start.
+    move_in_end_date: Optional[date] = None
+    move_in_end_time: Optional[time] = None
     # Booked at most once and priced per exhibitor (migration 196); an add-on
     # such as the pass only.
     one_per_exhibitor: bool = False
@@ -1107,9 +1110,12 @@ class ShowFeeUpdate(BaseModel):
     stall_kind: Optional[StallKind] = None
     stall_period_id: Optional[UUID] = None
     horses_per_tack_stall: Optional[int] = Field(default=None, ge=1, le=20)
-    # Migration 195. Omitted leaves them alone; clearing the day clears the hour.
+    # Migrations 195 and 203. Omitted leaves them alone; clearing a day clears
+    # its hour, and clearing the start clears the end.
     move_in_date: Optional[date] = None
     move_in_time: Optional[time] = None
+    move_in_end_date: Optional[date] = None
+    move_in_end_time: Optional[time] = None
     one_per_exhibitor: Optional[bool] = None
 
 
@@ -1143,9 +1149,12 @@ class ShowFeeOut(BaseModel):
     )
     stall_period_id: Optional[UUID] = None
     horses_per_tack_stall: Optional[int] = None
-    # When holders may move in (migration 195): the Early Move-In Pass's own day.
+    # When holders may move in (migration 195): the Early Move-In Pass's own
+    # day, and when that window closes (migration 203).
     move_in_date: Optional[date] = None
     move_in_time: Optional[time] = None
+    move_in_end_date: Optional[date] = None
+    move_in_end_time: Optional[time] = None
     # Priced and booked once per exhibitor rather than per stall (migration 196).
     one_per_exhibitor: bool = False
 

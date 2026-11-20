@@ -30,7 +30,12 @@ export type MoveInFee = {
   stall_period_id?: string | null;
   move_in_date?: string | null;
   move_in_time?: string | null;
+  /** When that window closes (migration 203). */
+  move_in_end_date?: string | null;
+  move_in_end_time?: string | null;
   one_per_exhibitor?: boolean;
+  /** The pass's own wording: limited, one trailer per pass. */
+  notes?: string | null;
 };
 
 type Props = {
@@ -44,12 +49,14 @@ function money(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
-/** "$35.00 per stall, added at sign-up — move in from Tuesday, September 21 at 4:00 PM." */
+/** "$35.00 per stall, added at sign-up — move in from Tuesday, September 21 at
+ *  2:00 PM until 4:00 PM. Limited, one trailer per pass." */
 export function passSummary(pass: MoveInFee): string {
   const from = passMoveIn(pass);
+  const notes = pass.notes?.trim();
   return `${money(pass.amount_cents)} ${passBasisLabel(pass)}, added at sign-up${
     from ? ` — move in from ${from}` : ''
-  }.`;
+  }.${notes ? ` ${notes}` : ''}`;
 }
 
 /** Whether there is anything to say at all, so a page can leave the row out. */

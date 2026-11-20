@@ -12,6 +12,7 @@ import {
   EARLY_MOVE_IN_PREFIX,
   formatStallsOpen,
   isEarlyMoveInPass,
+  passMoveIn,
   passMovesInFirst,
 } from '@/lib/stalls-open';
 import {
@@ -96,6 +97,9 @@ export type StallFeeRow = {
   /** A pass's own move-in day and hour (migration 195). */
   move_in_date?: string | null;
   move_in_time?: string | null;
+  /** When that window closes (migration 203). */
+  move_in_end_date?: string | null;
+  move_in_end_time?: string | null;
   /** A pass priced and booked once per exhibitor (migration 196). */
   one_per_exhibitor?: boolean;
 };
@@ -178,6 +182,12 @@ type PassDraft = {
   perExhibitor: boolean;
   /** Follows its move-in's suggestion until the office types a day or hour. */
   auto: boolean;
+  /** When pass holders' move-in ends (migration 203): optional, blank until
+   *  the office types it. Only sent with a start. */
+  endDate: string;
+  endTime: string;
+  /** The pass's own wording, `show_fees.notes`: limited, one trailer each. */
+  notes: string;
   typedDate: string;
   typedTime: string;
   reservedCount: number;
@@ -296,6 +306,9 @@ function passFromFee(fee: StallFeeRow): PassDraft {
     auto: !fee.move_in_date,
     typedDate: fee.move_in_date ?? '',
     typedTime: hhmm(fee.move_in_time),
+    endDate: fee.move_in_end_date ?? '',
+    endTime: hhmm(fee.move_in_end_time),
+    notes: fee.notes ?? '',
     reservedCount: fee.reserved_count ?? 0,
   };
 }
@@ -312,6 +325,9 @@ function emptyPass(): PassDraft {
     auto: true,
     typedDate: '',
     typedTime: '',
+    endDate: '',
+    endTime: '',
+    notes: '',
     reservedCount: 0,
   };
 }
@@ -533,6 +549,25 @@ export function useStallsEditor({
     return !passMovesInFirst(mine.date, mine.time, ref.date, ref.time);
   }
 
+  /** When a pass's move-in ends, as it is sent: nothing without a start, and
+   *  an hour only on a day. */
+  function passEndOf(key: string): { date: string; time: string } {
+    const pass = passOf(key);
+    if (!passMoveInOf(key).date || !pass.endDate) return { date: '', time: '' };
+    return { date: pass.endDate, time: pass.endTime };
+  }
+
+  /** Whether a pass's move-in would end before it starts. */
+  function passEndsTooSoon(key: string): boolean {
+    const pass = passOf(key);
+    if (!pass.offered) return false;
+    const start = passMoveInOf(key);
+    const end = passEndOf(key);
+    if (!end.date) return false;
+    if (end.date !== start.date) return end.date < start.date;
+    return Boolean(start.time && end.time && end.time <= start.time);
+  }
+
   function setPass(key: string, patch: Partial<PassDraft>) {
     setPasses((prev) => ({ ...prev, [key]: { ...(prev[key] ?? emptyPass()), ...patch } }));
   }
@@ -558,11 +593,15 @@ export function useStallsEditor({
     // Saved this session and not yet back from the refresh: nothing to compare.
     if (!fee) return !pass.feeId;
     const shown = passMoveInOf(key);
+    const end = passEndOf(key);
     return (
       pass.dollars.trim() !== centsToDollars(fee.amount_cents) ||
       pass.perExhibitor !== Boolean(fee.one_per_exhibitor) ||
       shown.date !== (fee.move_in_date ?? '') ||
       shown.time !== hhmm(fee.move_in_time) ||
+      end.date !== (fee.move_in_end_date ?? '') ||
+      (end.date ? end.time : '') !== hhmm(fee.move_in_end_time) ||
+      pass.notes.trim() !== (fee.notes ?? '').trim() ||
       periodIdOf(key) !== (fee.stall_period_id ?? null)
     );
   }
@@ -776,6 +815,10 @@ export function useStallsEditor({
         );
         return false;
       }
+      if (passEndsTooSoon(key)) {
+        setError(`${where}: the early move-in has to end after it starts.`);
+        return false;
+      }
     }
 
     // 1) Stall types and passes removed on screen, first: a period goes only
@@ -921,6 +964,9 @@ export function useStallsEditor({
         stall_period_id: periodId,
         move_in_date: shown.date || null,
         move_in_time: shown.date ? shown.time || null : null,
+        move_in_end_date: passEndOf(key).date || null,
+        move_in_end_time: passEndOf(key).date ? passEndOf(key).time || null : null,
+        notes: pass.notes.trim() || null,
       };
       // The whole show's pass answers to `early_move_in` (an older
       // `early_arrival_stall` takes it on its first save here); a period's to
@@ -982,6 +1028,8 @@ export function useStallsEditor({
     passMoveInOf,
     editPassMoveIn,
     passTooLate,
+    passEndOf,
+    passEndsTooSoon,
     moveInOf,
     showStartDate,
     showEndDate,
@@ -1013,7 +1061,14 @@ function PassFields({
   const tooLate = editor.passTooLate(passKey);
   const ref = editor.moveInOf(passKey);
   const refText = formatStallsOpen(ref.date || null, ref.time || null);
-  const preview = formatStallsOpen(shown.date || null, shown.time || null);
+  const end = editor.passEndOf(passKey);
+  const endsTooSoon = editor.passEndsTooSoon(passKey);
+  const preview = passMoveIn({
+    move_in_date: shown.date || null,
+    move_in_time: shown.time || null,
+    move_in_end_date: end.date || null,
+    move_in_end_time: end.time || null,
+  });
   const basis = pass.perExhibitor ? 'per exhibitor' : unitLabel(pass.unit);
   return (
     <div className="space-y-2">
@@ -1031,7 +1086,7 @@ function PassFields({
       </label>
       {pass.offered && (
         <div className="ml-6 space-y-2">
-          <div className="grid grid-cols-1 sm:grid-cols-[9rem_10rem_minmax(0,1fr)] gap-3 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-[9rem_10rem] gap-3 items-end">
             <label className="block">
               <span className={LABEL} style={{ color: COLORS.muted }}>
                 $ {basis}
@@ -1064,6 +1119,8 @@ function PassFields({
                 <option value="exhibitor">Per exhibitor</option>
               </select>
             </label>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
             <div>
               <span className={LABEL} style={{ color: COLORS.muted }}>
                 Pass holders move in from (optional)
@@ -1091,7 +1148,53 @@ function PassFields({
                 />
               </div>
             </div>
+            {/* When the early window closes (migration 203) — WSCA's priority
+                pass moves trailers in "from 2 PM to 4 PM". Only with a start. */}
+            <div>
+              <span className={LABEL} style={{ color: COLORS.muted }}>
+                Until (optional)
+              </span>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="date"
+                  value={end.date || pass.endDate}
+                  min={shown.date || undefined}
+                  disabled={!shown.date}
+                  title={shown.date ? 'Optional' : 'Set when pass holders move in from first.'}
+                  onChange={(e) => editor.setPass(passKey, { endDate: e.target.value, ...(e.target.value ? {} : { endTime: '' }) })}
+                  className="min-w-[9.5rem] flex-1 border rounded px-3 py-2 disabled:opacity-50"
+                  style={{ borderColor: endsTooSoon ? 'var(--error)' : COLORS.border }}
+                  aria-invalid={endsTooSoon}
+                  aria-label={`${heading} — move-in ends day`}
+                />
+                <input
+                  type="time"
+                  value={end.date ? end.time : ''}
+                  disabled={!end.date}
+                  title={end.date ? 'Optional' : 'Pick the day first.'}
+                  onChange={(e) => editor.setPass(passKey, { endTime: e.target.value })}
+                  className="w-32 border rounded px-3 py-2 disabled:opacity-50"
+                  style={{ borderColor: endsTooSoon ? 'var(--error)' : COLORS.border }}
+                  aria-label={`${heading} — move-in ends time`}
+                />
+              </div>
+            </div>
           </div>
+          <label className="block">
+            <span className={LABEL} style={{ color: COLORS.muted }}>
+              Notes (optional)
+            </span>
+            <input
+              type="text"
+              value={pass.notes}
+              maxLength={500}
+              onChange={(e) => editor.setPass(passKey, { notes: e.target.value })}
+              className={INPUT}
+              style={{ borderColor: COLORS.border }}
+              placeholder="e.g. Limited passes, first come first served. One trailer per pass."
+              aria-label={`${heading} — notes`}
+            />
+          </label>
           {pass.unit !== 'per_stall' && (
             <p className="text-xs" style={{ color: COLORS.muted }}>
               Charged {unitLabel(pass.unit)} on the boarding fee schedule.
@@ -1101,6 +1204,10 @@ function PassFields({
             <p className="text-xs" style={{ color: 'var(--error-strong)' }} role="alert">
               That&apos;s not before {beats}
               {refText ? ` (${refText})` : ''}. Pass holders have to move in earlier.
+            </p>
+          ) : endsTooSoon ? (
+            <p className="text-xs" style={{ color: 'var(--error-strong)' }} role="alert">
+              The early move-in has to end after it starts.
             </p>
           ) : preview ? (
             <p className="text-xs" style={{ color: COLORS.muted }}>
@@ -1520,6 +1627,7 @@ export function StallsCard({ editor }: { editor: StallsEditor }) {
     const pass = editor.passOf(p.key);
     if (pass.offered && !pass.dollars.trim()) return 'Early move-in needs a price.';
     if (editor.passTooLate(p.key)) return 'Early move-in has to be before the period moves in.';
+    if (editor.passEndsTooSoon(p.key)) return 'Early move-in has to end after it starts.';
     return null;
   }
 

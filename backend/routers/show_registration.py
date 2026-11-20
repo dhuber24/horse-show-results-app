@@ -417,6 +417,9 @@ def _fee_options_out(fees: list[ShowFee], show_entry: Optional[ShowEntry]) -> li
             # arrival date.
             "move_in_date": f.move_in_date,
             "move_in_time": f.move_in_time,
+            # ...and until when (migration 203).
+            "move_in_end_date": f.move_in_end_date,
+            "move_in_end_time": f.move_in_end_time,
             # Booked once and priced per exhibitor (migration 196): the form
             # offers a tick box rather than a count.
             "one_per_exhibitor": bool(f.one_per_exhibitor),

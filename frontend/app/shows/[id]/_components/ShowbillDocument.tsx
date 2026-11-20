@@ -80,6 +80,9 @@ type Fee = {
   /** When holders may move in (migration 195): the Early Move-In Pass's day. */
   move_in_date?: string | null;
   move_in_time?: string | null;
+  /** When that window closes (migration 203). */
+  move_in_end_date?: string | null;
+  move_in_end_time?: string | null;
   /** Priced and booked once per exhibitor (migration 196). */
   one_per_exhibitor?: boolean;
 };

@@ -102,6 +102,24 @@ describe('the Early Move-In Pass move-in (migration 195)', () => {
     expect(passMoveIn(undefined)).toBeNull();
   });
 
+  it('says when the window ends (migration 203), naming the day only when it is another', () => {
+    const start = { move_in_date: '2026-09-23', move_in_time: '14:00:00' };
+    expect(passMoveIn({ ...start, move_in_end_date: '2026-09-23', move_in_end_time: '16:00:00' })).toBe(
+      'Wednesday, September 23 at 2:00 PM until 4:00 PM',
+    );
+    expect(passMoveIn({ ...start, move_in_end_date: '2026-09-24', move_in_end_time: '08:00' })).toBe(
+      'Wednesday, September 23 at 2:00 PM until Thursday, September 24 at 8:00 AM',
+    );
+    expect(passMoveIn({ ...start, move_in_end_date: '2026-09-24', move_in_end_time: null })).toBe(
+      'Wednesday, September 23 at 2:00 PM until Thursday, September 24',
+    );
+    // The same day with no hour says nothing more; an end with no start is not printed.
+    expect(passMoveIn({ ...start, move_in_end_date: '2026-09-23', move_in_end_time: null })).toBe(
+      'Wednesday, September 23 at 2:00 PM',
+    );
+    expect(passMoveIn({ move_in_date: null, move_in_end_date: '2026-09-23' })).toBeNull();
+  });
+
   it('must come before stalls open', () => {
     expect(passMovesInFirst('2026-05-13', '18:00', '2026-05-14', '09:00')).toBe(true);
     expect(passMovesInFirst('2026-05-14', null, '2026-05-14', '16:00')).toBe(false);

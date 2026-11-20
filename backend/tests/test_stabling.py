@@ -312,6 +312,34 @@ def test_a_move_in_day_on_a_line_not_priced_per_stall_is_refused():
     assert err.value.status_code == 422
 
 
+# -- ...and until when (migration 203) ------------------------------------------
+
+def test_the_pass_window_can_end_later_that_day_or_on_a_later_one():
+    day = date(2026, 9, 23)
+    _check_move_in(unit="per_stall", move_in_date=day, move_in_time=time(14, 0),
+                   move_in_end_date=day, move_in_end_time=time(16, 0))
+    _check_move_in(unit="per_stall", move_in_date=day, move_in_time=time(18, 0),
+                   move_in_end_date=date(2026, 9, 24), move_in_end_time=time(8, 0))
+    _check_move_in(unit="per_stall", move_in_date=day, move_in_time=None, move_in_end_date=day)
+
+
+@pytest.mark.parametrize(
+    "start, start_time, end, end_time, says",
+    [
+        (date(2026, 9, 23), time(16, 0), date(2026, 9, 23), time(14, 0), "end after it starts"),
+        (date(2026, 9, 23), time(16, 0), date(2026, 9, 23), time(16, 0), "end after it starts"),
+        (date(2026, 9, 23), None, date(2026, 9, 22), None, "end after it starts"),
+        (None, None, date(2026, 9, 23), None, "move in from before"),
+        (date(2026, 9, 23), None, None, time(16, 0), "end time needs an end day"),
+    ],
+)
+def test_a_pass_window_that_ends_before_it_starts_is_refused(start, start_time, end, end_time, says):
+    with pytest.raises(HTTPException) as err:
+        _check_move_in(unit="per_stall", move_in_date=start, move_in_time=start_time,
+                       move_in_end_date=end, move_in_end_time=end_time)
+    assert err.value.status_code == 422 and says in err.value.detail
+
+
 # -- Early move-in passes, one per period (migration 196) ----------------------
 
 def a_pass(period=None, *, one_each=False, code=None):

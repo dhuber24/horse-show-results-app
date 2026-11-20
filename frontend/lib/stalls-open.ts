@@ -60,7 +60,8 @@ export function arrivesBeforeStallsOpen(
  * each the office's choice (migration 196): code `early_move_in_<period>`,
  * carrying the period's id. Each is priced per stall or once per exhibitor
  * (`one_per_exhibitor`), and moves holders in at a day of its own
- * (`move_in_date` / `move_in_time`, migration 195). A whole-show pass — code
+ * (`move_in_date` / `move_in_time`, migration 195), optionally until a day and
+ * hour of its own (`move_in_end_date` / `move_in_end_time`, migration 203). A whole-show pass — code
  * `early_move_in`, no period — is one from before stall periods, or one the
  * show bill import read; the Lodging step moves it into the first period
  * unless exhibitors have booked it as it is.
@@ -107,15 +108,32 @@ export function passBasisLabel(pass: { unit: string; one_per_exhibitor?: boolean
   return pass.one_per_exhibitor ? 'per exhibitor' : unitLabel(pass.unit);
 }
 
+/** A pass's move-in window as the API sends it (migrations 195 and 203). */
+export type PassWindow = {
+  move_in_date?: string | null;
+  move_in_time?: string | null;
+  move_in_end_date?: string | null;
+  move_in_end_time?: string | null;
+};
+
 /**
- * When Early Move-In Pass holders may move in (migration 195), printed the way
- * the move-in day is — "Thursday, May 13 at 6:00 PM" — or null when the office
- * has not said, which leaves the pass reading "before stalls open".
+ * When Early Move-In Pass holders may move in (migration 195) and until when
+ * (migration 203), printed the way the move-in day is — "Wednesday, September
+ * 23 at 2:00 PM until 4:00 PM", the end's day said only when it is another day
+ * — or null when the office has not said, which leaves the pass reading
+ * "before stalls open". An end with no start is not printed.
  */
-export function passMoveIn(
-  pass: { move_in_date?: string | null; move_in_time?: string | null } | null | undefined,
-): string | null {
-  return pass ? formatStallsOpen(pass.move_in_date, pass.move_in_time) : null;
+export function passMoveIn(pass: PassWindow | null | undefined): string | null {
+  if (!pass) return null;
+  const from = formatStallsOpen(pass.move_in_date, pass.move_in_time);
+  if (!from) return null;
+  const endDate = pass.move_in_end_date;
+  if (!endDate) return from;
+  if (endDate === pass.move_in_date) {
+    return pass.move_in_end_time ? `${from} until ${formatWallClock(pass.move_in_end_time)}` : from;
+  }
+  const until = formatStallsOpen(endDate, pass.move_in_end_time);
+  return until ? `${from} until ${until}` : from;
 }
 
 /**

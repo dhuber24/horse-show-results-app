@@ -193,6 +193,8 @@ async def _resolve_scope_classes(
 
 
 STALL_FIELDS = ("stall_kind", "stall_period_id", "horses_per_tack_stall")
+# The Early Move-In Pass's window (migrations 195 and 203).
+MOVE_IN_FIELDS = ("move_in_date", "move_in_time", "move_in_end_date", "move_in_end_time")
 
 
 async def _check_stall_fields(
@@ -244,16 +246,34 @@ async def _check_stall_fields(
             )
 
 
-def _check_move_in(*, unit: str, move_in_date: date | None, move_in_time) -> None:
-    """When holders of a line may move in (migration 195) -- the Early Move-In
-    Pass's own day and hour. Only a per-stall line moves anybody in, and an hour
-    needs its day, as on `stalls_open_*` and the early-rate deadline."""
-    if unit != STALL_UNIT and (move_in_date or move_in_time):
+def _check_move_in(
+    *,
+    unit: str,
+    move_in_date: date | None,
+    move_in_time,
+    move_in_end_date: date | None = None,
+    move_in_end_time=None,
+) -> None:
+    """When holders of a line may move in (migration 195) and until when
+    (migration 203) -- the Early Move-In Pass's own window. Only a per-stall
+    line moves anybody in, an hour needs its day, as on `stalls_open_*` and the
+    early-rate deadline, and a window ends after it starts."""
+    if unit != STALL_UNIT and (move_in_date or move_in_time or move_in_end_date or move_in_end_time):
         raise HTTPException(
             422, "Only a fee charged per stall, such as the Early Move-In Pass, has a move-in day."
         )
     if move_in_time is not None and move_in_date is None:
         raise HTTPException(422, "A move-in time needs a move-in day.")
+    if move_in_end_time is not None and move_in_end_date is None:
+        raise HTTPException(422, "An end time needs an end day.")
+    if move_in_end_date is not None:
+        if move_in_date is None:
+            raise HTTPException(422, "Set when pass holders move in from before when they move in until.")
+        same_day = move_in_end_date == move_in_date
+        if move_in_end_date < move_in_date or (
+            same_day and move_in_time is not None and move_in_end_time is not None and move_in_end_time <= move_in_time
+        ):
+            raise HTTPException(422, "The early move-in has to end after it starts.")
 
 
 def _check_one_per_exhibitor(*, unit: str, code: str, label: str, stall_kind, one_per_exhibitor) -> None:
@@ -372,7 +392,11 @@ async def create_show_fee(
     _assert_min_quantity_valid(unit=body.unit, min_quantity=body.min_quantity)
     _assert_deadline_time_valid(body.early_deadline, body.early_deadline_time)
     _check_move_in(
-        unit=body.unit, move_in_date=body.move_in_date, move_in_time=body.move_in_time
+        unit=body.unit,
+        move_in_date=body.move_in_date,
+        move_in_time=body.move_in_time,
+        move_in_end_date=body.move_in_end_date,
+        move_in_end_time=body.move_in_end_time,
     )
     _check_one_per_exhibitor(
         unit=body.unit,
@@ -510,15 +534,18 @@ async def update_show_fee(
     # drops its tack minimum -- unless the request itself sent them, which is a
     # contradiction to refuse rather than tidy away.
     if new_unit != STALL_UNIT:
-        for key in (*STALL_FIELDS, "move_in_date", "move_in_time"):
+        for key in (*STALL_FIELDS, *MOVE_IN_FIELDS):
             updates.setdefault(key, None)
-    # Clearing the move-in day clears its hour, as the early-rate deadline does.
+    # Clearing a day clears its hour, as the early-rate deadline does, and
+    # clearing the start clears the end.
     if "move_in_date" in updates and updates["move_in_date"] is None:
         updates["move_in_time"] = None
+        updates["move_in_end_date"] = None
+    if "move_in_end_date" in updates and updates["move_in_end_date"] is None:
+        updates["move_in_end_time"] = None
     _check_move_in(
         unit=new_unit,
-        move_in_date=updates.get("move_in_date", fee.move_in_date),
-        move_in_time=updates.get("move_in_time", fee.move_in_time),
+        **{key: updates.get(key, getattr(fee, key)) for key in MOVE_IN_FIELDS},
     )
     merged = {key: updates.get(key, getattr(fee, key)) for key in STALL_FIELDS}
     merged_kind = stall_kind_of(

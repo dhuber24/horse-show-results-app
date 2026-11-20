@@ -2441,6 +2441,10 @@ class ShowFee(Base):
     # in the migration, and `show_fees._check_move_in`).
     move_in_date = Column(Date, nullable=True)
     move_in_time = Column(Time, nullable=True)
+    # When that move-in window closes (migration 203): "from 2 PM to 4 PM".
+    # Day and optional hour, venue wall-clock; an end needs a start.
+    move_in_end_date = Column(Date, nullable=True)
+    move_in_end_time = Column(Time, nullable=True)
     # An add-on booked at most once per exhibitor and priced per exhibitor
     # rather than per stall (migration 196) -- the show's choice for an Early
     # Move-In Pass. Billing is unchanged: the quantity is 0 or 1.

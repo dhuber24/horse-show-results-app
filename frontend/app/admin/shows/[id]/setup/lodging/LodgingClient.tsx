@@ -43,6 +43,9 @@ export type FeeRow = {
    *  day (yyyy-mm-dd) and optional hour, venue wall-clock. */
   move_in_date?: string | null;
   move_in_time?: string | null;
+  /** When that window closes (migration 203). */
+  move_in_end_date?: string | null;
+  move_in_end_time?: string | null;
 };
 
 /** What is typed on a slot's card. The row it saves to is not held here: the

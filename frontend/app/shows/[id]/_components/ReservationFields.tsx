@@ -78,6 +78,9 @@ export type FeeOption = {
    *  day and hour, venue wall-clock. */
   move_in_date?: string | null;
   move_in_time?: string | null;
+  /** When that window closes (migration 203). */
+  move_in_end_date?: string | null;
+  move_in_end_time?: string | null;
   /** Booked once and priced per exhibitor (migration 196): a tick box, not a
    *  count. */
   one_per_exhibitor?: boolean;
