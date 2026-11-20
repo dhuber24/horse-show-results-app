@@ -19,7 +19,7 @@ export default function RegistrationQuestions({
   startDate,
   onEntryDeadline,
   onSelfEntryCloses,
-  unansweredNote = 'Both are needed before the show can be published.',
+  unansweredNote = 'A registration date AND Class registration type must be selected before a show can be published',
 }: {
   /** `YYYY-MM-DD`, or '' while unanswered. */
   entryDeadline: string;

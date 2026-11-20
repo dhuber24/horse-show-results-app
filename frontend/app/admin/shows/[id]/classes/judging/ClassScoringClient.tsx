@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { errorMessage } from '@/lib/api-error';
+import { useRegisterStepAutosave } from '../../setup/_lib/StepAutosave';
 import { CARD_TYPES, sheetFits, takesSheet, type CardType } from '@/lib/card-types';
 
 export type ScoringClass = {
@@ -177,8 +178,19 @@ export default function ClassScoringClient({
     }
   }
 
-  async function applyTicked() {
-    if (!bulkCard || ticked.size === 0) return;
+  // Every row's own picker writes as it changes, so the one thing leaving can
+  // lose is the bar: rows selected and a scoring method chosen, Apply not yet
+  // pressed. Leaving the step presses it (`StepAutosave`). Rows selected with
+  // no method chosen are a selection, not a change, and are let go.
+  const bulkPending = () => ticked.size > 0 && bulkCard !== '';
+  useRegisterStepAutosave(async () => {
+    if (!bulkPending()) return;
+    if (!(await applyTicked())) throw new Error('The scoring method could not be applied.');
+  }, bulkPending);
+
+  /** True once applied (or with nothing to apply); false with the reason on screen. */
+  async function applyTicked(): Promise<boolean> {
+    if (!bulkCard || ticked.size === 0) return true;
     const ids = Array.from(ticked);
     const ok = await apply(ids, bulkCard, takesSheet(bulkCard) ? bulkSheet : '');
     if (ok) {
@@ -193,6 +205,7 @@ export default function ClassScoringClient({
       setTicked(new Set());
       setDiscipline('');
     }
+    return ok;
   }
 
   /** Select every class in a discipline, replacing what was selected: the bar
@@ -324,6 +337,7 @@ export default function ClassScoringClient({
 
       {error && (
         <p
+          role="alert"
           className="text-sm rounded px-3 py-2"
           style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)', border: '1px solid var(--error-border)' }}
         >

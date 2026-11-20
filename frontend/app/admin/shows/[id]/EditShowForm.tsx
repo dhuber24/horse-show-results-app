@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { errorMessage } from '@/lib/api-error';
-import { useRegisterUnsavedChanges } from './setup/_lib/StepAutosave';
+import { useRegisterStepAutosave } from './setup/_lib/StepAutosave';
 import BackNumberQuestion, { type BackNumberPer } from '@/components/BackNumberQuestion';
 import RegistrationQuestions from '@/components/RegistrationQuestions';
 import type { SelfEntryCloses } from '@/lib/registration-window';
@@ -124,7 +124,16 @@ export default function EditShowForm({
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  useRegisterUnsavedChanges(() => JSON.stringify(form) !== JSON.stringify(savedForm.current));
+  const isDirty = () => JSON.stringify(form) !== JSON.stringify(savedForm.current);
+
+  // Back, Next, the tabs and the sidebar save the form on the way out, as every
+  // other step does; the Save button stays for saving without leaving. A save
+  // that fails (a missing name, a reversed date range) stays on the step with
+  // its reason on screen.
+  useRegisterStepAutosave(async () => {
+    if (!isDirty()) return;
+    if (!(await handleSave())) throw new Error('Show details could not be saved.');
+  }, isDirty);
 
   const selectedShowType = showTypes.find((t) => t.id === form.show_type_id);
 
@@ -136,10 +145,11 @@ export default function EditShowForm({
   );
   const selectedCategory = categoriesForType.find((c) => c.id === form.show_category_id);
 
-  const handleSave = async () => {
+  /** True once saved; false with the reason on screen. */
+  const handleSave = async (): Promise<boolean> => {
     if (!form.name || !form.start_date || !form.end_date || !form.show_type_id) {
       setError('Name, show type, start date, and end date are required.');
-      return;
+      return false;
     }
     setSaving(true);
     setError(null);
@@ -171,13 +181,14 @@ export default function EditShowForm({
       savedForm.current = form;
       setSuccess('Show details saved.');
       router.refresh();
-    } else {
-      const data = await res.json().catch(() => null);
-      // Read through `errorMessage` rather than off `detail`: a reversed date
-      // range is a Pydantic 422, whose `detail` is a list of objects, and
-      // setting that here threw during render instead of printing the reason.
-      setError(errorMessage(data, 'Failed to update show.'));
+      return true;
     }
+    const data = await res.json().catch(() => null);
+    // Read through `errorMessage` rather than off `detail`: a reversed date
+    // range is a Pydantic 422, whose `detail` is a list of objects, and
+    // setting that here threw during render instead of printing the reason.
+    setError(errorMessage(data, 'Failed to update show.'));
+    return false;
   };
 
   const handleDelete = async () => {

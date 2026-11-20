@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useRegisterStepAutosave, useRegisterUnsavedChanges } from '../setup/_lib/StepAutosave';
 import FuturityForm, {
   emptyFuturityForm,
   toFuturityPayload,
@@ -133,17 +134,37 @@ function CreateFuturityForm({
   const [value, setValue] = useState<FuturityFormValue>(emptyFuturityForm);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What the form opened with: a form opened and left blank creates nothing.
+  const pristine = useRef(serialize(value));
 
   function patch(next: Partial<FuturityFormValue>) {
     setValue((prev) => ({ ...prev, ...next }));
   }
 
-  async function submit() {
+  // Leaving the step creates a named futurity as Create would (`StepAutosave`);
+  // one the form refuses (a late fee with no deadline, say) stays on the step
+  // with the reason. A form filled in but not yet named asks instead — stay
+  // and name it, or leave without it — as a half-typed new fee does on Fees.
+  const isDirty = () => serialize(value) !== pristine.current;
+  const named = () => value.name.trim() !== '';
+  useRegisterStepAutosave(
+    async () => {
+      if (!isDirty() || !named()) return;
+      if (!(await submit())) throw new Error('The futurity could not be created.');
+    },
+    () => isDirty() && named(),
+  );
+  useRegisterUnsavedChanges(() => isDirty() && !named());
+
+  /** True once the futurity exists; false with the reason on screen. A release
+   *  that failed after the futurity saved still counts as created — leaving
+   *  is then safe, and the message says to add it from Settings. */
+  async function submit(): Promise<boolean> {
     setError(null);
     const problem = validate(value);
     if (problem) {
       setError(problem);
-      return;
+      return false;
     }
     setBusy(true);
     try {
@@ -155,7 +176,7 @@ function CreateFuturityForm({
       const created = await res.json().catch(() => null);
       if (!res.ok) {
         setError(created?.detail || 'Failed to create the futurity.');
-        return;
+        return false;
       }
 
       const waiverProblem = await saveFuturityWaiver({
@@ -168,12 +189,17 @@ function CreateFuturityForm({
         setError(
           `${value.name.trim()} was created, but its release was not saved: ${waiverProblem} Add it from Settings.`,
         );
+        // Created: the form now describes a futurity that exists, and saving
+        // it again on the way out would make a second one.
+        pristine.current = serialize(value);
         router.refresh();
-        return;
+        return true;
       }
 
+      pristine.current = serialize(value);
       router.refresh();
       onCancel();
+      return true;
     } finally {
       setBusy(false);
     }
@@ -217,4 +243,10 @@ function CreateFuturityForm({
       </div>
     </div>
   );
+}
+
+/** The form as text, for telling a touched form from an untouched one — its
+ *  classes are a Set, which JSON would write as `{}`. */
+function serialize(value: FuturityFormValue): string {
+  return JSON.stringify(value, (_key, v) => (v instanceof Set ? [...v].sort() : v));
 }

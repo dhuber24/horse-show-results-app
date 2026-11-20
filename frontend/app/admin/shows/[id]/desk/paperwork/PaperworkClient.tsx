@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useRegisterUnsavedChanges } from '../../setup/_lib/StepAutosave';
+import { useRegisterStepAutosave, useRegisterUnsavedChanges } from '../../setup/_lib/StepAutosave';
 
 /**
  * What this show requires on paper, in two halves.
@@ -162,14 +162,22 @@ export default function PaperworkClient({
   const [draftBody, setDraftBody] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  // Both cards save with their own button; leaving with either changed, or a
-  // waiver half typed, asks first (`StepAutosave`).
+  // Both cards save with their own button, and leaving saves whatever they
+  // hold and adds a waiver typed but not added (`StepAutosave`). A waiver with
+  // wording but no title cannot be added, so leaving with one asks instead.
   const savedReq = useRef(initialRequirements);
-  useRegisterUnsavedChanges(
-    () =>
-      JSON.stringify(req) !== JSON.stringify(savedReq.current) ||
-      (adding && Boolean(draftTitle.trim() || draftBody.trim())),
+  const reqChanged = () => JSON.stringify(req) !== JSON.stringify(savedReq.current);
+  const waiverTitled = () => adding && Boolean(draftTitle.trim());
+  useRegisterStepAutosave(
+    async () => {
+      if (reqChanged() && !(await saveRequirements(null))) {
+        throw new Error('The requirements could not be saved.');
+      }
+      if (waiverTitled() && !(await addWaiver())) throw new Error('The waiver could not be added.');
+    },
+    () => reqChanged() || waiverTitled(),
   );
+  useRegisterUnsavedChanges(() => adding && !draftTitle.trim() && Boolean(draftBody.trim()));
 
   // Whether to ask the physical-proof question at all. With nothing required
   // there is nothing to produce at the counter, and the control would be asking
@@ -179,7 +187,9 @@ export default function PaperworkClient({
   const anyDocumentRequired =
     req.requires_coggins || req.requires_health_certificate || req.requires_vaccination;
 
-  const saveRequirements = async (from: 'health' | 'desk') => {
+  /** True once saved; false with the reason on screen. `from` null is the
+   *  save made on the way off the step, which no button asked for. */
+  const saveRequirements = async (from: 'health' | 'desk' | null): Promise<boolean> => {
     setBusy(true);
     setError(null);
     setSaved(null);
@@ -203,20 +213,22 @@ export default function PaperworkClient({
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         setError(body?.detail || 'Could not save these requirements.');
-        return;
+        return false;
       }
       savedReq.current = req;
       setSaved(from);
       router.refresh();
+      return true;
     } finally {
       setBusy(false);
     }
   };
 
-  const addWaiver = async () => {
+  /** True once added; false with the reason on screen. */
+  const addWaiver = async (): Promise<boolean> => {
     // Only the title is needed: a show handing out a paper release may just want
     // the desk to track who signed it.
-    if (!draftTitle.trim()) return;
+    if (!draftTitle.trim()) return false;
     setBusy(true);
     setError(null);
     try {
@@ -238,13 +250,14 @@ export default function PaperworkClient({
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         setError(body?.detail || 'Could not add that waiver.');
-        return;
+        return false;
       }
       setWaivers((prev) => [...prev, body as Waiver]);
       setAdding(false);
       setDraftTitle('');
       setDraftBody('');
       router.refresh();
+      return true;
     } finally {
       setBusy(false);
     }
@@ -290,6 +303,7 @@ export default function PaperworkClient({
     <div className="space-y-4">
       {error && (
         <p
+          role="alert"
           className="text-sm px-3 py-2 rounded border"
           style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error)' }}
         >

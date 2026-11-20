@@ -33,7 +33,7 @@ import UnsavedChangesDialog, { type LeaveChoice } from './UnsavedChangesDialog';
  *   press of every step link, so an unconditional PUT would rewrite a step
  *   somebody only passed through.
  *
- * The Save buttons that remain (Lodging, Sanctioning) still work and still say
+ * The Save buttons that remain (Step 1, Lodging, Sanctioning, Paperwork) still work and still say
  * what they did; this is a second door onto the same function, not a
  * replacement for it. The fees step's "Save & continue to Classes" is the one that
  * went — it did nothing the Next link does not now do for itself.
@@ -44,10 +44,10 @@ import UnsavedChangesDialog, { type LeaveChoice } from './UnsavedChangesDialog';
  * the Navbar, a link in the page, the browser's Back or Forward — opens a
  * dialog: stay, leave and lose what was typed, or (where every unsaved form can
  * save itself) save and leave. Reloading, closing the tab or typing an address
- * gets the browser's own prompt, the only one a browser allows there. And a
- * form with no `flush` of its own (Step 1's, which has its Save button) is
- * asked about by the step's own Back / Next and tabs too, since they cannot
- * save it for it.
+ * gets the browser's own prompt, the only one a browser allows there. And
+ * work with no `flush` — a new judge, fee, futurity, side pot or waiver too
+ * incomplete to create — is asked about by the step's own Back / Next and
+ * tabs too, since they cannot save it for it.
  */
 
 export type StepFlush = () => Promise<void> | void;
@@ -74,6 +74,18 @@ type Registry = {
 };
 
 const StepAutosaveContext = createContext<Registry | null>(null);
+
+/** Scroll the first error on the page into view, once the failed save's
+ *  message has rendered. Every form a flush can fail in marks its message
+ *  `role="alert"`. */
+function revealError() {
+  // A timeout rather than a frame: the message is set from an async handler,
+  // and React may not have committed it by the next frame.
+  window.setTimeout(() => {
+    const alert = document.querySelector('main [role="alert"]');
+    alert?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, 50);
+}
 
 /**
  * The registry. The root layout (`app/layout.tsx`) holds one around the Navbar,
@@ -109,9 +121,19 @@ export function StepAutosaveProvider({ children }: { children: React.ReactNode }
   // Sequentially, not in parallel: two of these can write the same `show_fees`
   // row set (the charges editor and a step's own save), and a step that opens
   // with an error should not have fired the rest of its writes first.
+  //
+  // A save that fails stays on the step with its reason on screen — and brings
+  // that reason into view: Next is at the foot of the page and a form's error
+  // is at the head of the form, so a refusal shown off-screen read as a Next
+  // button that did nothing.
   const saveAll = useCallback(async () => {
-    for (const entry of Array.from(entries.current)) {
-      if (entry.flush) await entry.flush();
+    try {
+      for (const entry of Array.from(entries.current)) {
+        if (entry.flush) await entry.flush();
+      }
+    } catch (e) {
+      if (!(e instanceof StayOnStep)) revealError();
+      throw e;
     }
   }, []);
 

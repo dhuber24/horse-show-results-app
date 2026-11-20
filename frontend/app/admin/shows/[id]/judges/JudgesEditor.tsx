@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useRegisterUnsavedChanges } from '../setup/_lib/StepAutosave';
+import { useRegisterStepAutosave, useRegisterUnsavedChanges } from '../setup/_lib/StepAutosave';
 
 export interface JudgeAssociation {
   id: string;
@@ -103,14 +103,29 @@ export default function JudgesEditor({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // A judge picked but not added, or a new judge half typed, is lost by
-  // leaving; the guard asks first (`StepAutosave`).
-  useRegisterUnsavedChanges(
-    () =>
-      (picking && !showNewJudgeForm && pickedId !== '') ||
-      (showNewJudgeForm &&
-        Boolean(newJudge.first_name.trim() || newJudge.last_name.trim() || newJudge.email.trim() || newJudge.phone.trim())),
+  const pickedNotAdded = () => picking && !showNewJudgeForm && pickedId !== '';
+  const newJudgeTyped = () =>
+    showNewJudgeForm &&
+    Boolean(newJudge.first_name.trim() || newJudge.last_name.trim() || newJudge.email.trim() || newJudge.phone.trim());
+  const newJudgeNamed = () =>
+    showNewJudgeForm && Boolean(newJudge.first_name.trim() && newJudge.last_name.trim());
+
+  // Leaving the step adds a judge picked but not added, or a new judge with
+  // both names typed, as if its button had been pressed (`StepAutosave`).
+  useRegisterStepAutosave(
+    async () => {
+      if (pickedNotAdded()) {
+        if (!(await handleAddPicked())) throw new Error('The picked judge could not be added.');
+      } else if (newJudgeNamed()) {
+        if (!(await handleCreateAndAdd())) throw new Error('The new judge could not be added.');
+      }
+    },
+    () => pickedNotAdded() || newJudgeNamed(),
   );
+  // A new judge missing a name cannot be added, so leaving asks — stay and
+  // finish, or leave without them — rather than dropping what was typed. The
+  // same split as a half-typed new fee on the Fees step.
+  useRegisterUnsavedChanges(() => newJudgeTyped() && !newJudgeNamed());
 
   const assignedJudgeIds = useMemo(
     () => new Set(judges.map((j) => j.judge_id)),
@@ -147,24 +162,28 @@ export default function JudgesEditor({
     setJudges((prev) => [...prev, data as ShowJudgeAssignment]);
   }
 
-  async function handleAddPicked() {
-    if (!pickedId) return;
+  /** True once added; false with the reason on screen. */
+  async function handleAddPicked(): Promise<boolean> {
+    if (!pickedId) return true;
     setError(null);
     setSaving(true);
     try {
       await assign(pickedId);
       closePicker();
       router.refresh();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add judge');
+      return false;
     } finally {
       setSaving(false);
     }
   }
 
-  /** Adds the judge to the registry first, then to this show. */
-  async function handleCreateAndAdd(e: React.FormEvent) {
-    e.preventDefault();
+  /** Adds the judge to the registry first, then to this show. True once
+   *  added; false with the reason on screen. */
+  async function handleCreateAndAdd(e?: React.FormEvent): Promise<boolean> {
+    e?.preventDefault();
     setError(null);
     setSaving(true);
     try {
@@ -192,8 +211,10 @@ export default function JudgesEditor({
       await assign(created.id);
       closePicker();
       router.refresh();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add judge');
+      return false;
     } finally {
       setSaving(false);
     }
@@ -225,7 +246,11 @@ export default function JudgesEditor({
       className="p-5 rounded-lg border"
       style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
     >
-      {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+      {error && (
+        <p className="text-sm text-red-600 mb-3" role="alert">
+          {error}
+        </p>
+      )}
 
       {judges.length === 0 && !picking && (
         <p className="text-sm mb-4" style={{ color: COLORS.muted }}>

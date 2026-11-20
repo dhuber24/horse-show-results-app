@@ -293,7 +293,7 @@ export default function ShowPointChart({
 
         <ChartGridEditor chart={draft.chart} onChange={(chart) => updateDraft({ chart })} />
 
-        {error && <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>}
+        {error && <p className="text-sm" role="alert" style={{ color: 'var(--error)' }}>{error}</p>}
         <div className="flex items-center gap-3">
           <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={primaryButton}>
             {busy ? 'Saving…' : 'Save chart for this show'}
@@ -467,7 +467,7 @@ export default function ShowPointChart({
         </div>
       )}
 
-      {error && <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>}
+      {error && <p className="text-sm" role="alert" style={{ color: 'var(--error)' }}>{error}</p>}
     </div>
   );
 }
