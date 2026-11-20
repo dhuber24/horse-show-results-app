@@ -22,6 +22,7 @@ import AphaMinimums from './AphaMinimums';
 import { featureDeclined, featureStepHref } from '../_wizard/steps';
 import { fetchStepCounts } from './setup/_lib/fetchStepCounts';
 import { showSections, type ShowSection as Tile } from './sections';
+import { BOARD_NOT_LIVE, boardReadable } from '@/lib/show-board';
 import {
   RESULTS_BANDS,
   AphaResultsWindow,
@@ -95,6 +96,11 @@ function ScoringTile({ tile, status }: { tile: Tile; status: string }) {
     status === 'COMPLETED'
       ? 'Scoring is closed — this show is marked Completed.'
       : 'Set the show to "In Progress" above to enable scoring.';
+  return <DisabledTile tile={tile} reason={reason} />;
+}
+
+/** A tile that isn't a link yet, saying why in place of its description. */
+function DisabledTile({ tile, reason }: { tile: Tile; reason: string }) {
   return (
     <div
       className="block p-6 rounded-lg border cursor-not-allowed"
@@ -313,6 +319,8 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       <div className="grid sm:grid-cols-2 desktop:grid-cols-3 gap-4">
         {showSections(id).map((tile) => tile.scoring ? (
           <ScoringTile key={tile.href} tile={tile} status={show.status} />
+        ) : tile.board && !boardReadable(show.status) ? (
+          <DisabledTile key={tile.href} tile={tile} reason={BOARD_NOT_LIVE} />
         ) : declined(tile.feature) ? (
           <SkippedTile key={tile.href} tile={tile} stepHref={featureStepHref(id, tile.feature!)} />
         ) : (

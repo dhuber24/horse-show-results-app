@@ -27,6 +27,8 @@ interface Show {
   end_date: string;
   entry_deadline: string | null;
   self_entry_closes: SelfEntryCloses | null;
+  /** Migration 206: the last day of an `on_date` answer. */
+  self_entry_closes_on?: string | null;
   /** Migration 161. Optional for a payload from before it. */
   back_number_per?: BackNumberPer;
   status?: string;
@@ -102,6 +104,7 @@ export default function EditShowForm({
     end_date: show.end_date,
     entry_deadline: show.entry_deadline ?? '',
     self_entry_closes: (show.self_entry_closes ?? '') as SelfEntryCloses | '',
+    self_entry_closes_on: show.self_entry_closes_on ?? '',
     back_number_per: (show.back_number_per ?? 'exhibitor') as BackNumberPer,
     apha_show_number: show.apha_show_number ?? '',
     apha_zone: show.apha_zone === null || show.apha_zone === undefined ? '' : String(show.apha_zone),
@@ -151,6 +154,16 @@ export default function EditShowForm({
       setError('Name, show type, start date, and end date are required.');
       return false;
     }
+    if (form.self_entry_closes === 'on_date') {
+      if (!form.self_entry_closes_on) {
+        setError('Choose the last day exhibitors can enter and scratch their own classes online.');
+        return false;
+      }
+      if (form.self_entry_closes_on > form.end_date) {
+        setError('The last day for exhibitors’ own class changes can be no later than the show’s last day.');
+        return false;
+      }
+    }
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -166,6 +179,7 @@ export default function EditShowForm({
         end_date: form.end_date,
         entry_deadline: form.entry_deadline || null,
         self_entry_closes: form.self_entry_closes || null,
+        self_entry_closes_on: form.self_entry_closes === 'on_date' ? form.self_entry_closes_on : null,
         back_number_per: form.back_number_per,
         apha_show_number: form.apha_show_number || null,
         apha_zone: form.apha_zone ? Number(form.apha_zone) : null,
@@ -408,7 +422,10 @@ export default function EditShowForm({
           <RegistrationQuestions
             entryDeadline={form.entry_deadline}
             selfEntryCloses={form.self_entry_closes}
+            selfEntryClosesOn={form.self_entry_closes_on}
             startDate={form.start_date}
+            endDate={form.end_date}
+            onSelfEntryClosesOn={(value) => setForm((prev) => ({ ...prev, self_entry_closes_on: value }))}
             onEntryDeadline={(value) => setForm((prev) => ({ ...prev, entry_deadline: value }))}
             onSelfEntryCloses={(value) => setForm((prev) => ({ ...prev, self_entry_closes: value }))}
           />

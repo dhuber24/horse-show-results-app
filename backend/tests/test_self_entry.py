@@ -16,12 +16,14 @@ from self_entry import (
     CLASS_START,
     SELF_ENTRY_STATUSES,
     OFFICE_ONLY,
+    ON_DATE,
     SHOW_START,
     class_completed,
     class_entry_closed_refusal,
     class_entry_open,
     class_under_way,
     entry_refusal,
+    registration_answered,
     registration_window,
     scratch_refusal,
     self_entry_statuses,
@@ -203,7 +205,38 @@ def test_an_unanswered_show_keeps_what_every_show_did_before_the_question():
     assert class_entry_open("ACTIVE", None)
 
 
-@pytest.mark.parametrize("closes", [CLASS_START, SHOW_START, OFFICE_ONLY, None])
+CLASS_CHANGES_BY = date(2026, 10, 7)
+
+
+def test_class_changes_stay_open_through_the_day_the_office_named():
+    """Migration 206: inclusive, like the sign-up deadline."""
+    assert class_entry_open("PUBLISHED", ON_DATE, CLASS_CHANGES_BY, as_of=date(2026, 10, 6))
+    assert class_entry_open("PUBLISHED", ON_DATE, CLASS_CHANGES_BY, as_of=CLASS_CHANGES_BY)
+    assert not class_entry_open("PUBLISHED", ON_DATE, CLASS_CHANGES_BY, as_of=date(2026, 10, 8))
+
+
+def test_a_day_inside_the_show_keeps_the_doors_open_while_it_runs():
+    assert class_entry_open("ACTIVE", ON_DATE, CLASS_CHANGES_BY, as_of=CLASS_CHANGES_BY)
+    assert not class_entry_open("ACTIVE", ON_DATE, CLASS_CHANGES_BY, as_of=date(2026, 10, 8))
+
+
+def test_a_date_answer_is_answered_only_with_its_day():
+    assert registration_answered(DEADLINE, ON_DATE, CLASS_CHANGES_BY)
+    assert not registration_answered(DEADLINE, ON_DATE, None)
+    assert registration_answered(DEADLINE, CLASS_START, None)
+
+
+def test_the_window_carries_the_day_and_the_refusal_names_it():
+    show = make_show(self_entry_closes=ON_DATE, self_entry_closes_on=CLASS_CHANGES_BY)
+    window = registration_window(show, as_of=date(2026, 10, 8))
+    assert window["class_entry_open"] is False
+    assert window["class_entry_closes_on"] == CLASS_CHANGES_BY
+    refusal = class_entry_closed_refusal(ON_DATE, CLASS_CHANGES_BY)
+    assert refusal["code"] == "CLASS_ENTRY_CLOSED"
+    assert "closed after October 7" in refusal["message"]
+
+
+@pytest.mark.parametrize("closes", [CLASS_START, SHOW_START, OFFICE_ONLY, ON_DATE, None])
 @pytest.mark.parametrize("status", ["DRAFT", "COMPLETED"])
 def test_no_answer_opens_a_show_that_is_not_taking_entries(status, closes):
     assert not class_entry_open(status, closes)
@@ -232,9 +265,14 @@ def test_a_deadline_never_opens_sign_up_outside_published(status):
     assert not signup_open(status, DEADLINE, as_of=date(2026, 9, 1))
 
 
-def make_show(status="PUBLISHED", entry_deadline=DEADLINE, self_entry_closes=SHOW_START):
+def make_show(
+    status="PUBLISHED", entry_deadline=DEADLINE, self_entry_closes=SHOW_START, self_entry_closes_on=None
+):
     return SimpleNamespace(
-        status=status, entry_deadline=entry_deadline, self_entry_closes=self_entry_closes
+        status=status,
+        entry_deadline=entry_deadline,
+        self_entry_closes=self_entry_closes,
+        self_entry_closes_on=self_entry_closes_on,
     )
 
 
@@ -245,6 +283,7 @@ def test_the_window_reports_both_answers_and_whether_each_is_open():
         "signup_deadline": DEADLINE,
         "class_entry_open": False,
         "class_entry_closes": SHOW_START,
+        "class_entry_closes_on": None,
         "answered": True,
     }
 

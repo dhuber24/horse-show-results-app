@@ -8,10 +8,13 @@
  *      desk. It closes new sign-ups only: somebody already signed up keeps their
  *      registration to amend until the show starts.
  *   2. **How late exhibitors enter and scratch their own classes** —
- *      `shows.self_entry_closes`: until each class starts, until the show
- *      starts, or never — the show office makes every class change (migration
- *      185). Unanswered reads as until each class starts, which is what every
- *      show did before the question was asked.
+ *      `shows.self_entry_closes`: until each class starts, never — the show
+ *      office makes every class change (migration 185) — or through a day the
+ *      office picks (`on_date` with `shows.self_entry_closes_on`, inclusive,
+ *      migration 206). Unanswered reads as until each class starts, which is
+ *      what every show did before the question was asked. `show_start` (until
+ *      the show starts) was the date answer's place before migration 206; it
+ *      is no longer offered but is still worded.
  *
  * Asked on setup Step 1 and on the new-show form, and required to publish. The
  * rules are `backend/self_entry.py`; this file only words them, so a screen
@@ -19,8 +22,9 @@
  * `class_entry_open` off the payload.
  */
 
-export type SelfEntryCloses = 'class_start' | 'show_start' | 'office_only';
+export type SelfEntryCloses = 'class_start' | 'show_start' | 'office_only' | 'on_date';
 
+/** The answers Step 1 offers, in order. `show_start` is not among them. */
 export const SELF_ENTRY_OPTIONS: { value: SelfEntryCloses; label: string; hint: string }[] = [
   {
     value: 'class_start',
@@ -30,16 +34,16 @@ export const SELF_ENTRY_OPTIONS: { value: SelfEntryCloses; label: string; hint: 
       'A horse can still be scratched from a class under way until it has gone.',
   },
   {
-    value: 'show_start',
-    label: 'Until the show starts',
-    hint: 'From the first day, the show office makes every class change.',
-  },
-  {
     value: 'office_only',
     label: 'Never — the show office does it',
     hint:
       'Exhibitors still sign up online, but only the show office enters and scratches classes, ' +
       'before and during the show.',
+  },
+  {
+    value: 'on_date',
+    label: 'Until a date',
+    hint: 'After the day you pick, the show office makes every class change.',
   },
 ];
 
@@ -53,16 +57,21 @@ export type RegistrationWindow = {
   class_entry_open: boolean;
   /** The answer, with an unanswered show read as `class_start`. */
   class_entry_closes: SelfEntryCloses;
+  /** The last day of an `on_date` answer, `YYYY-MM-DD`; null otherwise. */
+  class_entry_closes_on?: string | null;
   /** Both questions answered. */
   answered: boolean;
 };
 
-/** Both questions answered — what setup Step 1 ticks on and publishing needs. */
+/** Both questions answered — what setup Step 1 ticks on and publishing needs.
+ *  A date answer counts only with its day. */
 export function registrationAnswered(show: {
   entry_deadline?: string | null;
   self_entry_closes?: string | null;
+  self_entry_closes_on?: string | null;
 }): boolean {
-  return Boolean(show.entry_deadline && show.self_entry_closes);
+  if (!show.entry_deadline || !show.self_entry_closes) return false;
+  return show.self_entry_closes !== 'on_date' || Boolean(show.self_entry_closes_on);
 }
 
 /** "Wed, Oct 1". Parsed as a calendar day, so no time zone moves it. */
@@ -81,8 +90,10 @@ export function signupDeadlineText(deadline: string | null | undefined): string 
 }
 
 /** How late classes may be changed online, in a sentence. */
-export function classEntryText(closes: string | null | undefined): string {
+export function classEntryText(closes: string | null | undefined, closesOn?: string | null): string {
   if (closes === 'office_only') return 'The show office enters and scratches every class.';
+  if (closes === 'on_date' && closesOn)
+    return `Classes can be entered and scratched online through ${formatDeadline(closesOn)}.`;
   return closes === 'show_start'
     ? 'Classes can be entered and scratched online until the show starts.'
     : 'Classes can be entered and scratched online until each class starts.';

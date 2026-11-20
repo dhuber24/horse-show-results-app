@@ -94,6 +94,8 @@ export default async function ReviewShowbillPage({
         venueDirectory={venues}
         associations={associations}
         canAddVenue={role === 'ADMIN' || role === 'SHOW_MANAGER'}
+        companies={myFeatures.show_setup_companies ?? []}
+        defaultCompanyId={myFeatures.default_show_company_id ?? null}
       />
     </main>
   );

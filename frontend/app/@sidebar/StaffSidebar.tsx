@@ -9,6 +9,7 @@ import { buildSteps, stepHrefs } from '../admin/shows/_wizard/steps';
 import type { StepDef } from '../admin/shows/_wizard/WizardStepper';
 import { fetchStepCounts } from '../admin/shows/[id]/setup/_lib/fetchStepCounts';
 import { showSections, type ShowSection } from '../admin/shows/[id]/sections';
+import { BOARD_NOT_LIVE, boardReadable } from '@/lib/show-board';
 import CollapseButton from './CollapseButton';
 import SetupStepsNav from './SetupStepsNav';
 import SidebarLink from './SidebarLink';
@@ -260,13 +261,19 @@ function SectionItem({
 
   // Score Classes: not a link until the show is In Progress, as on the
   // dashboard, and saying why rather than going missing.
-  if (section.scoring && status !== 'ACTIVE') {
-    const reason =
-      status === 'COMPLETED'
+  // The Discussion Board likewise, until the show is published: a draft's
+  // board answers 404 to the office too.
+  const disabledReason =
+    section.scoring && status !== 'ACTIVE'
+      ? status === 'COMPLETED'
         ? 'Score Classes — closed, this show is marked Completed.'
-        : 'Score Classes — set the show to "In Progress" on the Overview to enable scoring.';
+        : 'Score Classes — set the show to "In Progress" on the Overview to enable scoring.'
+      : section.board && !boardReadable(status)
+        ? BOARD_NOT_LIVE
+        : null;
+  if (disabledReason) {
     return (
-      <span className={`${ITEM} cursor-not-allowed`} style={{ color: 'var(--text-dimmed)' }} aria-disabled="true" title={reason}>
+      <span className={`${ITEM} cursor-not-allowed`} style={{ color: 'var(--text-dimmed)' }} aria-disabled="true" title={disabledReason}>
         <Emoji icon={section.icon} faded />
         <span className={LABEL}>{label}</span>
       </span>

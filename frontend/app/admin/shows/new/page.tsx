@@ -169,6 +169,8 @@ export default async function NewShowPage() {
         venues={venues}
         showTypes={showTypes}
         secretaries={secretaries}
+        companies={myFeatures.show_setup_companies ?? []}
+        defaultCompanyId={myFeatures.default_show_company_id ?? null}
       />
     </main>
   );

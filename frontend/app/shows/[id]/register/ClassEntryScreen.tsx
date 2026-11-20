@@ -6,7 +6,7 @@ import Link from 'next/link';
 import BackNumberRequest from './BackNumberRequest';
 import AddClassEntry from './AddClassEntry';
 import ShowBillBreakdown from '@/components/ShowBillBreakdown';
-import { classEntryText } from '@/lib/registration-window';
+import { classEntryText, formatDeadline } from '@/lib/registration-window';
 import SignupClosedNotice from '../_components/SignupClosedNotice';
 import { formatMoney, healthWarnings, type HorseNumber, type PreviewData } from './types';
 import type { BillClassLine } from '@/lib/my-shows';
@@ -183,7 +183,13 @@ export default function ClassEntryScreen({
   // top while it is true.
   const classEntryOpen = preview.registration?.class_entry_open !== false;
   const classEntryCloses = preview.registration?.class_entry_closes ?? 'class_start';
+  const classEntryClosesOn = preview.registration?.class_entry_closes_on ?? null;
   const officeOnly = classEntryCloses === 'office_only';
+  // Past the last day the office named for online class changes (migration 206).
+  const closedByDate = !classEntryOpen && classEntryCloses === 'on_date' && Boolean(classEntryClosesOn);
+  const closedByDateText = closedByDate
+    ? `Online class changes closed after ${formatDeadline(classEntryClosesOn!)}. Ask the show office to enter or scratch a class.`
+    : '';
   const officeOnlyText =
     'At this show the show office enters and scratches every class. Send them a message to add or drop one.';
   const signupOpen = preview.registration?.signup_open !== false;
@@ -304,7 +310,7 @@ export default function ClassEntryScreen({
     <div className="mt-6">
       <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
       <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-        {live || officeOnly ? 'My classes' : 'Class registration'} — {exhibitor.full_name}
+        {live || officeOnly || closedByDate ? 'My classes' : 'Class registration'} — {exhibitor.full_name}
       </p>
 
       <div
@@ -313,6 +319,8 @@ export default function ClassEntryScreen({
       >
         {officeOnly
           ? officeOnlyText
+          : closedByDate
+            ? closedByDateText
           : live
             ? !classEntryOpen
               ? 'The show is under way, and the show office makes every class change now. Ask at the office to enter or scratch a class.'
@@ -320,7 +328,7 @@ export default function ClassEntryScreen({
                 ? 'The show is under way. You can enter a class that hasn’t started and scratch from one that hasn’t finished. Once a class is finished, only the show office can take you out of it.'
                 : 'The show is under way and online sign-up has closed.'
             : signedUp
-              ? `Pick a class and a horse — each entry saves as you add it. ${classEntryText(classEntryCloses)} Fees shown here are what the office will collect at the show.`
+              ? `Pick a class and a horse — each entry saves as you add it. ${classEntryText(classEntryCloses, classEntryClosesOn)} Fees shown here are what the office will collect at the show.`
               : signupOpen
                 ? 'Class entry opens once you’ve signed up for this show.'
                 : 'Class entry is for exhibitors signed up for this show, and online sign-up has closed.'}
@@ -509,7 +517,9 @@ export default function ClassEntryScreen({
                                 ? scratchLocks.get(line.entry_id) ?? null
                                 : officeOnly
                                   ? 'The show office makes every class change at this show.'
-                                  : 'The show office makes class changes now that the show is under way.'
+                                  : closedByDate
+                                    ? 'Online class changes have closed. The show office makes them now.'
+                                    : 'The show office makes class changes now that the show is under way.'
                             }
                             live={live}
                           />

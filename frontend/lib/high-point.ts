@@ -70,6 +70,7 @@ export type HighPointClass = {
   class_name: string;
   class_date: string;
   division_name: string | null;
+  discipline_name?: string | null;
   posted: boolean;
   /** Whether its placings earn high-point points; the office may leave a class out. */
   eligible: boolean;

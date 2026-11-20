@@ -49,6 +49,7 @@ from show_companies import (
     SHOW_OFFICE_ROLES,
     can_set_up_shows,
     show_setup_blocked,
+    show_setup_companies,
     pro_plus_lapsed_message,
     admin_emails,
     companies_for_user,
@@ -560,6 +561,7 @@ async def list_own_features(
                 )
             )
         ).scalars().all()
+    setup_companies, default_setup_company = await show_setup_companies(db, uid, x_user_role)
     return MyFeaturesOut(
         features=sorted(features),
         companies=[
@@ -572,6 +574,10 @@ async def list_own_features(
         upgrade_requests=[_upgrade_request_out(r, uid) for r in requests if r.feature in REQUESTABLE],
         plans=plan_catalog(await load_prices(db)),
         can_set_up_shows=await can_set_up_shows(db, uid, x_user_role),
+        show_setup_companies=[
+            ShowCompanyRef(id=cid, name=name, personal=personal) for cid, name, personal in setup_companies
+        ],
+        default_show_company_id=default_setup_company,
         settle_up_message=await show_setup_blocked(db, uid, x_user_role),
         can_pay_online=stripe_configured(),
         pro_plus_lapsed_message=await pro_plus_lapsed_message(db, uid, x_user_role),

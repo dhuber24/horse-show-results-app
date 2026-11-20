@@ -3,6 +3,7 @@ import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { breedJudgeCount, isClassFeeEditorUnit, type PanelJudge } from '@/lib/fee-units';
 import type { ScopeClass, ShowCharge } from '@/components/ShowChargesEditor';
 import FeesClient, { type FeeRow } from './FeesClient';
+import ClassPrices, { type ClassPriceRow } from './ClassPrices';
 import EarlierFees, { type ClubFee } from './EarlierFees';
 import StepLayout from '../_lib/StepLayout';
 import { fetchStepCounts } from '../_lib/fetchStepCounts';
@@ -38,7 +39,7 @@ export default async function SetupFeesPage({
     fetchAuthed<PanelJudge[]>(`${API_URL}/shows/${id}/judges/`, []),
     // For the class-scope picker on an automatic charge. The Class Builder
     // is Step 4, so a show set up in order has its schedule by now.
-    fetchAuthed<ScopeClass[]>(`${API_URL}/shows/${id}/classes/`, []),
+    fetchAuthed<(ScopeClass & ClassPriceRow)[]>(`${API_URL}/shows/${id}/classes/`, []),
     // What Steps 5 and 6 already charge, quoted below the Class Fees box so
     // this step shows the whole bill rather than the show's third of it.
     fetchAuthed<ClubFee[]>(`${API_URL}/shows/${id}/classes/sanctioning`, []),
@@ -51,6 +52,9 @@ export default async function SetupFeesPage({
   // `per_class_per_horse` rides along too, so it can be switched. See
   // CLASS_FEE_EDITOR_UNITS.
   const charges = allFees.filter((f) => isClassFeeEditorUnit(f.unit)) as ShowCharge[];
+  // A class with a price is a class fee too, set on the class itself (by the
+  // show bill reader, or the Class Builder), so it counts towards the step.
+  const pricedClasses = classes.some((c) => c.entry_fee_cents > 0);
   const legacyFuturityFee =
     allFees.find((f) => f.code === LEGACY_FUTURITY_CODE) ?? null;
 
@@ -60,10 +64,10 @@ export default async function SetupFeesPage({
       showName={show.name}
       current="fees"
       title="Show Fees"
-      subtitle="The show's own fees, on top of the clubs' and the futurity's — a price per class, an office fee, an assessment — charged per class, exhibitor, horse or judge."
-      stepsInput={{ ...stepsInput, feesCount: charges.length > 0 ? 1 : 0 }}
+      subtitle="What each class costs to enter, and the show's own fees on top — an office fee, an assessment — charged per class, exhibitor, horse or judge."
+      stepsInput={{ ...stepsInput, feesCount: charges.length > 0 || pricedClasses ? 1 : 0 }}
       skip={
-        charges.length === 0
+        charges.length === 0 && !pricedClasses
           ? {
               label: 'Skip — no show fees',
               note: 'This step is for the show’s own fees — a price per class entered, an office fee, an association assessment. A show that charges none of those can skip it.',
@@ -72,6 +76,10 @@ export default async function SetupFeesPage({
       }
     >
       <div className="space-y-6">
+        {/* First: a bill's entry fee table is mostly class prices ("Single
+            class $20", "Jackpot $50"), and the reader writes them onto the
+            classes. Shown grouped by price so the table is recognisable here. */}
+        <ClassPrices showId={id} initialClasses={classes} />
         <FeesClient
           showId={id}
           initialCharges={charges}

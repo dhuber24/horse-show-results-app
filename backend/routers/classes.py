@@ -41,6 +41,7 @@ from card_types import (
 )
 from schemas import (
     ClassCreate, ClassUpdate, ClassOut, ClassReorder, ClassBulkDelete, ClassScoringApply,
+    ClassBulkEntryFee,
     ClassBulkRing,
     ClassAssociationCreate, ClassAssociationOut,
     ClassSanctioningReplace, ClassSanctioningOut,
@@ -1027,6 +1028,56 @@ async def set_classes_ring(
         cls.ring_id = ring.id
     await db.commit()
     return {"ring_id": str(ring.id), "class_ids": [str(c.id) for c in rows]}
+
+
+@router.post("/entry-fee", dependencies=[Depends(require_admin_or_show_admin)])
+async def set_classes_entry_fee(
+    show_id: UUID,
+    body: ClassBulkEntryFee,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Price a group of classes at one amount: the Show Fees step's class prices.
+
+    A show bill prices classes in a handful of rates ("Single class $20",
+    "Jackpot $50"), and the step shows them that way, so changing a rate is one
+    write rather than ninety. The same refusals as one class's PATCH: a free
+    class is not priced here (untick Free first) and a futurity class never is
+    (its categories price it). All or nothing, so a stale class or one of those
+    refuses the lot rather than repricing most of the group.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    ids = list(dict.fromkeys(body.class_ids))
+    rows = (
+        await db.execute(select(Class).where(Class.show_id == show_id, Class.id.in_(ids)))
+    ).scalars().all()
+    if len(rows) != len(ids):
+        raise HTTPException(404, "One or more of those classes are not in this show")
+    futurity = [c for c in rows if c.is_futurity_class]
+    if futurity:
+        raise HTTPException(
+            409,
+            {
+                "code": "FUTURITY_CLASS_PRICED",
+                "message": (
+                    f"{class_label(futurity[0])} is priced by its futurity's categories, "
+                    "so it is not priced here."
+                ),
+            },
+        )
+    if body.entry_fee_cents > 0:
+        free = [c for c in rows if c.is_free]
+        if free:
+            raise HTTPException(
+                422,
+                f"{class_label(free[0])} is free. Untick Free before giving it a price.",
+            )
+    for cls in rows:
+        cls.entry_fee_cents = body.entry_fee_cents
+    await db.commit()
+    return {"entry_fee_cents": body.entry_fee_cents, "class_ids": [str(c.id) for c in rows]}
 
 
 @router.post("/bulk-delete", dependencies=[Depends(require_admin_or_show_admin)])

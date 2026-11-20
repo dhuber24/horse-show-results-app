@@ -814,7 +814,7 @@ async def apply_import(
     # --- The show, its company, and the caller's staff row (as `POST /shows` does) ---
     s = body.show
     # Refuses a caller whose companies are all on Free (migration 169).
-    company_id = await show_setup_company_for(db, user_id, user_role)
+    company_id = await show_setup_company_for(db, user_id, user_role, s.company_id)
     show = Show(
         name=s.name.strip(),
         venue_id=venue_id,
@@ -1180,6 +1180,8 @@ async def create_show_from_read(
             office_notes=start.office_notes,
         )
     )
+    # The company the confirm page picked, for somebody in more than one.
+    payload.show.company_id = start.company_id
     return await apply_import(import_id, payload, user_id=user_id, user_role=user_role, db=db)
 
 

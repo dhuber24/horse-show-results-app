@@ -75,6 +75,19 @@ describe('the show’s sections', () => {
     }
   });
 
+  it('offer the Discussion Board once the show is published, and say so on a draft', () => {
+    const board = (show: HubShow) =>
+      buildShowHub(SHOW_ID, show, staff).sections.find((tile) => tile.title === 'Discussion Board')!;
+    for (const show of EVERY_STATE) expect(board(show).disabled).toBeFalsy();
+    expect(board({ status: 'DRAFT' })).toMatchObject({
+      disabled: true,
+      description: 'The Discussion Board will go live once this show is published.',
+    });
+    // Only the board: the rest of a draft's sections stay links.
+    const others = buildShowHub(SHOW_ID, { status: 'DRAFT' }, staff).sections.filter((tile) => tile.disabled);
+    expect(others).toHaveLength(1);
+  });
+
   it('go back to the list the show is found on', () => {
     expect(buildShowHub(SHOW_ID, ACTIVE, visitor).back).toEqual({ href: '/shows/active', label: 'Back to Active Shows' });
     for (const show of [OPEN, PAST_DEADLINE]) {
@@ -150,6 +163,15 @@ describe('an exhibitor', () => {
       'My Classes',
       'What I Owe',
     ]);
+  });
+
+  it('reads My Classes once the office’s last day for class changes has passed', () => {
+    const closed = { self_entry_closes: 'on_date', class_entry_open: false };
+    expect(mine({ ...OPEN, ...closed }, exhibitor({ signed_up: true }))[0]).toBe('My Classes');
+    expect(mine({ ...ACTIVE, ...closed }, exhibitor({ signed_up: true }))[0]).toBe('My Classes');
+    expect(mine({ ...ACTIVE, self_entry_closes: 'on_date', class_entry_open: true }, exhibitor({ signed_up: true }))[0]).toBe(
+      'Add/Drop Classes',
+    );
   });
 
   it('keeps What I Owe after the show — the bill outlives it', () => {

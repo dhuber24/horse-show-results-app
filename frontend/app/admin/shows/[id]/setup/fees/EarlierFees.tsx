@@ -55,10 +55,11 @@ export default function EarlierFees({
     >
       <div>
         <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-          Already priced in earlier steps
+          Below items were already priced in previous steps.
         </h2>
         <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
-          Charged on top of the class fees above. Change them on their own step.
+          The below fees are charged on top of the class fees you created above. To change them,
+          navigate to each respective setup step.
         </p>
       </div>
 

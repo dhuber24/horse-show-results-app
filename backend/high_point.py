@@ -55,7 +55,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Class, Division, Entry, Exhibitor, Horse, Result, ShowJudge
+from models import Class, Discipline, Division, Entry, Exhibitor, Horse, Result, ShowJudge
 from placings import is_placed
 from teams import TEAM_SIZE_MIN, load_teammates
 
@@ -479,10 +479,12 @@ async def load_class_summaries(
             Class.results_published_at,
             Class.high_point_eligible,
             Division.name,
+            Discipline.name,
             size.label("size"),
             Class.team_size,
         )
         .outerjoin(Division, Division.id == Class.division_id)
+        .outerjoin(Discipline, Discipline.id == Class.discipline_id)
         .where(*conditions)
         .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
     )
@@ -506,7 +508,7 @@ async def load_class_summaries(
     out = []
     for (
         class_id, class_number, class_name, class_date, status,
-        published_at, eligible, division_name, class_size, team_size,
+        published_at, eligible, division_name, discipline_name, class_size, team_size,
     ) in rows.all():
         cards = max(panel, filed.get(class_id, 0), 1)
         row = {
@@ -515,6 +517,8 @@ async def load_class_summaries(
             "class_name": class_name,
             "class_date": class_date,
             "division_name": division_name,
+            # The office picks classes to count by division, discipline or both.
+            "discipline_name": discipline_name,
             "posted": published_at is not None and status != "DRAFT",
             "eligible": bool(eligible),
             # A team class earns Team High Point, not its division's (migration

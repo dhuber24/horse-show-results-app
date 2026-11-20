@@ -117,6 +117,9 @@ export default function ScheduleBoard({
     const today = todayIso();
     return days.includes(today) ? today : (days[0] ?? '');
   });
+  // "All days" lays the whole show out under date headings — the programme
+  // as printed, for somebody planning the weekend rather than watching today.
+  const [allDays, setAllDays] = useState(false);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
@@ -206,7 +209,7 @@ export default function ScheduleBoard({
   // Search and both filters span the whole show — someone tracking a horse, or
   // checking what they're entered in, should not have to guess which day it
   // runs on.
-  const spanAllDays = searching || favoritesOnly || registeredOnly;
+  const spanAllDays = allDays || searching || favoritesOnly || registeredOnly;
 
   // The two filters intersect rather than replace each other: "starred *and*
   // entered" is a meaningful question on a long show day.
@@ -222,7 +225,7 @@ export default function ScheduleBoard({
     searching, tokens, haystacks, spanAllDays, activeDay,
   ]);
 
-  const dayClasses = classes.filter(c => c.class_date === activeDay);
+  const dayClasses = allDays ? classes : classes.filter(c => c.class_date === activeDay);
   const dayDone = dayClasses.filter(c => progress.get(c.id) === 'done').length;
 
   // Both filters can be on at once, so the summary and empty state name
@@ -282,15 +285,29 @@ export default function ScheduleBoard({
 
   return (
     <div>
-      {!spanAllDays && days.length > 1 && (
+      {/* Search and the filters already span the whole show, so the day row
+          steps aside for them; "All days" is just the same view on its own. */}
+      {!(searching || favoritesOnly || registeredOnly) && days.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-2 mb-3 -mx-1 px-1">
+          <button
+            type="button"
+            onClick={() => setAllDays(true)}
+            aria-pressed={allDays}
+            className="shrink-0 text-sm font-medium px-3 py-1.5 rounded-full border transition"
+            style={allDays
+              ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--surface)' }
+              : { backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--accent)' }}
+          >
+            All days
+          </button>
           {days.map(day => (
             <button
               key={day}
               type="button"
-              onClick={() => setActiveDay(day)}
+              onClick={() => { setActiveDay(day); setAllDays(false); }}
+              aria-pressed={!allDays && day === activeDay}
               className="shrink-0 text-sm font-medium px-3 py-1.5 rounded-full border transition"
-              style={day === activeDay
+              style={!allDays && day === activeDay
                 ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--surface)' }
                 : { backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--accent)' }}
             >
@@ -362,7 +379,7 @@ export default function ScheduleBoard({
               : filtering
                 ? `${shown.length} ${shown.length === 1 ? 'class' : 'classes'} · ${filterLabel}`
                 : dayClasses.length > 0
-                  ? `${formatDayLong(activeDay)} · ${dayClasses.length} ${dayClasses.length === 1 ? 'class' : 'classes'}${isLive ? ` · ${dayDone} complete` : ''}`
+                  ? `${allDays ? 'All days' : formatDayLong(activeDay)} · ${dayClasses.length} ${dayClasses.length === 1 ? 'class' : 'classes'}${isLive ? ` · ${dayDone} complete` : ''}`
                   : ''}
           </p>
         </div>

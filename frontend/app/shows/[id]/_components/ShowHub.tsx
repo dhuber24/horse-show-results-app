@@ -40,6 +40,9 @@ export default function ShowHub({
     signup_open?: boolean;
     entry_deadline?: string | null;
     self_entry_closes?: string | null;
+    /** Exhibitors may change their own classes today (migration 206 adds a
+     *  last day for that). Decided on the server. */
+    class_entry_open?: boolean;
     affiliations?: { show_type_id: string; show_type_code: string; show_type_name?: string }[];
   };
   signedIn: boolean;
@@ -61,7 +64,7 @@ export default function ShowHub({
           showStatus={show.status}
           standing={standing}
           signupOpen={show.signup_open !== false}
-          classesOfficeOnly={show.self_entry_closes === 'office_only'}
+          classesOfficeOnly={show.self_entry_closes === 'office_only' || show.class_entry_open === false}
         />
       )}
 
@@ -117,7 +120,18 @@ export default function ShowHub({
 function TileGrid({ tiles }: { tiles: HubTile[] }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {tiles.map((tile) => (
+      {tiles.map((tile) => tile.disabled ? (
+        <div
+          key={tile.href}
+          className="block p-5 rounded-lg border cursor-not-allowed"
+          style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}
+          aria-disabled="true"
+        >
+          <div className="text-3xl mb-2 opacity-40" aria-hidden="true">{tile.icon}</div>
+          <div className="font-semibold text-lg" style={{ color: 'var(--muted)' }}>{tile.title}</div>
+          <div className="text-sm mt-1" style={{ color: 'var(--muted)' }}>{tile.description}</div>
+        </div>
+      ) : (
         <Link
           key={tile.href}
           href={tile.href}

@@ -355,7 +355,9 @@ _CLASS = _object(
             "The breed association's class code printed beside the class (e.g. 'AMH1', 'HS2')."
         ),
         "rate_key": _text(
-            "Which of class_rates prices this class. Empty for championship and futurity classes, "
+            "Which of class_rates prices this class. A rate named for a kind of class ('Double class', "
+            "'4-In-A-Line', 'Adaptive') prices the classes of that kind: a class two riders or two horses "
+            "ride as one entry is a double class. Empty for championship and futurity classes, "
             "or when no printed rate applies.",
         ),
         "club_codes": _strings(
@@ -612,6 +614,14 @@ Never multiply by the number of judges; the reviewer does that. If it is per \
 judge of one association only, name it in `association_code`.
 - A class price must never also appear in `fees`. A fee row charges on top of \
 every class price, so repeating a class price there bills exhibitors twice.
+- Every class someone enters gets the rate that applies, even when the rate \
+is named for a kind of class rather than listing its classes. "Double class" \
+or "pairs" prices the classes one entry rides as two riders or two horses \
+(tandem bareback, ribbon race, rescue race, pairs or partner classes); a \
+"4-in-a-line" or team rate the classes ridden by that many; "adaptive" the \
+assisted and unassisted classes; "jackpot" the jackpot classes. "Single \
+class" is every other class. Leave `rate_key` empty only where no printed rate \
+fits -- a class left empty costs nothing to enter.
 
 Clubs
 - The breed association (APHA, AQHA ...) is `show.breed_association`, not a club. \
@@ -1212,6 +1222,7 @@ async def extract_showbill(
         "side_pots": classes.get("side_pots") or [],
     }
     return ExtractionResult(status=STATUS_SUCCEEDED, fields=normalize_showbill(raw), **usage.as_fields())
+
 
 
 class _Usage:

@@ -438,7 +438,7 @@ export default function ShowbillDocument({
               {show.entry_deadline && (
                 <>{signupDeadlineText(show.entry_deadline)} After that, the show office signs exhibitors up. </>
               )}
-              {show.self_entry_closes && classEntryText(show.self_entry_closes)}
+              {show.self_entry_closes && classEntryText(show.self_entry_closes, show.self_entry_closes_on)}
             </Fact>
           )}
           {show.venue && <Fact label="Location">{show.venue}</Fact>}

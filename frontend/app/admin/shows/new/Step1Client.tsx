@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import BackNumberQuestion, { type BackNumberPer } from '@/components/BackNumberQuestion';
 import RegistrationQuestions from '@/components/RegistrationQuestions';
 import { errorMessage } from '@/lib/api-error';
+import type { CompanyRef } from '@/lib/show-companies';
 import type { SelfEntryCloses } from '@/lib/registration-window';
 
 type Venue = {
@@ -46,16 +47,27 @@ export default function Step1Client({
   venues,
   showTypes,
   secretaries,
+  companies = [],
+  defaultCompanyId = null,
 }: {
   callerRole: string;
   callerUserId: string | null;
   venues: Venue[];
   showTypes: ShowType[];
   secretaries: ExistingSecretary[];
+  /** The companies this show could run under (`show_setup_companies`). Asked
+   *  only when there is more than one; otherwise the backend picks the only one. */
+  companies?: CompanyRef[];
+  /** The one it runs under unless the office picks another — preselected. */
+  defaultCompanyId?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const asksCompany = companies.length > 1;
+  const [companyId, setCompanyId] = useState<string>(
+    defaultCompanyId && companies.some((c) => c.id === defaultCompanyId) ? defaultCompanyId : '',
+  );
 
   const openType = useMemo(
     () => showTypes.find((t) => t.code === 'OPEN'),
@@ -70,6 +82,7 @@ export default function Step1Client({
     end_date: '',
     entry_deadline: '',
     self_entry_closes: '' as SelfEntryCloses | '',
+    self_entry_closes_on: '',
     back_number_per: 'exhibitor' as BackNumberPer,
   });
 
@@ -100,6 +113,7 @@ export default function Step1Client({
   }
 
   function validateBasics(): string | null {
+    if (asksCompany && !companyId) return 'Choose the show company that runs this show.';
     if (!form.name.trim()) return 'Show name is required.';
     if (!form.show_type_id) return 'Show type is required.';
     if (!form.start_date) return 'Start date is required.';
@@ -111,6 +125,12 @@ export default function Step1Client({
     if (form.entry_deadline > form.start_date)
       return 'The last day to sign up online can be no later than the show’s first day.';
     if (!form.self_entry_closes) return 'Choose until when exhibitors can enter and scratch their own classes.';
+    if (form.self_entry_closes === 'on_date') {
+      if (!form.self_entry_closes_on)
+        return 'Choose the last day exhibitors can enter and scratch their own classes online.';
+      if (form.self_entry_closes_on > form.end_date)
+        return 'The last day for exhibitors’ own class changes can be no later than the show’s last day.';
+    }
     return null;
   }
 
@@ -162,8 +182,10 @@ export default function Step1Client({
           end_date: form.end_date,
           entry_deadline: form.entry_deadline,
           self_entry_closes: form.self_entry_closes,
+          self_entry_closes_on: form.self_entry_closes === 'on_date' ? form.self_entry_closes_on : null,
           back_number_per: form.back_number_per,
           status: 'DRAFT',
+          ...(asksCompany ? { company_id: companyId } : {}),
         }),
       });
       const created = await createRes.json().catch(() => null);
@@ -251,6 +273,28 @@ export default function Step1Client({
           Show details
         </h2>
 
+        {asksCompany && (
+          <Field label="Show company *">
+            <select
+              value={companyId}
+              onChange={(e) => setCompanyId(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+              style={{ borderColor: COLORS.border }}
+            >
+              <option value="" disabled>Choose a company…</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.personal ? ' (independent)' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
+              Everyone at this company works the show. You can move it later on Basics &amp; Staff.
+            </p>
+          </Field>
+        )}
+
         <Field label="Show name *">
           <input
             type="text"
@@ -321,6 +365,9 @@ export default function Step1Client({
           <RegistrationQuestions
             entryDeadline={form.entry_deadline}
             selfEntryCloses={form.self_entry_closes}
+            selfEntryClosesOn={form.self_entry_closes_on}
+            endDate={form.end_date}
+            onSelfEntryClosesOn={(value) => handleField('self_entry_closes_on', value)}
             startDate={form.start_date}
             onEntryDeadline={(value) => handleField('entry_deadline', value)}
             onSelfEntryCloses={(value) => setForm((prev) => ({ ...prev, self_entry_closes: value }))}

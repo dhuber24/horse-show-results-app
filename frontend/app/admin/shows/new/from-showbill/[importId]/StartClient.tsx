@@ -27,6 +27,7 @@ import {
   type StartForm,
   type VenueChoice,
 } from '@/lib/showbill-import';
+import type { CompanyRef } from '@/lib/show-companies';
 import CancelUploadButton from '../CancelUploadButton';
 
 type ShowType = { id: string; code: string; name: string };
@@ -62,6 +63,8 @@ export default function StartClient({
   venueDirectory,
   associations,
   canAddVenue,
+  companies = [],
+  defaultCompanyId = null,
 }: {
   importId: string;
   showTypes: ShowType[];
@@ -69,6 +72,10 @@ export default function StartClient({
   venueDirectory: DirectoryVenue[];
   associations: Association[];
   canAddVenue: boolean;
+  /** The companies this show could run under (`show_setup_companies`). Asked
+   *  only when there is more than one, as New Show's Step 1 does. */
+  companies?: CompanyRef[];
+  defaultCompanyId?: string | null;
 }) {
   const router = useRouter();
   const [imp, setImp] = useState<ShowBillImport | null>(null);
@@ -80,6 +87,10 @@ export default function StartClient({
   // A judge saved from this page joins the directory at once, so the row that
   // added them reads as picked and every other row can find them.
   const [directory, setDirectory] = useState<DirectoryJudge[]>(judgeDirectory);
+  const asksCompany = companies.length > 1;
+  const [companyId, setCompanyId] = useState<string>(
+    defaultCompanyId && companies.some((c) => c.id === defaultCompanyId) ? defaultCompanyId : '',
+  );
 
   const openShowTypeId = showTypes.find((t) => t.code === 'OPEN')?.id ?? null;
 
@@ -206,7 +217,10 @@ export default function StartClient({
   async function create() {
     if (!form || !imp) return;
     setConflictShowId(null);
-    const found = startProblems(form, imp, canAddVenue);
+    const found = [
+      ...(asksCompany && !companyId ? ['Choose the show company that runs this show.'] : []),
+      ...startProblems(form, imp, canAddVenue),
+    ];
     setProblems(found);
     if (found.length) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -217,7 +231,7 @@ export default function StartClient({
       const res = await fetch(`/api/show-bill-imports/${importId}/create-show`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(startBody(form)),
+        body: JSON.stringify({ ...startBody(form), ...(asksCompany ? { company_id: companyId } : {}) }),
       });
       const body = await res.json().catch(() => null);
       if (res.ok && body?.show_id) {
@@ -318,6 +332,22 @@ export default function StartClient({
             A show can&apos;t be created without these four. Check them against the bill.
           </p>
         </div>
+        {asksCompany && (
+          <Field label="Show company *">
+            <select className={input} style={inputStyle} value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+              <option value="" disabled>Choose a company…</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.personal ? ' (independent)' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs mt-1" style={muted}>
+              Everyone at this company works the show. You can move it later on Basics &amp; Staff.
+            </p>
+          </Field>
+        )}
         <Field label="Show name *">
           <input className={input} style={inputStyle} value={form.name} onChange={(e) => set({ name: e.target.value })} />
         </Field>

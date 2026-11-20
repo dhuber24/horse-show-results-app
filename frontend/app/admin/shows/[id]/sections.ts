@@ -21,6 +21,9 @@ export type ShowSection = {
   // Score Classes is disabled unless the show is In Progress, so it renders
   // through ScoringTile rather than as a plain link.
   scoring?: boolean;
+  // The Discussion Board, which only opens once the show is published
+  // (`boardReadable`). Until then it is shown disabled, saying so.
+  board?: boolean;
   // What setup asks about this (migration 154). Declined there, the tile greys
   // out rather than sitting on the dashboard looking like work nobody has done.
   feature?: DeclinableFeature;
@@ -136,6 +139,7 @@ export const showSections = (showId: string): ShowSection[] => [
       'The show’s public board — answer questions, pin updates, hide posts, and choose who can post.',
     icon: '🗨️',
     publicScreen: true,
+    board: true,
   },
   // The wall display. Staff-only, and reached only from here — it is not a
   // tile on the public hub, because deciding to put a show up on a screen in

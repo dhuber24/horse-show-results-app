@@ -33,14 +33,10 @@ export default function HighPointClasses({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [division, setDivision] = useState('');
+  const [discipline, setDiscipline] = useState('');
 
-  const divisions = useMemo(
-    () =>
-      Array.from(new Set(classes.map((c) => c.division_name).filter((d): d is string => Boolean(d)))).sort((a, b) =>
-        a.localeCompare(b),
-      ),
-    [classes],
-  );
+  const divisions = useMemo(() => distinctNames(classes.map((c) => c.division_name)), [classes]);
+  const disciplines = useMemo(() => distinctNames(classes.map((c) => c.discipline_name)), [classes]);
   const counted = classes.filter((c) => c.eligible).length;
 
   async function setEligible(classIds: string[], eligible: boolean) {
@@ -76,7 +72,23 @@ export default function HighPointClasses({
     );
   }
 
-  const inDivision = classes.filter((c) => c.division_name === division).map((c) => c.class_id);
+  // Either picker narrows the set; both together mean the classes in that
+  // division *and* that discipline — Amateur Western Pleasure, say.
+  const picked = Boolean(division || discipline);
+  const matching = picked
+    ? classes
+        .filter((c) => (!division || c.division_name === division) && (!discipline || c.discipline_name === discipline))
+        .map((c) => c.class_id)
+    : [];
+  const bulkTitle = !picked
+    ? 'Choose a division, a discipline, or both first'
+    : matching.length === 0
+      ? 'No class is in both'
+      : busy
+        ? 'Saving, please wait…'
+        : undefined;
+  const selectClass = 'min-h-[36px] border rounded-lg px-2 text-sm disabled:opacity-50';
+  const selectStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--foreground)' };
 
   return (
     <div className="space-y-3">
@@ -85,26 +97,49 @@ export default function HighPointClasses({
         placings out of the standings — it is still judged and posted as usual.
       </p>
 
-      {divisions.length > 1 && (
+      {(divisions.length > 1 || disciplines.length > 1) && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <select
-            value={division}
-            onChange={(e) => setDivision(e.target.value)}
-            disabled={busy}
-            aria-label="Every class in a division"
-            className="min-h-[36px] border rounded-lg px-2 text-sm disabled:opacity-50"
-            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--foreground)' }}
-          >
-            <option value="">Every class in…</option>
-            {divisions.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
+          <span style={{ color: 'var(--muted)' }}>Every class in</span>
+          {divisions.length > 1 && (
+            <select
+              value={division}
+              onChange={(e) => setDivision(e.target.value)}
+              disabled={busy}
+              aria-label="Division"
+              className={selectClass}
+              style={selectStyle}
+            >
+              <option value="">Any division</option>
+              {divisions.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          )}
+          {disciplines.length > 1 && (
+            <select
+              value={discipline}
+              onChange={(e) => setDiscipline(e.target.value)}
+              disabled={busy}
+              aria-label="Discipline"
+              className={selectClass}
+              style={selectStyle}
+            >
+              <option value="">Any discipline</option>
+              {disciplines.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          )}
+          {picked && (
+            <span style={{ color: 'var(--muted)' }}>
+              ({matching.length} {matching.length === 1 ? 'class' : 'classes'})
+            </span>
+          )}
           <button
             type="button"
-            onClick={() => void setEligible(inDivision, true)}
-            disabled={busy || !division}
-            title={!division ? 'Choose a division first' : busy ? 'Saving, please wait…' : undefined}
+            onClick={() => void setEligible(matching, true)}
+            disabled={busy || matching.length === 0}
+            title={bulkTitle}
             className="px-2.5 py-1 rounded border text-xs font-medium disabled:opacity-50"
             style={{ borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' }}
           >
@@ -112,9 +147,9 @@ export default function HighPointClasses({
           </button>
           <button
             type="button"
-            onClick={() => void setEligible(inDivision, false)}
-            disabled={busy || !division}
-            title={!division ? 'Choose a division first' : busy ? 'Saving, please wait…' : undefined}
+            onClick={() => void setEligible(matching, false)}
+            disabled={busy || matching.length === 0}
+            title={bulkTitle}
             className="px-2.5 py-1 rounded border text-xs font-medium disabled:opacity-50"
             style={{ borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' }}
           >
@@ -148,4 +183,9 @@ export default function HighPointClasses({
       />
     </div>
   );
+}
+
+/** The names present, once each, alphabetical; classes without one skipped. */
+function distinctNames(names: (string | null | undefined)[]): string[] {
+  return Array.from(new Set(names.filter((n): n is string => Boolean(n)))).sort((a, b) => a.localeCompare(b));
 }

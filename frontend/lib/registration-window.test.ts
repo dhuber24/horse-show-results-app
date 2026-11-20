@@ -16,6 +16,13 @@ describe('registrationAnswered', () => {
     expect(registrationAnswered({ entry_deadline: null, self_entry_closes: 'class_start' })).toBe(false);
     expect(registrationAnswered({})).toBe(false);
   });
+
+  it('needs the day of a date answer', () => {
+    expect(
+      registrationAnswered({ entry_deadline: '2026-10-01', self_entry_closes: 'on_date', self_entry_closes_on: '2026-10-07' }),
+    ).toBe(true);
+    expect(registrationAnswered({ entry_deadline: '2026-10-01', self_entry_closes: 'on_date' })).toBe(false);
+  });
 });
 
 describe('the sentences', () => {
@@ -33,6 +40,9 @@ describe('the sentences', () => {
     expect(classEntryText('class_start')).toMatch(/until each class starts/);
     expect(classEntryText(null)).toMatch(/until each class starts/);
     expect(classEntryText('office_only')).toMatch(/show office enters and scratches every class/);
+    expect(classEntryText('on_date', '2026-10-07')).toBe(
+      'Classes can be entered and scratched online through Wed, Oct 7.',
+    );
   });
 
   it('says when sign-up closed', () => {

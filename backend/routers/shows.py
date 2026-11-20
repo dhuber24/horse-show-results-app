@@ -43,6 +43,8 @@ from models import (
     User,
 )
 from schemas import (
+    CLASS_CHANGES_DATE_AFTER_END,
+    CLASS_CHANGES_DATE_MISSING,
     SIGNUP_DEADLINE_AFTER_START,
     APHAValidationOut,
     AssociationValidationOut,
@@ -65,7 +67,7 @@ from rules.apha import (
 )
 import standard_classes
 from venue_rings import adopt_venue_rings, apply_venue_change
-from self_entry import signup_open
+from self_entry import ON_DATE, class_entry_open, signup_open
 from show_access import SHOW_OFFICE_TABLES, show_office_users, worked_show_ids, works_show
 from show_companies import (
     ALL_FEATURE_ROLES,
@@ -143,6 +145,11 @@ def _serialize(show: Show) -> dict:
         "entry_deadline": show.entry_deadline,
         # How late exhibitors enter and scratch their own classes (migration 159).
         "self_entry_closes": show.self_entry_closes,
+        # The last day of an `on_date` answer (migration 206).
+        "self_entry_closes_on": show.self_entry_closes_on,
+        "class_entry_open": class_entry_open(
+            show.status, show.self_entry_closes, show.self_entry_closes_on
+        ),
         # Who a back number belongs to (migration 161): `exhibitor` or `horse`.
         "back_number_per": show.back_number_per or "exhibitor",
         "signup_open": signup_open(show.status, show.entry_deadline),
@@ -320,8 +327,8 @@ async def create_show(
     # (migration 156). Somebody in several companies is asked on Step 1. A
     # company on GaitDesk Free sets up no show (migration 169): this refuses
     # a caller with no company on Basic, Pro or Pro+.
-    company_id = await show_setup_company_for(db, creator, x_user_role)
-    show = Show(**body.model_dump(), created_by_user_id=creator, company_id=company_id)
+    company_id = await show_setup_company_for(db, creator, x_user_role, body.company_id)
+    show = Show(**body.model_dump(exclude={"company_id"}), created_by_user_id=creator, company_id=company_id)
     db.add(show)
     await db.flush()
     # Migration 204: a show at a venue starts with the venue's rings.
@@ -621,6 +628,21 @@ async def update_show(
         effective_start = updates.get("start_date", show.start_date)
         if effective_deadline and effective_start and effective_deadline > effective_start:
             raise HTTPException(422, SIGNUP_DEADLINE_AFTER_START)
+
+    # How late exhibitors change their own classes (migration 206): an `on_date`
+    # answer carries its day, no later than the show's last; any other answer
+    # keeps none. Checked when the answer, its day or the last day moves.
+    if {"self_entry_closes", "self_entry_closes_on", "end_date"} & updates.keys():
+        effective_closes = updates.get("self_entry_closes", show.self_entry_closes)
+        if effective_closes == ON_DATE:
+            effective_on = updates.get("self_entry_closes_on", show.self_entry_closes_on)
+            effective_end = updates.get("end_date", show.end_date)
+            if effective_on is None:
+                raise HTTPException(422, CLASS_CHANGES_DATE_MISSING)
+            if effective_end and effective_on > effective_end:
+                raise HTTPException(422, CLASS_CHANGES_DATE_AFTER_END)
+        elif "self_entry_closes" in updates or "self_entry_closes_on" in updates:
+            updates["self_entry_closes_on"] = None
 
     if {"stalls_open_date", "stalls_open_time"} & updates.keys():
         _settle_stalls_open(updates, show)

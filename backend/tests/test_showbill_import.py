@@ -362,6 +362,18 @@ def test_the_prompt_says_the_bill_wins_a_disagreement():
     assert "take the show bill's value." in SYSTEM_PROMPT
 
 
+def test_the_prompt_prices_team_classes_from_a_rate_named_for_their_kind():
+    """WSCA's 2026 entry fee table printed "DOUBLE CLASS $40" and named no
+    classes; the read left Tandem Bareback, Rescue Race and Ribbon Race with no
+    rate, and they were made at $0."""
+    from extraction.showbill import CLASSES_SCHEMA, SYSTEM_PROMPT
+
+    assert '"Double class"' in SYSTEM_PROMPT
+    assert "tandem bareback, ribbon race, rescue race" in SYSTEM_PROMPT
+    rate_key = CLASSES_SCHEMA["properties"]["classes"]["items"]["properties"]["rate_key"]
+    assert "double class" in rate_key["description"]
+
+
 def test_a_failed_class_pass_fails_the_read(monkeypatch):
     import asyncio
 

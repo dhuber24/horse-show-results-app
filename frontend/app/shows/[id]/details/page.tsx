@@ -152,7 +152,7 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
             {show.signup_open === false
               ? signupClosedText(show.entry_deadline)
               : signupDeadlineText(show.entry_deadline)}{' '}
-            {classEntryText(show.self_entry_closes)}
+            {classEntryText(show.self_entry_closes, show.self_entry_closes_on)}
           </Row>
         )}
         {show.show_type_code && (

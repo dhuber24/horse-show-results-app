@@ -42,6 +42,8 @@ type ClassRow = {
   id: string;
   score_type?: string | null;
   judging_system_id?: string | null;
+  /** What the class costs to enter; a priced class is a Step 7 fee. */
+  entry_fee_cents?: number;
   /** What somebody chose on the Scoring step (migration 155), or null. */
   card_type?: string | null;
   /** How the class is actually placed, derived where nobody chose. */
@@ -99,7 +101,10 @@ export const fetchStepCounts = cache(async function fetchStepCounts(
   // themselves and there is no fixed code to look for any more (see
   // CLASS_FEE_EDITOR_UNITS). The office charge is one of these rows since
   // migration 132, so it needs no separate term here.
-  const feesDone = fees.some((f) => isClassFeeEditorUnit(f.unit));
+  // A class priced on the class itself (the show bill reader writes the bill's
+  // rates there) is a class fee too, and Step 7 now shows and edits it.
+  const feesDone =
+    fees.some((f) => isClassFeeEditorUnit(f.unit)) || classes.some((c) => (c.entry_fee_cents ?? 0) > 0);
 
   return {
     showId,

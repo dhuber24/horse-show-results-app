@@ -34,11 +34,14 @@ because a horse that has not gone yet can still be pulled.
   starts, as before. Unanswered, sign-up stays open until the show starts.
 * **How late classes may be entered and scratched** (`shows.self_entry_closes`):
   until each class starts (`class_start`, the rules above, while the show runs
-  too), until the show starts (`show_start`, after which every class change
-  is the office's) or never (`office_only`, migration 185: exhibitors still sign
-  up online, but the office makes every class entry and scratch). Unanswered
-  reads as `class_start`, which is what every show did before the question was
-  asked.
+  too), through a day the office names (`on_date` with
+  `shows.self_entry_closes_on`, inclusive, migration 206 -- the rules above
+  apply until then, a running show included) or never (`office_only`,
+  migration 185: exhibitors still sign up online, but the office makes every
+  class entry and scratch). Unanswered reads as `class_start`, which is what
+  every show did before the question was asked. `show_start` (until the status
+  turns ACTIVE) was the second answer until migration 206 turned it into a
+  date; it is no longer offered but is still read.
 
 "The show starts" is the status turning ACTIVE, the same moment the self-cancel
 window reads it as (`cancellations.SELF_CANCEL_STATUSES`) -- not the calendar,
@@ -63,9 +66,10 @@ SELF_ENTRY_STATUSES = frozenset({"PUBLISHED", "ACTIVE"})
 # The answers to "how late may exhibitors enter and scratch their own classes"
 # (`shows.self_entry_closes`, migrations 159 and 185). Mirrors the column's CHECK.
 CLASS_START = "class_start"
-SHOW_START = "show_start"
+SHOW_START = "show_start"  # no longer offered (migration 206); still read
 OFFICE_ONLY = "office_only"
-SELF_ENTRY_CLOSES = (CLASS_START, SHOW_START, OFFICE_ONLY)
+ON_DATE = "on_date"
+SELF_ENTRY_CLOSES = (CLASS_START, SHOW_START, OFFICE_ONLY, ON_DATE)
 
 
 def self_entry_statuses(closes: Optional[str]) -> frozenset:
@@ -79,13 +83,24 @@ def self_entry_statuses(closes: Optional[str]) -> frozenset:
     return frozenset({"PUBLISHED"}) if closes == SHOW_START else SELF_ENTRY_STATUSES
 
 
-def class_entry_open(status: Optional[str], closes: Optional[str]) -> bool:
+def class_entry_open(
+    status: Optional[str],
+    closes: Optional[str],
+    closes_on: Optional[date] = None,
+    as_of: Optional[date] = None,
+) -> bool:
     """Whether an exhibitor may enter or scratch their own classes at all now.
 
     The per-class rules below still apply on top: this is the show's door, they
-    are each class's.
+    are each class's. An `on_date` show is open **through** its day, inclusive,
+    like the sign-up deadline, measured in the server's calendar; one with no
+    day stored reads as `class_start`.
     """
-    return status in self_entry_statuses(closes)
+    if status not in self_entry_statuses(closes):
+        return False
+    if closes == ON_DATE and closes_on is not None:
+        return (as_of or date.today()) <= closes_on
+    return True
 
 
 def signup_open(
@@ -114,10 +129,27 @@ def registration_window(show, as_of: Optional[date] = None) -> dict:
     return {
         "signup_open": signup_open(show.status, show.entry_deadline, as_of),
         "signup_deadline": show.entry_deadline,
-        "class_entry_open": class_entry_open(show.status, show.self_entry_closes),
+        "class_entry_open": class_entry_open(
+            show.status, show.self_entry_closes, show.self_entry_closes_on, as_of
+        ),
         "class_entry_closes": show.self_entry_closes or CLASS_START,
-        "answered": bool(show.entry_deadline and show.self_entry_closes),
+        # The day an `on_date` show's class doors close after; null otherwise.
+        "class_entry_closes_on": (
+            show.self_entry_closes_on if show.self_entry_closes == ON_DATE else None
+        ),
+        "answered": registration_answered(
+            show.entry_deadline, show.self_entry_closes, show.self_entry_closes_on
+        ),
     }
+
+
+def registration_answered(
+    entry_deadline: Optional[date], closes: Optional[str], closes_on: Optional[date]
+) -> bool:
+    """Both questions answered -- an `on_date` answer only with its day."""
+    if not (entry_deadline and closes):
+        return False
+    return closes != ON_DATE or closes_on is not None
 
 
 def signup_closed_refusal(show) -> dict:
@@ -160,8 +192,19 @@ def futurity_entry_closed_refusal() -> dict:
     }
 
 
-def class_entry_closed_refusal(closes: Optional[str] = None) -> dict:
+def class_entry_closed_refusal(
+    closes: Optional[str] = None, closes_on: Optional[date] = None
+) -> dict:
     """The 403 for a class entry or scratch once this show's class doors shut."""
+    if closes == ON_DATE and closes_on is not None:
+        # "After", because the day itself was still open.
+        return {
+            "code": "CLASS_ENTRY_CLOSED",
+            "message": (
+                f"Online class changes for this show closed after {closes_on:%B} "
+                f"{closes_on.day}. Ask the show office to enter or scratch a class."
+            ),
+        }
     if closes == OFFICE_ONLY:
         return {
             "code": "CLASS_ENTRY_CLOSED",

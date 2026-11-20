@@ -320,17 +320,19 @@ async def _load_published_show_or_403(
 
 async def _load_entry_window_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
     """The class doors' loader: PUBLISHED, or ACTIVE while the show runs --
-    unless the show office answered that exhibitors' class changes stop when the
-    show starts, or that the office makes every class change
-    (`shows.self_entry_closes`, migrations 159 and 185).
+    unless the show office named a last day for exhibitors' class changes and it
+    has passed, or answered that the office makes every class change
+    (`shows.self_entry_closes`, migrations 159, 185 and 206).
 
     Everything else in this router stays PUBLISHED-only -- sign-up, stalls,
     horses, back numbers and futurity entries are settled before the show,
     and a running show's office takes those at the counter.
     """
     show = await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
-    if not class_entry_open(show.status, show.self_entry_closes):
-        raise HTTPException(403, class_entry_closed_refusal(show.self_entry_closes))
+    if not class_entry_open(show.status, show.self_entry_closes, show.self_entry_closes_on):
+        raise HTTPException(
+            403, class_entry_closed_refusal(show.self_entry_closes, show.self_entry_closes_on)
+        )
     return show
 
 
@@ -1716,7 +1718,7 @@ async def preview_registration(
     screen offers exactly what `POST /` and `DELETE /entries/{id}` will accept.
     """
     # Readable whenever the class page is, even where the class doors have shut
-    # (`self_entry_closes = show_start` at a running show, or `office_only` at
+    # (`self_entry_closes = on_date` past its day, or `office_only` at
     # any): the page still lists what they are entered in, and `registration`
     # says the doors are shut.
     show = await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)

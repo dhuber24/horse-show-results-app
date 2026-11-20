@@ -115,6 +115,12 @@ export interface MyFeatures {
   /** Any of the caller's companies is on a plan that sets up shows
    *  (migration 169). Creating a show enforces it. */
   can_set_up_shows: boolean;
+  /** The companies a new show could run under, organizations first, and the
+   *  one it runs under unless New Show's Step 1 picks another. Step 1 asks
+   *  only when there is more than one. Empty for an admin, who chooses on
+   *  Basics & Staff once the show exists. */
+  show_setup_companies?: CompanyRef[];
+  default_show_company_id?: string | null;
   /** Set while the company a new show would run under owes for a finished
    *  show (migration 173). Creating a show enforces it. */
   settle_up_message?: string | null;
@@ -327,6 +333,9 @@ export async function fetchMyFeatures(headers: Record<string, string> | null): P
       upgrade_requests: Array.isArray(body?.upgrade_requests) ? body.upgrade_requests : [],
       plans: Array.isArray(body?.plans) ? body.plans : [],
       can_set_up_shows: body?.can_set_up_shows === true,
+      show_setup_companies: Array.isArray(body?.show_setup_companies) ? body.show_setup_companies : [],
+      default_show_company_id:
+        typeof body?.default_show_company_id === 'string' ? body.default_show_company_id : null,
       settle_up_message: typeof body?.settle_up_message === 'string' ? body.settle_up_message : null,
       can_pay_online: body?.can_pay_online === true,
       pro_plus_lapsed_message:

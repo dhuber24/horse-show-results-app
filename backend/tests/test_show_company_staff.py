@@ -141,3 +141,72 @@ def test_a_guest_cannot_take_the_show_to_their_own_club():
 
 def test_an_admin_may_always_move_it():
     assert may_change_company("ADMIN", GUEST, {ME}, set())
+
+
+# ── New Show's Step 1 asks which company, when there is a choice ─────────────
+
+
+def _companies(monkeypatch, plans):
+    """The caller works for CLUB, OTHER_CLUB (Free) and their own MY_OWN."""
+    import show_companies
+
+    rows = [(CLUB, None, "Dan's Show Staff"), (OTHER_CLUB, None, "Free Club"), (MY_OWN, ME, "Show Manager")]
+
+    async def member_companies(db, user_id):
+        return rows
+
+    async def plan_states(db, ids, on=None):
+        return {cid: (plans[cid], None) for cid in ids}
+
+    async def clear(db, cid):
+        return None
+
+    monkeypatch.setattr(show_companies, "_member_companies", member_companies)
+    monkeypatch.setattr(show_companies, "plan_states", plan_states)
+    monkeypatch.setattr(show_companies, "settle_up_block", clear)
+    return show_companies
+
+
+def test_step_1_offers_every_company_on_a_plan_and_preselects_the_club(monkeypatch):
+    sc = _companies(monkeypatch, {CLUB: "basic", OTHER_CLUB: "free", MY_OWN: "pro"})
+    able, default = asyncio.run(sc.show_setup_companies(None, ME, "SHOW_MANAGER"))
+    # Organizations first; a company on Free is never offered.
+    assert [cid for cid, _name, _personal in able] == [CLUB, MY_OWN]
+    assert [personal for _cid, _name, personal in able] == [False, True]
+    assert default == CLUB
+
+
+def test_an_admin_is_offered_nothing_on_step_1(monkeypatch):
+    sc = _companies(monkeypatch, {CLUB: "basic", OTHER_CLUB: "free", MY_OWN: "pro"})
+    assert asyncio.run(sc.show_setup_companies(None, ME, "ADMIN")) == ([], None)
+
+
+def test_the_company_step_1_picked_runs_the_show(monkeypatch):
+    sc = _companies(monkeypatch, {CLUB: "basic", OTHER_CLUB: "free", MY_OWN: "pro"})
+    assert asyncio.run(sc.show_setup_company_for(None, ME, "SHOW_MANAGER", MY_OWN)) == MY_OWN
+    # Nothing picked: the default, as before.
+    assert asyncio.run(sc.show_setup_company_for(None, ME, "SHOW_MANAGER")) == CLUB
+
+
+@pytest.mark.parametrize("pick", [OTHER_CLUB, uuid4()], ids=["on Free", "not theirs"])
+def test_step_1_cannot_pick_a_company_on_free_or_one_they_do_not_work_for(monkeypatch, pick):
+    from fastapi import HTTPException
+
+    sc = _companies(monkeypatch, {CLUB: "basic", OTHER_CLUB: "free", MY_OWN: "pro"})
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(sc.show_setup_company_for(None, ME, "SHOW_MANAGER", pick))
+    assert refused.value.status_code == 403
+
+
+def test_the_picked_company_still_has_to_have_settled_up(monkeypatch):
+    from fastapi import HTTPException
+
+    sc = _companies(monkeypatch, {CLUB: "basic", OTHER_CLUB: "free", MY_OWN: "pro"})
+
+    async def owes(db, cid):
+        return "owes for Summer Classic" if cid == MY_OWN else None
+
+    monkeypatch.setattr(sc, "settle_up_block", owes)
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(sc.show_setup_company_for(None, ME, "SHOW_MANAGER", MY_OWN))
+    assert "Summer Classic" in refused.value.detail

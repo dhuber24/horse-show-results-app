@@ -1875,16 +1875,56 @@ def show_setup_choice(
     return default_show_company(able)
 
 
-async def show_setup_company_for(db: AsyncSession, user_id: UUID, role: str) -> UUID | None:
+async def show_setup_company_for(
+    db: AsyncSession, user_id: UUID, role: str, chosen: UUID | None = None
+) -> UUID | None:
     """`show_setup_choice` for the account creating a show: the gate on every
     path that makes one (a new show, a show bill's Create). Also refuses
     (403) while that company has a finished show to pay for (migration 173,
-    `gaitdesk_invoices.settle_up_block`)."""
-    company_id = await _show_setup_company(db, user_id, role)
+    `gaitdesk_invoices.settle_up_block`).
+
+    `chosen` is the company New Show's Step 1 picked, for somebody who could
+    run the show under more than one (`show_setup_companies`). It is held to
+    the same rules as the default: one they work for, on a plan that sets up
+    shows. An ADMIN may name any company."""
+    if chosen is None:
+        company_id = await _show_setup_company(db, user_id, role)
+    elif role in ALL_FEATURE_ROLES:
+        if await db.get(ShowCompany, chosen) is None:
+            raise HTTPException(404, "Show company not found")
+        return chosen
+    elif role not in SHOW_OFFICE_ROLES:
+        return None
+    else:
+        able, _default = await show_setup_companies(db, user_id, role)
+        if chosen not in {cid for cid, _name, _personal in able}:
+            raise HTTPException(
+                403, "You can only set up a show under a company you work for that is on Basic or Pro."
+            )
+        company_id = chosen
     block = await settle_up_block(db, company_id)
     if block:
         raise HTTPException(403, block)
     return company_id
+
+
+async def show_setup_companies(
+    db: AsyncSession, user_id: UUID, role: str
+) -> tuple[list[tuple[UUID, str, bool]], UUID | None]:
+    """The companies a new show could run under, as `(id, name, personal)`,
+    organizations first, and the one it runs under unless Step 1 says
+    otherwise. Empty for an ADMIN, who chooses on Basics & Staff once the show
+    exists, and for anybody whose companies are all on Free."""
+    if role in ALL_FEATURE_ROLES or role not in SHOW_OFFICE_ROLES:
+        return [], None
+    rows = await _member_companies(db, user_id)
+    states = await plan_states(db, [r[0] for r in rows])
+    able = [
+        (cid, owner, name) for cid, owner, name in rows if sets_up_shows(states.get(cid, (FREE, None))[0])
+    ]
+    able.sort(key=lambda c: (c[1] is not None, c[2].lower()))
+    default = default_show_company([(cid, owner) for cid, owner, _name in able])
+    return [(cid, name, owner is not None) for cid, owner, name in able], default
 
 
 async def settle_up_block(db: AsyncSession, company_id: UUID | None) -> str | None:

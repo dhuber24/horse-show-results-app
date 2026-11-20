@@ -106,6 +106,14 @@ class VenueOut(BaseModel):
 SIGNUP_DEADLINE_AFTER_START = (
     "The last day to sign up online can be no later than the show's first day."
 )
+# An `on_date` answer to how late exhibitors change their own classes (migration
+# 206) needs its day, and the day cannot be after the show is over.
+CLASS_CHANGES_DATE_MISSING = (
+    "Choose the last day exhibitors can enter and scratch their own classes online."
+)
+CLASS_CHANGES_DATE_AFTER_END = (
+    "The last day for exhibitors' own class changes can be no later than the show's last day."
+)
 
 class ShowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -117,7 +125,13 @@ class ShowCreate(BaseModel):
     entry_deadline: Optional[date] = None
     # How late exhibitors enter and scratch their own classes (migration 159).
     # Both are asked when a show is created and required to publish it.
-    self_entry_closes: Optional[Literal["class_start", "show_start", "office_only"]] = None
+    # `show_start` is no longer offered (migration 206) but still accepted, so a
+    # browser holding the old page during a release does not fail.
+    self_entry_closes: Optional[
+        Literal["class_start", "show_start", "office_only", "on_date"]
+    ] = None
+    # The last day, inclusive, of an `on_date` answer (migration 206).
+    self_entry_closes_on: Optional[date] = None
     # Who a back number belongs to (migration 161): one per exhibitor, one per
     # horse as APHA SC-160.D requires, or one per exhibitor per horse
     # (migration 178).
@@ -131,6 +145,10 @@ class ShowCreate(BaseModel):
     show_category_id: Optional[UUID] = None
     offers_clinic: bool = False
     aqha_show_number: Optional[str] = Field(default=None, max_length=50)
+    # The company that runs it, when Step 1 asked: somebody who could run it
+    # under more than one (`show_companies.show_setup_companies`). Left out,
+    # the creator's default company runs it, as before.
+    company_id: Optional[UUID] = None
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -138,6 +156,14 @@ class ShowCreate(BaseModel):
             raise ValueError("The end date must be on or after the start date.")
         if self.entry_deadline and self.entry_deadline > self.start_date:
             raise ValueError(SIGNUP_DEADLINE_AFTER_START)
+        if self.self_entry_closes == "on_date":
+            if self.self_entry_closes_on is None:
+                raise ValueError(CLASS_CHANGES_DATE_MISSING)
+            if self.self_entry_closes_on > self.end_date:
+                raise ValueError(CLASS_CHANGES_DATE_AFTER_END)
+        else:
+            # Only an `on_date` answer keeps a day.
+            self.self_entry_closes_on = None
         return self
 
 class ShowUpdate(BaseModel):
@@ -147,7 +173,10 @@ class ShowUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     entry_deadline: Optional[date] = None
-    self_entry_closes: Optional[Literal["class_start", "show_start", "office_only"]] = None
+    self_entry_closes: Optional[
+        Literal["class_start", "show_start", "office_only", "on_date"]
+    ] = None
+    self_entry_closes_on: Optional[date] = None
     back_number_per: Optional[Literal["exhibitor", "horse", "pair"]] = None
     status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE", "COMPLETED"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
@@ -276,6 +305,11 @@ class ShowOut(BaseModel):
     # Migration 159. Serialized in `routers/shows._serialize` as well -- see the
     # note on `showbill_source` below.
     self_entry_closes: Optional[str] = None
+    # The last day of an `on_date` answer (migration 206).
+    self_entry_closes_on: Optional[date] = None
+    # Whether exhibitors may enter and scratch their own classes today
+    # (`self_entry.class_entry_open`). Derived, like `signup_open`.
+    class_entry_open: bool = False
     # Who a back number belongs to (migration 161). Serialized in `_serialize`
     # too, for the same reason.
     back_number_per: str = "exhibitor"
@@ -417,6 +451,21 @@ class ShowPatternOut(BaseModel):
     classes: list[ShowPatternClassOut] = Field(default_factory=list)
 
 
+class ShowPatternReadOut(BaseModel):
+    """What reading an uploaded pattern file did (GaitDesk Pro, `pattern_reading`).
+
+    `patterns` is every pattern on the show afterwards, in the list's order, as
+    `PUT /assignments` answers, so the screen redraws from one answer. `added`
+    names the ones this file made. `assigned` counts the classes it attached;
+    `kept` the classes it named that already had a pattern, which it left as
+    the office had them.
+    """
+    patterns: list[ShowPatternOut]
+    added: list[UUID]
+    assigned: int
+    kept: int
+
+
 class ShowPatternUpdate(BaseModel):
     """Renaming a pattern or changing its notes. The file is replaced on its own
     endpoint, since that is the change an exhibitor needs to be told about."""
@@ -450,21 +499,6 @@ class ClassCardPhotoOut(BaseModel):
 
 
 # ── Sanctioned Associations ────────────────────────────────────────────────────
-
-class ShowPatternReadOut(BaseModel):
-    """What reading an uploaded pattern file did (GaitDesk Pro, `pattern_reading`).
-
-    `patterns` is every pattern on the show afterwards, in the list's order, as
-    `PUT /assignments` answers, so the screen redraws from one answer. `added`
-    names the ones this file made. `assigned` counts the classes it attached;
-    `kept` the classes it named that already had a pattern, which it left as
-    the office had them.
-    """
-    patterns: list[ShowPatternOut]
-    added: list[UUID]
-    assigned: int
-    kept: int
-
 
 class SanctionedAssociationCreate(BaseModel):
     code: str = Field(min_length=1, max_length=20)
@@ -925,6 +959,14 @@ class ClassBulkRing(BaseModel):
 
     class_ids: list[UUID] = Field(min_length=1, max_length=1000)
     ring_id: UUID
+
+
+class ClassBulkEntryFee(BaseModel):
+    """One price for a group of classes, set from the Show Fees step's class
+    prices ("every $20 class is now $22"). Capped like `ClassBulkDelete`."""
+
+    class_ids: list[UUID] = Field(min_length=1, max_length=1000)
+    entry_fee_cents: int = Field(ge=0, le=10_000_000)
 
 
 class ClassScoringApply(BaseModel):
@@ -1574,6 +1616,8 @@ class ShowBillImportShow(BaseModel):
     vaccination_notes: Optional[str] = Field(default=None, max_length=2000)
     public_notes: Optional[str] = Field(default=None, max_length=5000)
     office_notes: Optional[str] = Field(default=None, max_length=20000)
+    # The company that runs it, when the confirm page asked (as `ShowCreate`).
+    company_id: Optional[UUID] = None
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -1840,6 +1884,9 @@ class ShowBillImportStart(BaseModel):
     venue: Optional[ShowBillVenueChoice] = None
     public_notes: Optional[str] = Field(default=None, max_length=5000)
     office_notes: Optional[str] = Field(default=None, max_length=20000)
+    # The company that runs it, for somebody who could run it under more than
+    # one (`show_companies.show_setup_companies`); left out, their default.
+    company_id: Optional[UUID] = None
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -2323,6 +2370,10 @@ class MyFeaturesOut(BaseModel):
     # Migration 169: whether any of the caller's companies is on a plan that
     # sets up shows. What the New Show buttons ask; creating one enforces it.
     can_set_up_shows: bool = False
+    # The companies a new show could run under, and the one it does unless
+    # New Show's Step 1 picks another -- asked there when there is more than one.
+    show_setup_companies: list[ShowCompanyRef] = Field(default_factory=list)
+    default_show_company_id: Optional[UUID] = None
     # Migration 173: set while the company a new show would run under owes for
     # a finished show -- the New Show page says so instead of Step 1.
     settle_up_message: Optional[str] = None

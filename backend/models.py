@@ -167,10 +167,14 @@ class Show(Base):
     # `post_entry` fee.
     entry_deadline = Column(Date, nullable=True)
     # How late an exhibitor may enter and scratch their own classes (migration
-    # 159): `class_start`, `show_start` or `office_only` (never; migration 185).
-    # NULL is not answered and reads as
-    # `class_start`. Read through `self_entry.class_entry_open`.
+    # 159): `class_start`, `on_date` (through `self_entry_closes_on`, migration
+    # 206) or `office_only` (never; migration 185) -- `show_start`, no longer
+    # offered, is still read. NULL is not answered and reads as `class_start`.
+    # Read through `self_entry.class_entry_open`.
     self_entry_closes = Column(Text, nullable=True)
+    # The last day, inclusive, of an `on_date` answer (migration 206); NULL
+    # for every other answer.
+    self_entry_closes_on = Column(Date, nullable=True)
     # Who a back number belongs to at this show (migration 161): `exhibitor`,
     # one per person on `show_entries.back_number`; `horse`, one per horse on
     # `show_horse_numbers` -- APHA SC-160.D numbers horses; or `pair`, one per

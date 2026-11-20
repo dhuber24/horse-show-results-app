@@ -8,6 +8,18 @@
  * file only labels and orders what came back — see `routers/show_board.py`.
  */
 
+/** The statuses whose board can be read — `READABLE_STATUSES` in
+ *  `routers/show_board.py`. A draft's board answers 404 to everybody, the
+ *  office included, so its tiles say why instead of leading there. */
+const READABLE_STATUSES = ['PUBLISHED', 'ACTIVE', 'COMPLETED'];
+
+export function boardReadable(showStatus: string): boolean {
+  return READABLE_STATUSES.includes(showStatus);
+}
+
+/** What the board's tile says in place of a link while it can't be read. */
+export const BOARD_NOT_LIVE = 'The Discussion Board will go live once this show is published.';
+
 export type BoardMode = 'open' | 'signed_in' | 'closed';
 export type BoardCategory = 'general' | 'question' | 'callout' | 'update' | 'lost_found';
 

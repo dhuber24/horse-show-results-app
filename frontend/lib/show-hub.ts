@@ -1,5 +1,6 @@
 import type { MyShowStanding } from './my-shows';
 import { signupDeadlineText } from './registration-window';
+import { BOARD_NOT_LIVE, boardReadable } from './show-board';
 import { signUpLink, type SignUpLink } from './show-signup';
 
 /**
@@ -30,6 +31,8 @@ export type HubTile = {
   icon: string;
   title: string;
   description: string;
+  /** Not a link yet: shown greyed, its description saying why. */
+  disabled?: boolean;
 };
 
 /** The fields of the show payload the menu reads. */
@@ -41,6 +44,9 @@ export type HubShow = {
   /** The last day to sign up online, `YYYY-MM-DD` (migration 159). */
   entry_deadline?: string | null;
   self_entry_closes?: string | null;
+  /** `self_entry.class_entry_open`: exhibitors may change their own classes
+   *  today. Decided on the server; omitted, read from the answer alone. */
+  class_entry_open?: boolean;
 };
 
 /** Who is reading the menu. */
@@ -140,9 +146,12 @@ export function buildShowHub(showId: string, show: HubShow, viewer: HubViewer): 
   // A show whose office makes every class change (`office_only`, migration
   // 185) keeps the tile, read-only, as My Classes from sign-up on.
   const officeOnly = show.self_entry_closes === 'office_only';
+  // The class doors shut by the server's answer: office-only, or past the last
+  // day an `on_date` show named (migration 206).
+  const classesShut = officeOnly || show.class_entry_open === false;
   if (signedUp && show.status === 'PUBLISHED') {
     mine.push(
-      officeOnly
+      classesShut
         ? {
             href: `/shows/${showId}/register/classes`,
             icon: '📝',
@@ -166,10 +175,10 @@ export function buildShowHub(showId: string, show: HubShow, viewer: HubViewer): 
     );
   } else if (signedUp && show.status === 'ACTIVE') {
     // Under way: the class doors stay open (`backend/self_entry.py`) unless the
-    // office said class changes stop when the show starts, or are always its. Details and stalls
+    // office's last day for class changes has passed, or they are always its. Details and stalls
     // are the office's from here on, so My Registration goes.
     mine.push(
-      show.self_entry_closes === 'show_start' || officeOnly
+      show.self_entry_closes === 'show_start' || classesShut
         ? {
             href: `/shows/${showId}/register/classes`,
             icon: '📝',
@@ -206,7 +215,7 @@ export function buildShowHub(showId: string, show: HubShow, viewer: HubViewer): 
     signUp: wayIn(showId, show, { exhibitor, signedUp, cancelled, entryCount }),
     mine,
     sections: [
-      ...publicSections(showId),
+      ...publicSections(showId).map((tile) => boardNotLive(showId, show, tile)),
       {
         href: `/shows/${showId}/contact`,
         icon: '✉️',
@@ -215,6 +224,17 @@ export function buildShowHub(showId: string, show: HubShow, viewer: HubViewer): 
       },
     ],
   };
+}
+
+/**
+ * The Discussion Board's tile on a show the board can't be read for yet — a
+ * draft, which only staff see the hub of. The board answers 404 to everybody
+ * until the show is published, the office included, so the tile stays in its
+ * place and says when it opens rather than leading to "not found".
+ */
+function boardNotLive(showId: string, show: HubShow, tile: HubTile): HubTile {
+  if (tile.href !== `/shows/${showId}/board` || boardReadable(show.status)) return tile;
+  return { ...tile, description: BOARD_NOT_LIVE, disabled: true };
 }
 
 /** The home page's list for each status — Active, Upcoming, Past. */
