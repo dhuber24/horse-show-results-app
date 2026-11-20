@@ -4,13 +4,11 @@ The show is created as a DRAFT straight from the read, filled in as far as the
 bill allows -- the show, its judges and venue (as the person on the confirm
 page settled them), club sanctioning, the class schedule with its prices, the
 fee catalogue, every futurity and side pot the bill runs. Nothing waits on an
-Accept. What the office should look at is written down instead:
+Accept, and nothing is listed for the office to check: the office walks the
+setup steps and fixes what is wrong there. The read also drafts two notes:
 
-* **Office notes** (`shows.office_notes`): every doubt about the read, the
-  reader's and the app's -- a price multiplied by a judge count, a fee that
-  bills everybody who enters, a club the registry lacks -- grouped by the
-  setup step that edits it, then what the bill told the office that no field
-  holds (its officials, its procedures).
+* **Office notes** (`shows.office_notes`): what the bill told the office that
+  no field holds (its officials, its procedures).
 * **Show notes** (`shows.public_notes`): what the bill tells exhibitors that no
   field holds -- awards, sponsors, the refund policy, grounds rules.
 
@@ -30,60 +28,31 @@ venue (with its full address). See `ShowBillImportStart`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field as dc_field
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
 from billing import CLUB_SANCTION_UNITS
 
-# Section headings in the office notes, in setup-step order.
-BASICS = "Basics & Staff"
-JUDGES = "Judges"
-LODGING = "Lodging"
-CLASSES = "Class Builder"
-SANCTIONING = "Sanctioning"
-FUTURITIES = "Futurities & Side Pots"
-FEES = "Fees"
-PAPERWORK = "Paperwork"
-WHOLE_BILL = "The whole bill"
-
-SECTION_ORDER = (BASICS, JUDGES, LODGING, CLASSES, SANCTIONING, FUTURITIES, FEES, PAPERWORK, WHOLE_BILL)
-
-# The Lodging step's own rows (`showbill_import.fee_codes`).
-_LODGING_CODES = {"stall", "shavings", "camping", "hookup"}
-
-_AUTOMATIC_UNITS = {
-    "per_exhibitor",
-    "per_horse",
-    "per_judge_per_horse",
-    "per_judge_per_exhibitor",
-    "per_judge_per_entry",
-    "per_entry",
-}
-_RESERVABLE_UNITS = {"per_stall", "per_bag", "per_night", "per_day", "per_show"}
-
-# Where a doubt from a read made before 2026-11-15 shows: those reads tagged
-# each doubt with the show field or the setup topic it was about.
-_LEGACY_FIELD_SECTIONS = {
-    "requires_coggins": PAPERWORK,
-    "requires_health_certificate": PAPERWORK,
-    "requires_vaccination": PAPERWORK,
-    "shavings_ban_outside": LODGING,
-}
-_LEGACY_TOPIC_SECTIONS = {"futurity": FUTURITIES, "side_pot": FUTURITIES, "high_point": "Scoring"}
+# The setup topic an older read's `not_imported` line was about, as the office
+# notes name it.
+_LEGACY_TOPIC_SECTIONS = {"futurity": "Futurities & Side Pots", "side_pot": "Futurities & Side Pots", "high_point": "Scoring"}
 
 # `shows.office_notes` as `ShowUpdate` takes it.
 OFFICE_NOTES_MAX = 20000
 PUBLIC_NOTES_MAX = 5000
 
 # What a side pot costs when the bill prices it at nothing it printed --
-# `SidePotCreate`'s own default, said so in the notes.
+# `SidePotCreate`'s own default.
 DEFAULT_SIDE_POT_FEE_CENTS = 1000
+# A time pot's D lines when the bill names its Ds but not how far apart they
+# are: half a second, the common barrel split.
+DEFAULT_D_SPLIT_MS = 500
 
 
 @dataclass
 class Draft:
-    """Everything `apply_import` creates, as plain dicts, and what to look at."""
+    """Everything `apply_import` creates, as plain dicts."""
     show: dict[str, Any]
     venue: Optional[dict[str, Any]]
     judges: list[dict[str, Any]]
@@ -92,7 +61,8 @@ class Draft:
     fees: list[dict[str, Any]]
     futurities: list[dict[str, Any]]
     side_pots: list[dict[str, Any]]
-    review: list[tuple[str, str]] = dc_field(default_factory=list)
+    # The stall periods the bill sells stalls for, with their prices.
+    stall_periods: list[dict[str, Any]] = dc_field(default_factory=list)
 
     def payload(self, *, attach_showbill: bool, public_notes: Optional[str], office_notes: Optional[str]) -> dict:
         return {
@@ -105,24 +75,8 @@ class Draft:
             "futurities": self.futurities,
             "side_pots": self.side_pots,
             "attach_showbill": attach_showbill,
+            "stall_periods": self.stall_periods,
         }
-
-
-def _money(cents: int) -> str:
-    return f"${cents / 100:,.2f}"
-
-
-def _names(items: list[str], limit: int = 5) -> str:
-    shown = ", ".join(items[:limit])
-    return shown + (f" and {len(items) - limit} more" if len(items) > limit else "")
-
-
-def _day(d: date) -> str:
-    return f"{d.strftime('%a %b')} {d.day}"
-
-
-def _plural(n: int, one: str, many: Optional[str] = None) -> str:
-    return f"{n} {one if n == 1 else (many or one + 's')}"
 
 
 def _cut(value: Optional[str], limit: int) -> Optional[str]:
@@ -133,11 +87,143 @@ def _cut(value: Optional[str], limit: int) -> Optional[str]:
     return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
 
 
-def _class_label(cls: dict[str, Any]) -> str:
-    """The class as the bill printed it -- its printed number is how the reader
-    finds it on paper."""
-    number = cls.get("number")
-    return f"{cls['name']} (bill #{number})" if number else cls["name"]
+# The Lodging step's own default for a period's move-in: the day before the
+# show, at noon (`defaultMoveIn`, `lib/default-time.ts`).
+_NOON = time(12, 0)
+# A stalls-open day further from the show than this is a misread, not a plan.
+_MOVE_IN_REACH = timedelta(days=14)
+
+
+def _as_time(value: Any) -> Optional[time]:
+    if isinstance(value, str) and value:
+        try:
+            return time.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _fit_period(
+    move_in: Optional[date],
+    in_time: Optional[time],
+    move_out: Optional[date],
+    out_time: Optional[time],
+    start_date: date,
+    end_date: date,
+) -> tuple[date, Optional[time], date, Optional[time]]:
+    """A period's move-in and move-out, the Lodging step's own default where the
+    bill gives none or one too far from the show to be right."""
+    if move_in is None or not (start_date - _MOVE_IN_REACH <= move_in <= end_date):
+        move_in, in_time = start_date - timedelta(days=1), _NOON
+    if move_out is None or not (max(move_in, start_date) <= move_out <= end_date + timedelta(days=2)):
+        move_out, out_time = end_date, None
+    return move_in, in_time, move_out, out_time
+
+
+def _shifted(value: Any, shift: timedelta) -> Optional[date]:
+    day = _as_date(value)
+    return day + shift if day else None
+
+
+def _stall_periods(
+    extracted: dict[str, Any], start_date: date, end_date: date, shift: timedelta
+) -> list[dict[str, Any]]:
+    """The show's stall periods as the bill sells them, each with its box, tie
+    and tack prices and its own Early Move-In Pass -- what the Lodging step's
+    *Stalls & move-in* card sets, so the step opens on them rather than on one
+    period with the rest under *Other charges per stall*.
+
+    The rules every period shares (`show.stall_notes`) open the first period's
+    move-in notes: Show Details prints every period's notes together, so one
+    copy is read by everybody, where a copy on each would print three times.
+    Moves with the schedule when the first day is moved."""
+    show_x = extracted.get("show") or {}
+    read = extracted.get("stall_periods")
+    if read is None:
+        # A read made before 2026-11-18, which gave one move-in for the show.
+        read = []
+        if show_x.get("stall_notes") or show_x.get("stalls_move_in_date"):
+            read = [
+                {
+                    "name": "Full show",
+                    "move_in_date": show_x.get("stalls_move_in_date"),
+                    "move_in_time": show_x.get("stalls_move_in_time"),
+                    "move_out_date": show_x.get("stalls_move_out_date"),
+                    "move_out_time": show_x.get("stalls_move_out_time"),
+                    "stalls": [],
+                }
+            ]
+    shared = show_x.get("stall_notes")
+    if not read and shared:
+        read = [{"name": "Full show", "stalls": []}]
+
+    periods: list[dict[str, Any]] = []
+    for index, p in enumerate(read):
+        name = p["name"]
+        move_in, in_time, move_out, out_time = _fit_period(
+            _shifted(p.get("move_in_date"), shift),
+            _as_time(p.get("move_in_time")),
+            _shifted(p.get("move_out_date"), shift),
+            _as_time(p.get("move_out_time")),
+            start_date,
+            end_date,
+        )
+        notes = "\n\n".join(n for n in ((shared if index == 0 else None), p.get("move_in_notes")) if n) or None
+
+        reserve_by = _as_date(p.get("reserve_by"))
+        stalls = [
+            {
+                "kind": st["kind"],
+                "amount_cents": st["amount_cents"],
+                "early_amount_cents": st.get("early_amount_cents") if reserve_by else None,
+                "early_deadline": reserve_by if st.get("early_amount_cents") else None,
+                "horses_per_tack_stall": st.get("horses_per_tack_stall"),
+                "notes": _cut(st.get("notes"), 500),
+            }
+            for st in p.get("stalls") or []
+        ]
+
+        early_pass = None
+        ps = p.get("early_move_in_pass")
+        if ps:
+            pass_in = _shifted(ps.get("move_in_date"), shift)
+            pass_time = _as_time(ps.get("move_in_time")) if pass_in else None
+            # Not before the period's own move-in: left for the office to set.
+            if pass_in and not (move_in - _MOVE_IN_REACH <= pass_in <= move_in):
+                pass_in = pass_time = None
+            pass_end = _shifted(ps.get("move_in_end_date"), shift) if pass_in else None
+            end_time = _as_time(ps.get("move_in_end_time")) if pass_end else None
+            if pass_end and (
+                pass_end < pass_in
+                or pass_end > move_out
+                or (pass_end == pass_in and pass_time and end_time and end_time <= pass_time)
+            ):
+                pass_end = end_time = None
+            early_pass = {
+                "label": _cut(ps.get("label"), 200),
+                "amount_cents": ps["amount_cents"],
+                "move_in_date": pass_in,
+                "move_in_time": pass_time,
+                "move_in_end_date": pass_end,
+                "move_in_end_time": end_time,
+                "one_per_exhibitor": bool(ps.get("per_exhibitor")),
+                "notes": _cut(ps.get("notes"), 500),
+            }
+
+        periods.append(
+            {
+                "name": name,
+                "move_in_date": move_in,
+                "move_in_time": in_time,
+                "move_out_date": move_out,
+                "move_out_time": out_time,
+                "move_out_note": _cut(p.get("move_out_note"), 200),
+                "move_in_notes": _cut(notes, 2000),
+                "stalls": stalls,
+                "early_move_in_pass": early_pass,
+            }
+        )
+    return periods
 
 
 def _as_date(value: Any) -> Optional[date]:
@@ -163,7 +249,7 @@ def per_judge_count(rate: dict[str, Any], bill_judges: list[dict[str, Any]]) -> 
     rate's association, or the whole panel when none is, or when the rate names
     no association. The panel is the bill's judges the confirm page kept --
     worked out before the show exists, so a price does not follow a panel
-    changed later, which is why every rate is a line in the office notes.
+    changed later.
     """
     code = (rate.get("association_code") or "").upper()
     if code:
@@ -194,33 +280,24 @@ def draft_from_read(
     end_date: date,
     judge_choices: list[dict[str, Any]],
     venue_choice: Optional[dict[str, Any]],
-    clubs: dict[Any, Any],
 ) -> Draft:
-    """The show a read becomes, and the lines of the office notes.
+    """The show a read becomes.
 
     `judge_choices` is one per judge the bill names, in order: `{"judge_id"}`
     for a registry judge, `{"new": {...}}` for one to add, `{"leave_off": True}`,
     or `{}` -- not settled yet, which the confirm page's preview allows and the
     create refuses before it gets here. `venue_choice` is `{"venue_id"}`,
-    `{"new": {...}}` or None. `clubs` is id -> registry row, for the notes.
+    `{"new": {...}}` or None.
     """
     from routers.show_fees import _assert_early_rate_valid, _assert_min_quantity_valid
     from fastapi import HTTPException
 
     show_x = extracted.get("show") or {}
-    review: list[tuple[str, str]] = []
-
-    def note(section: str, text: str) -> None:
-        review.append((section, text))
 
     # --- The show row ---
     entry_deadline = _as_date(show_x.get("entry_deadline"))
+    # After the show starts is not allowed: left blank for the office to set.
     if entry_deadline and entry_deadline > start_date:
-        note(
-            BASICS,
-            f"The bill's entry deadline ({entry_deadline.isoformat()}) is after the show starts, which the app "
-            "does not allow, so it was left blank. Set the last day to sign up online.",
-        )
         entry_deadline = None
     cvi_days = show_x.get("health_certificate_valid_days") or 30
     show = {
@@ -239,22 +316,8 @@ def draft_from_read(
         "requires_health_certificate": bool(show_x.get("requires_health_certificate")),
         "health_certificate_valid_days": cvi_days if 1 <= cvi_days <= 365 else 30,
         "requires_vaccination": bool(show_x.get("requires_vaccination")),
+        "vaccination_notes": _cut(show_x.get("vaccination_notes"), 2000),
     }
-
-    # Health papers the bill never mentions are the app's defaults, and saying
-    # so is the point: "required" on a show whose bill was silent is a decision
-    # the office should know it is making.
-    silent = [
-        f"{paper} ({default})"
-        for column, paper, default in (
-            ("requires_coggins", "a negative Coggins", "required, as on every show"),
-            ("requires_health_certificate", "a health certificate", "not required"),
-            ("requires_vaccination", "proof of vaccination", "not required"),
-        )
-        if show_x.get(column) is None
-    ]
-    if silent:
-        note(PAPERWORK, f"The bill doesn't mention {_names(silent)}; set as shown, so check that is what the show asks for.")
 
     # --- Venue: as the confirm page settled it ---
     venue = None
@@ -262,9 +325,6 @@ def draft_from_read(
         venue = {"venue_id": venue_choice["venue_id"]}
     elif venue_choice and venue_choice.get("new"):
         venue = {**venue_choice["new"]}
-    elif show_x.get("venue_name"):
-        printed = ", ".join(p for p in (show_x.get("venue_name"), show_x.get("venue_city"), show_x.get("venue_state")) if p)
-        note(BASICS, f"The bill names the venue {printed}, which was left blank. Pick or add it.")
 
     # --- Judges: as the confirm page settled them ---
     bill_judges = extracted.get("judges") or []
@@ -272,9 +332,7 @@ def draft_from_read(
     panel: list[dict[str, Any]] = []
     for i, j in enumerate(bill_judges):
         choice = judge_choices[i] if i < len(judge_choices) else {}
-        printed = f"{j['first_name']} {j['last_name']}"
         if choice.get("leave_off"):
-            note(JUDGES, f"The bill names {printed} as a judge, who was left off the show.")
             continue
         panel.append(j)
         if choice.get("judge_id"):
@@ -293,29 +351,12 @@ def draft_from_read(
         if match.get("is_breed_association"):
             continue
         aid = match.get("association_id")
-        code = c["code"]
+        # A club the registry lacks is left for the office to request.
         if aid is None:
-            marked = [
-                _class_label(cls)
-                for cls, r in zip(extracted_classes, resolved_classes)
-                if code.upper() in {u.upper() for u in r.get("unknown_club_codes") or []}
-            ]
-            what = f"{code}" + (f" ({c['name']})" if c.get("name") else "")
-            note(
-                SANCTIONING,
-                f"The bill lists {what}, which isn't a club in the registry"
-                + (f", and marks {_plural(len(marked), 'class', 'classes')} for it ({_names(marked)})" if marked else "")
-                + ". Request the club on the Sanctioning step, then mark its classes.",
-            )
             continue
         unit = c.get("fee_unit") if c.get("fee_unit") in CLUB_SANCTION_UNITS else "per_entry"
         cents = c.get("fee_amount_cents") or 0
         clubs_payload.append({"association_id": aid, "fee_amount_cents": cents, "fee_unit": unit})
-        if cents:
-            row = clubs.get(aid) or clubs.get(str(aid))
-            label = getattr(row, "code", None) or code
-            printed = f" from “{c['fee_text']}”" if c.get("fee_text") else ""
-            note(SANCTIONING, f"{label}'s club fee was read as {_money(cents)} {unit.replace('_', ' ')}{printed}.")
     sanctioned = {c["association_id"] for c in clubs_payload}
 
     # --- Classes, priced from the bill's rates over the panel kept ---
@@ -330,32 +371,23 @@ def draft_from_read(
     bill_start = _as_date(show_x.get("start_date"))
     shift = (start_date - bill_start) if bill_start and bill_start != start_date else timedelta(0)
 
+    stall_periods = _stall_periods(extracted, start_date, end_date, shift)
+
     classes_payload: list[dict[str, Any]] = []
     # Index into the bill's classes -> index into the payload, for the
     # futurities and side pots, which name their classes on the bill's.
     payload_index: dict[int, int] = {}
     seen: set[tuple[date, str]] = set()
-    priced_by: dict[str, list[str]] = {}
-    unpriced: list[str] = []
-    moved: list[str] = []
-    # Club classes the bill runs alongside a breed class of the same name --
-    # "5. Amateur Performance Stallions / 5N. NSBA" -- as (club class, the
-    # class it runs with).
-    alongside: list[tuple[str, str]] = []
-    label_by_key: dict[tuple[date, str], str] = {}
-    number_by_key: dict[tuple[date, str], str] = {}
     for i, cls in enumerate(extracted_classes):
         routed = resolved_classes[i] if i < len(resolved_classes) else {}
-        label = _class_label(cls)
         day = _as_date(cls.get("date"))
         day = day + shift if day else None
+        # No day, or one outside the show's dates: the first day.
         if day is None or not (start_date <= day <= end_date):
-            moved.append(label + (f" ({day.isoformat()})" if day else ""))
             day = start_date
         name = cls["name"]
         key = (day, " ".join(name.lower().split()))
         clubs = [c.upper() for c in cls.get("club_codes") or [] if c]
-        base_key = key
         if key in seen and clubs:
             # A club's class judged concurrently with the breed class of the
             # same name: the same horses in the ring, but its own entry fee,
@@ -363,30 +395,13 @@ def draft_from_read(
             # for the club, since a show runs one class of a name a day.
             name = f"{cls['name']} ({clubs[0]})"
             key = (day, " ".join(name.lower().split()))
-            if key not in seen:
-                mine, theirs = (cls.get("number") or "").strip(), number_by_key[base_key]
-                alongside.append(
-                    (f"#{mine}", f"#{theirs}")
-                    if mine and theirs
-                    else (_class_label({**cls, "name": name}), label_by_key[base_key])
-                )
+        # A show runs one class of a name a day: only the first is created.
         if key in seen:
-            note(
-                CLASSES,
-                f"The bill lists {cls['name']} twice on {_day(day)}. A show runs one class of a name a day, so only "
-                "the first was created; add the other under a different name if the show really runs it twice.",
-            )
             continue
         seen.add(key)
-        label_by_key[key] = label
-        number_by_key[key] = (cls.get("number") or "").strip()
         payload_index[i] = len(classes_payload)
         rate_key = None if cls.get("is_futurity") or cls.get("is_championship") else cls.get("rate_key")
         cents = rate_totals.get(rate_key, 0) if rate_key else 0
-        if rate_key:
-            priced_by.setdefault(rate_key, []).append(label)
-        elif not cls.get("is_futurity") and not cls.get("is_championship") and not routed.get("entered_by_qualification"):
-            unpriced.append(label)
         # Kept as printed (migration 191); blank where the bill printed none.
         # Longer than a number can be is a misread, not a number.
         printed_number = (cls.get("number") or "").strip()
@@ -407,49 +422,6 @@ def draft_from_read(
                 ),
             }
         )
-        if cls.get("note"):
-            note(CLASSES, f"{label}: {cls['note']}")
-    if alongside:
-        note(
-            CLASSES,
-            f"{_plural(len(alongside), 'club class', 'club classes')} run alongside the class before "
-            f"{'it' if len(alongside) == 1 else 'them'} on the bill, so each was created as its own class, named "
-            f"for its club: {_names([f'{club} with {base}' for club, base in alongside])}. At the gate, start "
-            "each with Run with, after the class it runs alongside.",
-        )
-    if moved:
-        note(
-            CLASSES,
-            f"{_plural(len(moved), 'class', 'classes')} had no day on the bill, or one outside the show's dates, "
-            f"and {'was' if len(moved) == 1 else 'were'} put on the first day: {_names(moved)}. Move "
-            f"{'it' if len(moved) == 1 else 'them'} to the day {'it runs' if len(moved) == 1 else 'they run'}.",
-        )
-
-    # --- Class prices: one line per rate, since one rate prices many classes ---
-    for key, r in rates.items():
-        covered = priced_by.get(key) or []
-        if not covered:
-            continue
-        total = rate_totals[key]
-        printed = f"“{r['printed_text']}”" if r.get("printed_text") else r["label"]
-        if r["per_judge"]:
-            n = per_judge_count(r, panel)
-            carded = r.get("association_code") if r.get("association_code") and n != len(panel) else None
-            who = f"{n} {carded + ' ' if carded else ''}judge{'s' if n != 1 else ''}"
-            how = f"{_money(r['amount_cents'])} × {who} = {_money(total)}"
-            tail = " If the panel changes, these prices don't follow it: change them on Entry Fees."
-            if not panel:
-                tail = " No judges were kept, so they came to $0: price them on Entry Fees."
-        else:
-            how, tail = _money(total), ""
-        note(FEES, f"{_plural(len(covered), 'class', 'classes')} priced at {how} from the bill's {printed}: {_names(covered)}.{tail}")
-    if unpriced:
-        note(
-            FEES,
-            f"{_plural(len(unpriced), 'class', 'classes')} had no price on the bill and "
-            f"{'was' if len(unpriced) == 1 else 'were'} created free: {_names(unpriced)}. Price them on Entry Fees "
-            "if they aren't.",
-        )
 
     # --- Futurities, each with the classes the bill marked for it ---
     futurities_payload: list[dict[str, Any]] = []
@@ -461,15 +433,10 @@ def draft_from_read(
         ]
         late_fee = f.get("late_fee_cents") or 0
         deadline = _as_date(f.get("entry_deadline"))
-        said: list[str] = []
+        # A late fee with no deadline to be late against is left off.
         if late_fee and deadline is None:
-            said.append(f"its late fee ({_money(late_fee)}) was left off, since the bill gives no deadline for it to be late against")
             late_fee = 0
         tiers = f.get("fee_tiers") or []
-        if not tiers:
-            said.append("the bill prints no per-class prices for it: add its fee tiers")
-        if not members:
-            said.append("the bill marks none of its classes: add them")
         futurities_payload.append(
             {
                 "name": _cut(f["name"], 200),
@@ -491,13 +458,6 @@ def draft_from_read(
                 "class_indexes": members,
             }
         )
-        note(
-            FUTURITIES,
-            f"The {f['name']} futurity was set up from the bill with {_plural(len(members), 'class', 'classes')} "
-            f"and {_plural(len(tiers), 'fee tier')}"
-            + (f"; {'; '.join(said)}" if said else "")
-            + ". Check its wording and fees.",
-        )
 
     # --- Side pots: created over the classes the bill names for each ---
     side_pots_payload: list[dict[str, Any]] = []
@@ -507,48 +467,31 @@ def draft_from_read(
             for i, cls in enumerate(extracted_classes)
             if i in payload_index and p["name"].lower() in {s.lower() for s in cls.get("side_pots") or []}
         ]
-        what = p["name"] + (f" ({p['description']})" if p.get("description") else "")
         if not members:
             # A side pot is a pot over classes; with none it cannot exist.
-            note(
-                FUTURITIES,
-                f"The bill runs a side pot, {what}, but doesn't say which classes it covers, so it wasn't set up. "
-                "Add it here once you know.",
-            )
             continue
         fee = p.get("entry_fee_cents")
         payback = p.get("payback_percent")
+        timed = p.get("scoring") == "time"
+        d_count = (p.get("d_count") or 1) if timed else 1
+        d_split = p.get("d_split_ms") if timed else None
         side_pots_payload.append(
             {
                 "name": _cut(p["name"], 200),
                 "description": _cut(p.get("description"), 1000),
                 "entry_fee_cents": fee if fee is not None else DEFAULT_SIDE_POT_FEE_CENTS,
                 "payback_percent": payback if payback is not None else 100,
+                "scoring_method": "fastest_time" if timed else "sum_placings",
+                "added_money_cents": p.get("added_money_cents") or 0,
+                "d_count": d_count,
+                "d_split_ms": d_split or DEFAULT_D_SPLIT_MS,
                 "class_indexes": members,
             }
         )
-        unread = [
-            label
-            for label, missing in (
-                (f"entry fee (set to {_money(DEFAULT_SIDE_POT_FEE_CENTS)})", fee is None),
-                ("payback (set to 100%)", payback is None),
-            )
-            if missing
-        ]
-        note(
-            FUTURITIES,
-            f"The side pot {p['name']} was set up over {_plural(len(members), 'class', 'classes')}"
-            + (f"; the bill doesn't print its {' or '.join(unread)}" if unread else "")
-            + ". Check its fee, payback and payout.",
-        )
 
-    # --- Fees ---
-    from showbill_import import fee_codes
-
+    # --- Fees: an early rate or a minimum the app refuses is left off ---
     fees_payload: list[dict[str, Any]] = []
-    fee_notes: list[tuple[int, str]] = []
     for f in extracted.get("fees") or []:
-        index = len(fees_payload)
         early_cents, early_deadline = f.get("early_amount_cents"), _as_date(f.get("early_deadline"))
         minimum = f.get("min_quantity") or 0
         try:
@@ -556,13 +499,11 @@ def draft_from_read(
                 unit=f["unit"], amount_cents=f["amount_cents"],
                 early_amount_cents=early_cents, early_deadline=early_deadline,
             )
-        except HTTPException as exc:
-            fee_notes.append((index, f"{f['label']}: the bill's early rate was left off ({exc.detail})."))
+        except HTTPException:
             early_cents = early_deadline = None
         try:
             _assert_min_quantity_valid(unit=f["unit"], min_quantity=minimum)
-        except HTTPException as exc:
-            fee_notes.append((index, f"{f['label']}: the minimum was left off ({exc.detail})."))
+        except HTTPException:
             minimum = 0
         fees_payload.append(
             {
@@ -575,22 +516,6 @@ def draft_from_read(
                 "min_quantity": minimum,
             }
         )
-        what = f"{f['label']} ({_money(f['amount_cents'])} {f['unit'].replace('_', ' ')})"
-        if f["unit"] == "per_entry":
-            fee_notes.append((index, f"{what} is added to every class entered, on top of the class's own price. Check it isn't a class price."))
-        elif f["unit"] in _AUTOMATIC_UNITS:
-            fee_notes.append((index, f"{what} is charged to every exhibitor who enters. Check it applies to everyone."))
-    # The main stall / shavings / camping lines, and any other line booked at
-    # sign-up, are edited on Lodging; the rest on Fees.
-    codes = fee_codes((f["label"], f["unit"]) for f in fees_payload)
-    for index, text in fee_notes:
-        lodging = codes[index] in _LODGING_CODES or fees_payload[index]["unit"] in _RESERVABLE_UNITS
-        note(LODGING if lodging else FEES, text)
-
-    # --- What the reader itself was unsure of ---
-    for w in extracted.get("warnings") or []:
-        note(WHOLE_BILL, w)
-    _legacy_doubts(extracted, note)
 
     return Draft(
         show=show,
@@ -601,24 +526,8 @@ def draft_from_read(
         fees=fees_payload,
         futurities=futurities_payload,
         side_pots=side_pots_payload,
-        review=review,
+        stall_periods=stall_periods,
     )
-
-
-def _legacy_doubts(extracted: dict[str, Any], note: Any) -> None:
-    """A read made before 2026-11-15 put its doubts on the item they were about
-    and listed what it could not set up; those are notes now too."""
-    for c in extracted.get("show_checks") or []:
-        note(_LEGACY_FIELD_SECTIONS.get(c.get("field"), BASICS), c.get("message") or "")
-    for kind, items, label in (
-        (JUDGES, extracted.get("judges") or [], lambda i: f"{i['first_name']} {i['last_name']}"),
-        (SANCTIONING, extracted.get("clubs") or [], lambda i: i["code"]),
-        (FEES, extracted.get("class_rates") or [], lambda i: i["label"]),
-        (FEES, extracted.get("fees") or [], lambda i: i["label"]),
-    ):
-        for item in items:
-            if item.get("check"):
-                note(kind, f"{label(item)}: {item['check']}")
 
 
 def legacy_office_lines(extracted: dict[str, Any]) -> list[str]:
@@ -636,33 +545,14 @@ def legacy_office_lines(extracted: dict[str, Any]) -> list[str]:
     return lines
 
 
-def office_notes_text(draft: Draft, extracted: dict[str, Any], filename: Optional[str]) -> Optional[str]:
-    """The office notes the confirm page starts from.
-
-    The things to look at first, grouped under the setup step that edits each,
-    then what the bill told the office that no field holds. Plain text, since
-    it lands in a text box the office edits.
-    """
-    parts: list[str] = []
-    by_section: dict[str, list[str]] = {}
-    for section, text in draft.review:
-        if text:
-            by_section.setdefault(section, []).append(text)
-    if by_section:
-        source = f" ({filename})" if filename else ""
-        parts.append(f"To check, from the show bill{source}:")
-        for section in sorted(by_section, key=lambda s: SECTION_ORDER.index(s) if s in SECTION_ORDER else len(SECTION_ORDER)):
-            parts.append("")
-            parts.append(section)
-            parts.extend(f"- {t}" for t in by_section[section])
+def office_notes_text(extracted: dict[str, Any]) -> Optional[str]:
+    """The office notes the confirm page starts from: what the bill tells the
+    show office that no field holds -- its officials and their contacts, how
+    the office runs. Information about the show, never a list of things to
+    check."""
     office = [extracted.get("notes_for_office")] if extracted.get("notes_for_office") else []
     office += [f"- {line}" for line in legacy_office_lines(extracted)]
-    if office:
-        if parts:
-            parts.append("")
-        parts.append("From the show bill:")
-        parts.extend(office)
-    text = "\n".join(parts).strip()
+    text = "\n".join(office).strip()
     return text or None
 
 

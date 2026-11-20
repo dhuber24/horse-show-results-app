@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { errorMessage } from '@/lib/api-error';
@@ -9,10 +9,11 @@ import {
   OFFICE_NOTES_MAX,
   PUBLIC_NOTES_MAX,
   billNamesVenue,
-  draftInputs,
   newJudgeFromBill,
   newVenueFromBill,
   notesFile,
+  readFilesLabel,
+  readSourceNames,
   readSummary,
   searchJudges,
   searchVenues,
@@ -26,12 +27,12 @@ import {
   type StartForm,
   type VenueChoice,
 } from '@/lib/showbill-import';
+import CancelUploadButton from '../CancelUploadButton';
 
 type ShowType = { id: string; code: string; name: string };
 type Association = { id: string; code: string; name: string };
 
 const POLL_MS = 4000;
-const REDRAFT_MS = 600;
 
 const box = { borderColor: 'var(--border)', backgroundColor: 'var(--surface)' } as const;
 const input = 'w-full border rounded px-3 py-2 text-sm';
@@ -79,10 +80,6 @@ export default function StartClient({
   // A judge saved from this page joins the directory at once, so the row that
   // added them reads as picked and every other row can find them.
   const [directory, setDirectory] = useState<DirectoryJudge[]>(judgeDirectory);
-  // Once somebody has typed in the office notes, they are theirs: a change of
-  // dates or judges no longer redrafts over them.
-  const [officeEdited, setOfficeEdited] = useState(false);
-  const draftedFor = useRef<string | null>(null);
 
   const openShowTypeId = showTypes.find((t) => t.code === 'OPEN')?.id ?? null;
 
@@ -123,38 +120,22 @@ export default function StartClient({
 
   useEffect(() => {
     if (imp?.status === 'succeeded' && imp.extracted && !imp.show_id && !form) {
-      const start = startDefaults(imp, openShowTypeId);
-      draftedFor.current = JSON.stringify(draftInputs(start));
-      setForm(start);
+      setForm(startDefaults(imp, openShowTypeId));
     }
   }, [imp, form, openShowTypeId]);
-
-  // The office notes say what a per-judge price came to and which venue was
-  // left blank, so a judge left off, a venue settled or the dates moved
-  // redraft them — until somebody has edited them.
-  const inputsKey = form ? JSON.stringify(draftInputs(form)) : null;
-  useEffect(() => {
-    if (!inputsKey || officeEdited || inputsKey === draftedFor.current) return;
-    const timer = setTimeout(async () => {
-      const res = await fetch(`/api/show-bill-imports/${importId}/draft-notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: inputsKey,
-      }).catch(() => null);
-      const body = res?.ok ? await res.json().catch(() => null) : null;
-      if (!body) return;
-      draftedFor.current = inputsKey;
-      setForm((f) => (f ? { ...f, office_notes: body.office_notes ?? '' } : f));
-    }, REDRAFT_MS);
-    return () => clearTimeout(timer);
-  }, [inputsKey, officeEdited, importId]);
 
   if (loadError) return <Alert tone="error">{loadError}</Alert>;
   if (!imp || imp.status === 'pending') {
     return (
       <section className="p-6 rounded-lg border text-sm space-y-2" style={box}>
         <p style={text}>
-          Reading <strong>{imp?.original_filename ?? 'the show bill'}</strong>…
+          Reading <strong>{imp?.original_filename ?? 'the show bill'}</strong>
+          {imp?.supporting_filenames?.length ? (
+            <>
+              {' '}with <strong>{imp.supporting_filenames.join(', ')}</strong>
+            </>
+          ) : null}
+          …
         </p>
         <p style={muted}>
           A full show bill takes a few minutes. This page checks every few seconds, so you can leave
@@ -164,6 +145,15 @@ export default function StartClient({
           </Link>{' '}
           later.
         </p>
+        {imp && (
+          <p className="flex items-center gap-2 flex-wrap">
+            <CancelUploadButton
+              importId={imp.id}
+              label={readFilesLabel(imp)}
+              onCancelled={() => router.push('/admin/shows/new/from-showbill')}
+            />
+          </p>
+        )}
       </section>
     );
   }
@@ -204,7 +194,7 @@ export default function StartClient({
 
   function download() {
     if (!form || !imp) return;
-    const blob = new Blob([notesFile(form, imp.original_filename)], { type: 'text/plain' });
+    const blob = new Blob([notesFile(form, readSourceNames(imp))], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -301,11 +291,20 @@ export default function StartClient({
                 {summary.sidePots === 1 ? '' : 's'}
               </li>
             )}
+            {summary.stallPeriods.length > 0 && (
+              <li>
+                {summary.stallPeriods.length === 1
+                  ? `A ${summary.stallPeriods[0]} stall period`
+                  : `${summary.stallPeriods.length} stall periods (${summary.stallPeriods.join(', ')})`}{' '}
+                on Lodging, with their stall prices, move-in days and notes
+              </li>
+            )}
+            {summary.vaccinationNotes && <li>The vaccinations the bill requires, on Paperwork</li>}
             <li>The judges and venue you settle below, and the two notes at the bottom</li>
           </ul>
           <p style={muted}>
-            The show starts as a draft. Change anything that doesn&apos;t look right in setup; the
-            office notes list what is worth a second look.
+            The show starts as a draft. Anything worth a second look waits on the setup step it is
+            about, to change there and confirm.
           </p>
         </section>
       )}
@@ -449,25 +448,31 @@ export default function StartClient({
           empty="The bill says nothing for exhibitors that another field doesn't already hold."
         />
         <NotesField
-          label="Office notes — only the show office sees these: what to look over, and what the bill told the office"
+          label="Office notes — only the show office sees these: what the bill tells the office, such as its officials and their contacts"
           value={form.office_notes}
           max={OFFICE_NOTES_MAX}
           rows={12}
-          onChange={(office_notes) => {
-            setOfficeEdited(true);
-            set({ office_notes });
-          }}
-          empty="Nothing to look over."
+          onChange={(office_notes) => set({ office_notes })}
+          empty="The bill tells the office nothing that another field doesn't already hold."
         />
       </section>
 
+      {/* "Back" leaves the upload ready to create, listed on the show bill page
+          and above the shows; "Cancel upload" deletes it. A link labelled
+          Cancel that did the first was read as the second. */}
       <div className="flex items-center justify-end gap-3 flex-wrap">
+        <CancelUploadButton
+          importId={imp.id}
+          label={readFilesLabel(imp)}
+          variant="button"
+          onCancelled={() => router.push('/admin/shows/new/from-showbill')}
+        />
         <Link
           href="/admin/shows/new/from-showbill"
           className="text-sm rounded px-3 py-2 border"
           style={{ borderColor: 'var(--border)', color: 'var(--foreground)', backgroundColor: 'var(--surface)' }}
         >
-          Cancel
+          Back to uploads
         </Link>
         <button
           type="button"

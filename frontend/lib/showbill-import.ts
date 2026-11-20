@@ -38,6 +38,19 @@ export type ExtractedShow = {
   requires_health_certificate: boolean | null;
   health_certificate_valid_days: number | null;
   requires_vaccination: boolean | null;
+  /** Each note for the step that holds it (2026-11-18): Paperwork's... */
+  vaccination_notes?: string | null;
+  /** ...and the stall rules every period shares, on the Lodging step's
+   *  first stall period. */
+  stall_notes?: string | null;
+  /** A read from before stall periods were read (2026-11-18) gave one move-in. */
+  stalls_move_in_date?: string | null;
+};
+
+/** A window the bill sells stalls for (2026-11-18); only the name is read here. */
+export type ExtractedStallPeriod = {
+  name: string;
+  stalls: { kind: 'box' | 'tie' | 'tack'; amount_cents: number }[];
 };
 
 export type ExtractedJudge = {
@@ -100,7 +113,8 @@ export type ExtractedShowbill = {
   /** Missing on a read from before 2026-11-15. */
   futurities?: { name: string }[];
   side_pots?: { name: string }[];
-  warnings: string[];
+  /** Missing on a read from before 2026-11-18. */
+  stall_periods?: ExtractedStallPeriod[];
 };
 
 export type ResolvedShowbill = {
@@ -122,13 +136,18 @@ export type ResolvedShowbill = {
   }[];
 };
 
-export type DraftedNotes = { public_notes: string | null; office_notes: string | null };
+export type DraftedNotes = {
+  public_notes: string | null;
+  office_notes: string | null;
+};
 
 export type ShowBillImport = {
   id: string;
   status: 'pending' | 'succeeded' | 'failed' | 'unsupported_media';
   message: string | null;
   original_filename: string;
+  /** Supporting documents read with the bill, in the order chosen (migration 201). */
+  supporting_filenames?: string[];
   created_at: string | null;
   completed_at: string | null;
   show_id: string | null;
@@ -323,17 +342,6 @@ export function startBody(form: StartForm) {
   };
 }
 
-/** What the notes are drafted from, so the page can redraft them when it
- *  changes: the dates, the judges left off, whether a venue is settled. */
-export function draftInputs(form: StartForm) {
-  return {
-    start_date: form.start_date || null,
-    end_date: form.end_date || null,
-    leave_off: form.judges.map((c) => c.kind === 'leave_off'),
-    venue_settled: form.venue.kind !== 'none',
-  };
-}
-
 // ── Searching the directories ───────────────────────────────────────────────
 
 function fold(value: string | null | undefined): string {
@@ -375,6 +383,41 @@ export function searchVenues(directory: DirectoryVenue[], query: string, limit =
     .slice(0, limit);
 }
 
+// ── What a read was made from ───────────────────────────────────────────────
+
+/**
+ * Supporting documents beside the bill (migration 201) -- the backend's
+ * `MAX_SUPPORTING_DOCUMENTS` and `MAX_UPLOAD_TOTAL_BYTES`, said before the
+ * upload rather than after a round trip. Every document goes to the model in
+ * one request, which is what caps the total.
+ */
+export const MAX_SUPPORTING_DOCUMENTS = 4;
+export const MAX_UPLOAD_TOTAL_BYTES = 20 * 1024 * 1024;
+
+/** Why the documents chosen so far cannot be uploaded together, or null. */
+export function uploadSetProblem(sizes: number[]): string | null {
+  const supporting = sizes.length - 1;
+  if (supporting > MAX_SUPPORTING_DOCUMENTS) {
+    return `Add at most ${MAX_SUPPORTING_DOCUMENTS} supporting documents beside the show bill.`;
+  }
+  const total = sizes.reduce((a, b) => a + b, 0);
+  if (total > MAX_UPLOAD_TOTAL_BYTES) {
+    return `The documents come to more than ${MAX_UPLOAD_TOTAL_BYTES / (1024 * 1024)} MB together. Leave out the largest supporting document, or keep only the pages that matter.`;
+  }
+  return null;
+}
+
+/** A read's documents in one short line: "bill.pdf", or "bill.pdf + 2 more". */
+export function readFilesLabel(imp: Pick<ShowBillImport, 'original_filename' | 'supporting_filenames'>): string {
+  const more = imp.supporting_filenames?.length ?? 0;
+  return more ? `${imp.original_filename} + ${more} more` : imp.original_filename;
+}
+
+/** Every document a read was made from, by name, as the office notes name them. */
+export function readSourceNames(imp: Pick<ShowBillImport, 'original_filename' | 'supporting_filenames'>): string {
+  return [imp.original_filename, ...(imp.supporting_filenames ?? [])].join(' + ');
+}
+
 // ── The notes, to keep ──────────────────────────────────────────────────────
 
 /** Both notes as one text file, for whoever wants a copy kept off the show. */
@@ -397,6 +440,10 @@ export type ReadSummary = {
   fees: number;
   futurities: number;
   sidePots: number;
+  /** The stall periods made on Lodging, by name. */
+  stallPeriods: string[];
+  /** Which vaccinations, on the Paperwork step. */
+  vaccinationNotes: boolean;
 };
 
 export function readSummary(imp: ShowBillImport): ReadSummary | null {
@@ -413,5 +460,11 @@ export function readSummary(imp: ShowBillImport): ReadSummary | null {
     fees: x.fees.length,
     futurities: x.futurities?.length ?? 0,
     sidePots: x.side_pots?.length ?? 0,
+    stallPeriods: x.stall_periods
+      ? x.stall_periods.map((p) => p.name)
+      : x.show.stall_notes || x.show.stalls_move_in_date
+        ? ['Full show']
+        : [],
+    vaccinationNotes: Boolean(x.show.vaccination_notes),
   };
 }

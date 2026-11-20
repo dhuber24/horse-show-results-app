@@ -7,8 +7,8 @@ catalogue. `scripts/seed_mnsphc_paint_o_rama.py` is a day's hand transcription
 of one. This module does that transcription and hands it back as a
 **draft** -- `showbill_import.py` creates a DRAFT show from it once a person
 has confirmed its name, dates, judges and venue (`showbill_draft.py` builds
-it), and every doubt the read carries is written into the show's office
-notes for the office to look at while it walks the setup steps.
+it). The office checks the show against the bill as it walks the setup
+steps; the read lists nothing for it to check.
 
 Design notes:
 
@@ -31,11 +31,13 @@ Design notes:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import date
-from typing import Any
+from typing import Any, Sequence
 
 from .common import (
     STATUS_FAILED,
@@ -186,6 +188,104 @@ _SHOW = _object(
         "requires_vaccination": _nullable(
             "boolean", "True if proof of vaccination is required. Null if not mentioned."
         ),
+        "vaccination_notes": _text(
+            "Which vaccinations the show requires and how recent, in the bill's words "
+            "(e.g. 'Flu/Rhino and EHV within 6 months').",
+        ),
+    }
+)
+
+# A stall period: one window the bill sells stalls for, with what it sells.
+# No union-typed property anywhere in it (see the note above `_text`): a price
+# or count the bill doesn't print is 0, and a period that sells no pass has an
+# empty `early_move_in_pass`.
+STALL_KINDS = ("box", "tie", "tack")
+
+_STALL = _object(
+    {
+        "kind": {
+            "type": "string",
+            "enum": list(STALL_KINDS),
+            "description": "box: a box, horse or regular stall. tie: a tie stall. tack: a tack stall.",
+        },
+        "amount_cents": {
+            "type": "integer",
+            "description": "The price per stall for this period, in cents. When the price rises after a "
+            "date (\"prices DOUBLE after the entry deadline\"), the raised price.",
+        },
+        "early_amount_cents": {
+            "type": "integer",
+            "description": "When the price rises after a date, the lower price before it, in cents. "
+            "0 when the bill prints one price only.",
+        },
+        "horses_per_tack_stall": {
+            "type": "integer",
+            "description": "Tack stalls only: the fewest horses needed for each tack stall, if stated. 0 otherwise.",
+        },
+        "notes": _text(
+            "What the bill says about this stall in this period, short: which barns, a group form, "
+            "a cleaning fee that applies to it."
+        ),
+    }
+)
+
+_PASS = _object(
+    {
+        "label": {"type": "string", "description": "The pass as printed, e.g. 'Priority Move-In Pass'."},
+        "amount_cents": {"type": "integer", "description": "Its price, in cents."},
+        "move_in": _text(
+            "When holders may move in from: YYYY-MM-DD, or YYYY-MM-DD HH:MM (24-hour) when an hour is printed."
+        ),
+        "move_in_until": _text(
+            "When that early move-in ends, if printed ('2 PM to 4 PM' -> the 4 PM): YYYY-MM-DD, or "
+            "YYYY-MM-DD HH:MM (24-hour)."
+        ),
+        "per_exhibitor": {
+            "type": "boolean",
+            "description": "True when it is sold once per exhibitor, trailer or permit; false when priced per stall.",
+        },
+        "notes": _text("What else the bill says about it, short: limited, first come first served, one trailer."),
+    }
+)
+
+_STALL_PERIOD = _object(
+    {
+        "name": {
+            "type": "string",
+            "description": "What the bill calls this window, short: 'Full show', 'Pleasure', 'Games'. "
+            "'Full show' when the bill sells stalls for the whole show only.",
+        },
+        "move_in": _text(
+            "When this period's stalls may first be moved into: YYYY-MM-DD, or YYYY-MM-DD HH:MM "
+            "(24-hour) when an hour is printed."
+        ),
+        "move_out": _text(
+            "When this period's stalls must be empty: YYYY-MM-DD, or YYYY-MM-DD HH:MM (24-hour) when an "
+            "hour is printed."
+        ),
+        "move_out_note": _text(
+            "A move-out no clock states, in the bill's words: 'one hour after your last class'."
+        ),
+        "move_in_notes": _text(
+            "What exhibitors with stalls in THIS period must know that the other periods' exhibitors "
+            "don't: when and where they move in, where they get their stall assignment, when they "
+            "must be out. Short lines, plain text. Rules every period shares are stall_notes."
+        ),
+        "reserve_by": _text(
+            "The last day the lower prices (early_amount_cents) apply, YYYY-MM-DD -- e.g. the entry "
+            "deadline when prices double after it. Empty when no stall here has a lower price."
+        ),
+        "stalls": {
+            "type": "array",
+            "items": _STALL,
+            "description": "Each stall type this period sells, once each. Empty when the bill prints no stall price.",
+        },
+        "early_move_in_pass": {
+            "type": "array",
+            "items": _PASS,
+            "description": "At most one: a pass this period's exhibitors buy to move in before the "
+            "period's move-in. Empty if none.",
+        },
     }
 )
 
@@ -274,10 +374,6 @@ _CLASS = _object(
             "Names of the side pots or jackpots (from `side_pots`) this class counts toward, "
             "exactly as you wrote them there. Empty for most classes."
         ),
-        "note": _text(
-            "One short sentence for the reviewer if something about this one class was unclear. "
-            "A doubt shared by many classes goes once in `warnings` instead."
-        ),
     }
 )
 
@@ -335,25 +431,49 @@ _SIDE_POT = _object(
         "payback_percent": _nullable(
             "integer", "The percent of the pot paid back to winners (0-100), only if the bill states it."
         ),
+        # Plain, not nullable: 0 / "placings" mean "not printed", which keeps
+        # each pass under the API's limit on union-typed properties.
+        "scoring": {
+            "type": "string",
+            "enum": ["placings", "time"],
+            "description": (
+                "time: it is won on the time of a run the exhibitor makes in one of its classes "
+                "(a barrel or pole sidepot, a 4D or 5D); placings: anything else."
+            ),
+        },
+        "added_money_cents": {
+            "type": "integer",
+            "description": "Money the show adds to the pot ('$1,000 Added'), in cents. 0 if none is printed.",
+        },
+        "d_count": {
+            "type": "integer",
+            "description": "How many Ds a time pot pays: 5 for a 5D, 4 for a 4D. 0 if it is not split into Ds.",
+        },
+        "d_split_ms": {
+            "type": "integer",
+            "description": (
+                "How far apart its D lines are, in milliseconds: 500 for half-second splits, "
+                "1000 for one-second splits. 0 if not printed."
+            ),
+        },
     }
 )
 
-_WARNINGS = _strings(
-    "Short sentences for the show office about anything uncertain in what you read. Name the "
-    "item each is about (a judge, a fee, a class number) so it can be found."
-)
 
-# The bill is read in two passes, each held to its own schema: everything but
-# the class list, then the class list with the programmes run over it --
-# futurities and side pots, which are named per class. One schema for the
-# whole bill is refused by the API -- "The compiled grammar is too large" --
-# although each half compiles, so the split is forced, not chosen. The header
-# goes first because each class points at one of its `class_rates` by key.
+
+# The bill is read in three passes, each held to its own schema: everything but
+# the class list and the stalls; then the class list with the programmes run
+# over it -- futurities and side pots, which are named per class -- and, at the
+# same time, the stall periods. One schema for the whole bill is refused by the
+# API -- "The compiled grammar is too large" -- and so was the header with the
+# stall periods added to it (2026-11-18), although each part compiles, so the
+# split is forced, not chosen. The header goes first because each class points
+# at one of its `class_rates` by key; the stalls need nothing from it.
 #
 # The bill is not cached between the passes, on purpose: the output schema sits
 # ahead of the bill in the prompt prefix, so two schemas are two prefixes and
 # the second pass never read the cache -- measured 2026-11-12, `cache_read` 0
-# on both -- while each pass paid the 1.25x cache write. Both passes read the
+# on both -- while each pass paid the 1.25x cache write. Every pass reads the
 # bill at the plain input rate.
 HEADER_SCHEMA: dict[str, Any] = _object(
     {
@@ -372,7 +492,8 @@ HEADER_SCHEMA: dict[str, Any] = _object(
         "fees": {
             "type": "array",
             "items": _FEE,
-            "description": "Every charge that is not a class entry price.",
+            "description": "Every charge that is not a class entry price, a stall or an Early Move-In Pass "
+            "(stalls and passes are read in their own pass).",
         },
         "notes_for_exhibitors": _text(
             "What an exhibitor should know that no other field holds: awards and hi-point prizes, "
@@ -382,9 +503,9 @@ HEADER_SCHEMA: dict[str, Any] = _object(
         "notes_for_office": _text(
             "What only the show office needs and no other field holds: the show officials named "
             "(managers, secretaries, stewards, ring crew) with their roles and contact details, "
-            "the bill's own office procedures. Short lines, plain text."
+            "the bill's own office procedures. Short lines, plain text. Information about the show "
+            "only, never a list of things to check."
         ),
-        "warnings": _WARNINGS,
     }
 )
 
@@ -405,11 +526,28 @@ CLASSES_SCHEMA: dict[str, Any] = _object(
             "items": _SIDE_POT,
             "description": "Every side pot or jackpot exhibitors pay into on top of class entries. Empty if none.",
         },
-        "warnings": _WARNINGS,
     }
 )
 
-SHOWBILL_SCHEMAS: tuple[dict[str, Any], ...] = (HEADER_SCHEMA, CLASSES_SCHEMA)
+STALLS_SCHEMA: dict[str, Any] = _object(
+    {
+        "stall_notes": _text(
+            "The stall rules every stall period shares, in the bill's words: unloading, stall "
+            "assignments, no switching stalls, barn office hours, bedding, cleaning and checking out. "
+            "Not prices, and nothing that only one period's exhibitors need -- that is the period's "
+            "own move_in_notes. Short lines, plain text.",
+        ),
+        "stall_periods": {
+            "type": "array",
+            "items": _STALL_PERIOD,
+            "description": "Each window the bill sells stalls for, in the bill's order, with the stalls it "
+            "sells. One 'Full show' period when every stall is sold for the whole show. Empty when "
+            "the bill says nothing about stalls.",
+        },
+    }
+)
+
+SHOWBILL_SCHEMAS: tuple[dict[str, Any], ...] = (HEADER_SCHEMA, CLASSES_SCHEMA, STALLS_SCHEMA)
 
 
 SYSTEM_PROMPT = """You transcribe horse show bills (also called premium lists or \
@@ -436,7 +574,7 @@ Amateur, Novice Amateur, Youth 18 & Under, Amateur Walk-Trot ...) or, for halter
 and some performance classes, the horse's age or level (Yearling, Two Year Old, \
 Green Horse). Use the bill's own words.
 - `date`: bills usually group classes under a day heading. Use the show's dates \
-to fill in a year the heading leaves out, and say so in `warnings`.
+to fill in a year the heading leaves out.
 - Grand & Reserve / Grand Champion classes are ones horses are called back into \
 from earlier classes. Mark `is_championship` and leave `rate_key` empty. Bills \
 usually print them with no class number: leave `number` empty then -- never \
@@ -449,12 +587,20 @@ per-class or per-judge rate, often outside any flat fee), its own judges' cards 
 and its own placings. So list it as a separate entry straight after the breed \
 class: `number` exactly as printed ("5N"), the same `name` as the class it runs \
 with, `club_codes` naming the club, and `rate_key` pointing at the club's rate. \
-Never fold it into the breed class or add its price to the breed class's rate. \
-This is the normal reading, so it needs no warning.
+Never fold it into the breed class or add its price to the breed class's rate.
+- Classes the bill marks as run together -- judged at the same time, combined, \
+or flagged with a symbol whose legend says so ("* classes run simultaneously") \
+-- are still separate classes, one entry each.
 - Classes the bill marks as part of a futurity: set `futurity` to that \
 futurity's name and leave `rate_key` empty -- the futurity prices them.
 - A class that counts toward a side pot or jackpot lists it in `side_pots`. A \
-jackpot printed as a class of its own on the schedule is a class, not a side pot.
+jackpot with a go of its own -- its own class, judged or run separately, \
+like a jackpot pleasure class -- is a class, not a side pot. But a sidepot \
+that takes its times or placings from runs made in other classes ("times \
+will be taken from the age division run", "no separate run") is a side pot \
+over those classes even when the schedule numbers it like a class: list it \
+in `side_pots`, name it on each class its runs come from, and do not list it \
+as a class.
 
 Class prices -> `class_rates`, never `fees`
 - A class entry price belongs in `class_rates`, and each class points at the \
@@ -477,8 +623,31 @@ a breed show carry none.
 bill charges on top of the class price. When the club's classes just carry their \
 own price, that price is a class rate and the club fee is null.
 
+Stalls -> `stall_periods`, never `fees`
+- A stall period is one window the bill sells stalls for, with its own move-in \
+and move-out. A bill that sells every stall for the whole show has one period, \
+"Full show". A bill that sells the same stall for different parts of the show \
+-- the full show, the pleasure days, the games days -- has one period for each, \
+in the bill's order, named short ("Full show", "Pleasure", "Games").
+- Each period lists the stall types it sells, once each: box, tie, tack. The \
+same price in different barns ("Horse Barn" and "Cattle Barn" stalls at $130) is \
+one box stall; name the barns in its `notes`. A stall type sold only for the \
+whole show (tie stalls "for the full show") belongs to the full-show period. A \
+tack stall's minimum ("at least 4 horses per tack stall") is \
+`horses_per_tack_stall`.
+- A price that rises after a date ("stalling prices DOUBLE after the class entry \
+deadline") is the raised price in `amount_cents`, the printed price in \
+`early_amount_cents`, and that date in the period's `reserve_by`.
+- A pass sold for moving in before a period's move-in (Early or Priority Move-In \
+Pass) goes on the period whose stalls it moves in early, with its own move-in. \
+If it serves more than one period, put it on the first.
+- Never list a stall or a pass in `fees` as well. A charge per stall that is \
+not a stall -- a deposit, a bedding package -- is a `fees` row; a cleaning or \
+check-out penalty is a flat `fees` row.
+
 Other fees -> `fees`, and the unit decides who pays
-- Booked by the exhibitor: per_stall (stalls, tack stalls), per_bag (shavings), \
+- Booked by the exhibitor: per_stall (an extra priced per stall that is not a \
+stall, e.g. a stall deposit), per_bag (shavings), \
 per_night / per_day (camping or hook-ups priced by the night or day -- a night \
 and a day are different: Friday to Sunday is three days and two nights), \
 per_show (one price for the whole show per thing booked, e.g. "$60 hook-up for \
@@ -490,6 +659,10 @@ per_judge_per_entry (a breed association's assessment per class per judge, \
 collected and forwarded -- e.g. an APHA fee per class per judge), per_entry (a \
 charge added to every class entered, on top of the class price -- never the \
 class price itself).
+- Parking and other permits (a parking permit, a side-by-side or golf cart \
+permit, an additional vehicle): per_show, or per_day when priced by the day, \
+labelled with the permit's name ("Parking Permit", "Side-by-Side Permit"). \
+Never camping: a hook-up or camping spot is its own row.
 - flat: anything whose occurrence cannot be worked out from entries -- late or \
 post-entry fees, penalties (stall cleanout, NSF checks), deposits, and "all day" \
 or "all-in" fee bundles that replace per-class fees. When unsure whether a fee \
@@ -505,27 +678,56 @@ about it, in the bill's words; leave the rest empty.
 - A side pot or jackpot is money exhibitors pay into on top of their class \
 entries, paid back to the winners of one or more classes. List each in \
 `side_pots`, and name it on each class it covers.
+- A sidepot won on time (barrels, poles: "5D", "4D", "1/2 second splits") is \
+`scoring` time, with its number of Ds and how far apart they are. Its classes \
+are the ones its times come from -- for a barrel sidepot taken from the age \
+division runs, every age-division barrel class, not an adaptive or team one. \
+Its price is usually in the entry fee table ("SIDEPOT 5D BARRELS $40"): that \
+is its `entry_fee_cents`, not a class rate. Added money and a payout percent \
+printed for it ("$1,000 Added", "75% payout") are its `added_money_cents` and \
+`payback_percent`. Who may enter it (a futurity or derby horse's age) is the \
+office's to check: say so in its description.
 
 Notes
-- Anything an exhibitor should know that no field holds goes in \
-`notes_for_exhibitors`: awards and hi-point prizes, sponsors, refund and \
-scratch policy, arrival and check-in, grounds rules. Anything only the show \
-office needs -- the show officials named, with their roles and contact \
-details -- goes in `notes_for_office`. Short lines, in the bill's words. \
-Leave out what a field already holds, and leave out futurities and side pots: \
-they are read with the class list.
+- Each note goes in the field for the part of the show it is about -- the \
+office sets each part up on its own step, and a note in the wrong field is \
+printed twice or in the wrong place:
+  - stalls and moving in and out (unloading, barn office, stall assignments, \
+bedding and cleaning rules, departure) -> the rules every period shares in \
+`stall_notes`, and what only one period's exhibitors need (their move-in \
+day and gate, when they must be out) in that period's `move_in_notes`, with \
+its days and hours in its `move_in` and `move_out`;
+  - which vaccinations are required and how recent -> `show.vaccination_notes`;
+  - wording about one fee or booked item (a camping hook-up's amps, a shavings \
+brand, a stall deposit's terms) -> that fee's `notes`;
+  - a futurity's or side pot's wording -> the futurity or side pot, read with \
+the class list;
+  - what only the show office needs -- the show officials named, with their \
+roles and contact details -> `notes_for_office`;
+  - anything else an exhibitor should know that none of those holds -- awards \
+and hi-point prizes, sponsors, refund and scratch policy, show-office hours, \
+dogs, golf carts, grounds rules -> `notes_for_exhibitors`.
+- Say each thing once, in its own field. Short lines, in the bill's words.
+- A stall price is never repeated in a note: it is on the stall type.
+
+More than one document
+- The show office may upload the club's other papers beside the bill -- a \
+rules and information sheet, a futurity entry sheet, a stall reservation form. \
+Document 1 is always the show bill; every other document is from the same show. \
+Read them together and give one answer for the show: a rule, fee, deadline or \
+note that only a supporting document prints belongs in the same field as if \
+the bill had printed it.
+- The show bill is the schedule. List a class once even when another document \
+prints it too, in the bill's order and with the bill's number.
+- Where two documents disagree about anything -- a date, a price, a judge, a \
+deadline -- take the show bill's value.
+- A supporting document that is not about this show (another year, another \
+show) is ignored.
 
 Everything else
 - Money is integer cents: $36 -> 3600, $7.50 -> 750.
 - Dates are YYYY-MM-DD.
-- Put anything uncertain about one class on that class's `note`. Anything else \
-uncertain goes in `warnings`, one short sentence each, naming what it is about \
-(the start date, judge Jane Smith, the Stall fee, the futurity) -- or the bill \
-as a whole, for a page cut off or a section you could not read. These reach \
-the show office as its list of things to check, so under-reporting \
-uncertainty is worse than over-reporting it.
-- If the document is not a horse show bill, return empty lists, blanks and nulls \
-and say so in `warnings`."""
+- If the document is not a horse show bill, return empty lists, blanks and nulls."""
 
 
 def _clean_str(value: Any) -> str | None:
@@ -535,7 +737,7 @@ def _clean_str(value: Any) -> str | None:
     return value or None
 
 
-def _clean_date(value: Any, label: str, warnings: list[str]) -> str | None:
+def _clean_date(value: Any) -> str | None:
     text = _clean_str(value)
     if text is None:
         return None
@@ -544,8 +746,34 @@ def _clean_date(value: Any, label: str, warnings: list[str]) -> str | None:
             return date.fromisoformat(text).isoformat()
         except ValueError:
             pass
-    warnings.append(f"Could not read {label} as a date ({text!r}); left blank.")
     return None
+
+
+_MOMENT_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2}))?$")
+
+
+def _clean_moment(value: Any) -> tuple[str | None, str | None]:
+    """A day, and the hour on it if one was printed: "2027-08-20 18:00" ->
+    ("2027-08-20", "18:00"). Anything else is blanked; an hour that isn't one
+    keeps only the day."""
+    text = _clean_str(value)
+    if not text:
+        return None, None
+    match = _MOMENT_RE.match(text)
+    day = None
+    if match:
+        try:
+            day = date.fromisoformat(match.group(1)).isoformat()
+        except ValueError:
+            day = None
+    if day is None:
+        return None, None
+    if match.group(2) is None:
+        return day, None
+    hour, minute = int(match.group(2)), int(match.group(3))
+    if hour > 23 or minute > 59:
+        return day, None
+    return day, f"{hour:02d}:{minute:02d}"
 
 
 def _clean_cents(value: Any) -> int | None:
@@ -571,13 +799,9 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
 
     Structured outputs guarantee the shape, not the meaning: a date field is a
     string, not necessarily a date; a `rate_key` is a string, not necessarily
-    one of the rates. Anything that fails is dropped to null and named in
-    `warnings`, so a malformed value never reaches a form as though it had been
-    read off the page.
+    one of the rates. Anything that fails is dropped to null, so a malformed
+    value never reaches a form as though it had been read off the page.
     """
-    # Both passes see the whole bill, and each may say the same thing once.
-    warnings = list(dict.fromkeys(w for w in (_clean_str(x) for x in raw.get("warnings") or []) if w))
-
     show_raw = raw.get("show") or {}
     show: dict[str, Any] = {
         key: _clean_str(show_raw.get(key))
@@ -593,7 +817,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
         )
     }
     for key in ("start_date", "end_date", "entry_deadline"):
-        show[key] = _clean_date(show_raw.get(key), key.replace("_", " "), warnings)
+        show[key] = _clean_date(show_raw.get(key))
     breed = show_raw.get("breed_association")
     show["breed_association"] = breed if breed in BREED_ASSOCIATION_CODES else None
     zone = show_raw.get("apha_zone")
@@ -606,12 +830,13 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
     ):
         value = show_raw.get(key)
         show[key] = value if isinstance(value, bool) else None
+    show["vaccination_notes"] = _clean_text(show_raw.get("vaccination_notes"))
+    show["stall_notes"] = _clean_text(show_raw.get("stall_notes"))
     days = show_raw.get("health_certificate_valid_days")
     show["health_certificate_valid_days"] = (
         days if isinstance(days, int) and not isinstance(days, bool) and 0 < days <= 365 else None
     )
     if show["start_date"] and show["end_date"] and show["end_date"] < show["start_date"]:
-        warnings.append("The end date read as earlier than the start date; both left for you to set.")
         show["start_date"] = show["end_date"] = None
 
     judges = []
@@ -665,20 +890,18 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
         )
 
     classes = []
-    dangling: set[str] = set()
     for c in raw.get("classes") or []:
         name = _clean_str(c.get("name"))
         if not name:
             continue
         rate_key = _clean_str(c.get("rate_key"))
+        # A rate the bill's rate list doesn't have leaves the class unpriced.
         if rate_key and rate_key not in rate_keys:
-            dangling.add(rate_key)
             rate_key = None
-        label = f"class {c.get('number') or name}"
         futurity = _clean_str(c.get("futurity"))
         classes.append(
             {
-                "date": _clean_date(c.get("date"), f"the date of {label}", warnings),
+                "date": _clean_date(c.get("date")),
                 "number": _clean_str(c.get("number")),
                 "name": name,
                 "discipline": _clean_str(c.get("discipline")),
@@ -690,13 +913,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                 "futurity": futurity,
                 "is_futurity": bool(futurity) or bool(c.get("is_futurity")),
                 "side_pots": _clean_codes(c.get("side_pots")),
-                "note": _clean_str(c.get("note")),
             }
-        )
-    if dangling:
-        warnings.append(
-            "Some classes pointed at a price the bill's rate list does not have "
-            f"({', '.join(sorted(dangling))}); those classes were left unpriced."
         )
 
     fees = []
@@ -707,7 +924,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
         if not label or cents is None or unit not in FEE_UNITS:
             continue
         early_cents = _clean_cents(f.get("early_amount_cents"))
-        early_deadline = _clean_date(f.get("early_deadline"), f"the early deadline for {label}", warnings)
+        early_deadline = _clean_date(f.get("early_deadline"))
         if (early_cents is None) != (early_deadline is None):
             early_cents = early_deadline = None
         minimum = f.get("min_quantity")
@@ -744,7 +961,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
             {
                 "name": name,
                 "description": _clean_str(f.get("description")),
-                "entry_deadline": _clean_date(f.get("entry_deadline"), f"the deadline for {name}", warnings),
+                "entry_deadline": _clean_date(f.get("entry_deadline")),
                 "late_fee_cents": _clean_cents(f.get("late_fee_cents")),
                 "office_fee_member_cents": _clean_cents(f.get("office_fee_member_cents")),
                 "office_fee_nonmember_cents": _clean_cents(f.get("office_fee_nonmember_cents")),
@@ -764,6 +981,7 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
             continue
         seen_pots.add(name.lower())
         payback = p.get("payback_percent")
+        timed = p.get("scoring") == "time"
         side_pots.append(
             {
                 "name": name,
@@ -774,6 +992,11 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
                     if isinstance(payback, int) and not isinstance(payback, bool) and 0 <= payback <= 100
                     else None
                 ),
+                "scoring": "time" if timed else "placings",
+                "added_money_cents": _clean_cents(p.get("added_money_cents")) or 0,
+                # Only a time pot has Ds; None is "not printed".
+                "d_count": _clean_count(p.get("d_count"), 11) if timed else None,
+                "d_split_ms": _clean_count(p.get("d_split_ms"), 60001) if timed else None,
             }
         )
 
@@ -783,13 +1006,106 @@ def normalize_showbill(raw: dict[str, Any]) -> dict[str, Any]:
         "clubs": clubs,
         "class_rates": rates,
         "classes": classes,
+        "stall_periods": _clean_stall_periods(raw.get("stall_periods")),
         "fees": fees,
         "futurities": futurities,
         "side_pots": side_pots,
         "notes_for_exhibitors": _clean_text(raw.get("notes_for_exhibitors")),
         "notes_for_office": _clean_text(raw.get("notes_for_office")),
-        "warnings": warnings,
     }
+
+
+def _clean_count(value: Any, high: int) -> int | None:
+    """A positive count below `high`; 0, which the schema uses for "not
+    printed", is None."""
+    if isinstance(value, int) and not isinstance(value, bool) and 0 < value < high:
+        return value
+    return None
+
+
+def _clean_stall_periods(raw: Any) -> list[dict[str, Any]]:
+    """The windows the bill sells stalls for, each with its stall types and
+    pass. A period with no name is dropped unless it is the only one, which is
+    the whole show; one stall type per period, the first the bill prints; a
+    lower price with no day it ends is dropped, as `fees` drops one."""
+    periods: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    items = [p for p in (raw or []) if isinstance(p, dict)]
+    for p in items:
+        name = _clean_str(p.get("name")) or ("Full show" if len(items) == 1 else None)
+        if not name:
+            continue
+        name = name[:60]
+        if name.casefold() in seen:
+            continue
+        seen.add(name.casefold())
+        move_in_date, move_in_time = _clean_moment(p.get("move_in"))
+        move_out_date, move_out_time = _clean_moment(p.get("move_out"))
+        reserve_by = _clean_date(p.get("reserve_by"))
+
+        stalls: list[dict[str, Any]] = []
+        for st in p.get("stalls") or []:
+            if not isinstance(st, dict) or st.get("kind") not in STALL_KINDS:
+                continue
+            # A second price for the same kind: the first is used.
+            if any(s["kind"] == st["kind"] for s in stalls):
+                continue
+            cents = _clean_cents(st.get("amount_cents"))
+            if cents is None:
+                continue
+            early = _clean_cents(st.get("early_amount_cents")) or None
+            if early is not None and (reserve_by is None or early >= cents):
+                early = None
+            stalls.append(
+                {
+                    "kind": st["kind"],
+                    "amount_cents": cents,
+                    "early_amount_cents": early,
+                    "horses_per_tack_stall": (
+                        _clean_count(st.get("horses_per_tack_stall"), 100) if st["kind"] == "tack" else None
+                    ),
+                    "notes": _clean_str(st.get("notes")),
+                }
+            )
+        if not any(s["early_amount_cents"] for s in stalls):
+            reserve_by = None
+
+        early_pass = None
+        for ps in p.get("early_move_in_pass") or []:
+            if not isinstance(ps, dict):
+                continue
+            cents = _clean_cents(ps.get("amount_cents"))
+            if cents is None:
+                continue
+            pass_date, pass_time = _clean_moment(ps.get("move_in"))
+            end_date, end_time = _clean_moment(ps.get("move_in_until"))
+            early_pass = {
+                "label": _clean_str(ps.get("label")),
+                "amount_cents": cents,
+                "move_in_date": pass_date,
+                "move_in_time": pass_time,
+                "move_in_end_date": end_date,
+                "move_in_end_time": end_time,
+                "per_exhibitor": bool(ps.get("per_exhibitor")),
+                "notes": _clean_str(ps.get("notes")),
+            }
+            break
+
+        periods.append(
+            {
+                "name": name,
+                "move_in_date": move_in_date,
+                "move_in_time": move_in_time,
+                "move_out_date": move_out_date,
+                "move_out_time": move_out_time,
+                "move_out_note": _clean_str(p.get("move_out_note")),
+                "move_in_notes": _clean_text(p.get("move_in_notes")),
+                "reserve_by": reserve_by,
+                "stalls": stalls,
+                "early_move_in_pass": early_pass,
+            }
+        )
+    return periods
 
 
 def _clean_text(value: Any) -> str | None:
@@ -804,13 +1120,30 @@ def _clean_text(value: Any) -> str | None:
     return text or None
 
 
-async def extract_showbill(content: bytes, mime_type: str, filename: str) -> ExtractionResult:
-    """Read a show bill. Never raises -- failures come back as a result."""
-    if not supports_extraction(mime_type):
-        return ExtractionResult(
-            status=STATUS_UNSUPPORTED_MEDIA,
-            error_message=f"{mime_type} can't be read automatically. Set the show up by hand.",
-        )
+@dataclass(frozen=True)
+class SupportingDocument:
+    """A document read together with the bill (migration 201): the club's
+    rules and information sheet, a futurity or stall form."""
+
+    content: bytes
+    mime_type: str
+    filename: str
+
+
+async def extract_showbill(
+    content: bytes,
+    mime_type: str,
+    filename: str,
+    supporting: Sequence[SupportingDocument] = (),
+) -> ExtractionResult:
+    """Read a show bill, with any supporting documents from the same show.
+    Never raises -- failures come back as a result."""
+    for doc_type in (mime_type, *(d.mime_type for d in supporting)):
+        if not supports_extraction(doc_type):
+            return ExtractionResult(
+                status=STATUS_UNSUPPORTED_MEDIA,
+                error_message=f"{doc_type} can't be read automatically. Set the show up by hand.",
+            )
     if not extraction_available():
         return ExtractionResult(
             status=STATUS_UNSUPPORTED_MEDIA,
@@ -827,15 +1160,16 @@ async def extract_showbill(content: bytes, mime_type: str, filename: str) -> Ext
             model=SHOWBILL_MODEL,
         )
     # No cache_control: see the note above HEADER_SCHEMA.
-    document = _document_block(content, mime_type)
+    documents = _documents(content, mime_type, filename, supporting)
     usage = _Usage()
+    uploaded = _uploaded_as(filename, supporting)
 
     header, failure = await _read_pass(
         client,
-        document,
-        f"Uploaded as {filename!r}. Transcribe this show bill: everything except the "
-        "class list, futurities and side pots, which are read separately -- leave doubts about those to that "
-        "pass. Trust the page over the filename.",
+        documents,
+        f"{uploaded} Transcribe this show bill: everything except the class list, futurities and side "
+        "pots, and except the stalls and any Early Move-In Pass, which are read separately -- leave those "
+        "out of fees, and leave doubts about them to those passes. Trust the page over the filename.",
         HEADER_SCHEMA,
         filename,
         usage,
@@ -843,25 +1177,39 @@ async def extract_showbill(content: bytes, mime_type: str, filename: str) -> Ext
     if failure:
         return failure
 
-    classes, failure = await _read_pass(
-        client,
-        document,
-        f"Uploaded as {filename!r}. Transcribe the class list of this show bill, and its futurities and side pots. "
-        f"{_rate_key_instruction(header)} The rest of the bill has been read already: warn only about the "
-        "class list, the futurities and the side pots. Trust the page over the filename.",
-        CLASSES_SCHEMA,
-        filename,
-        usage,
+    # Neither needs the other, so they are read at the same time.
+    (classes, failure), (stalls, stall_failure) = await asyncio.gather(
+        _read_pass(
+            client,
+            documents,
+            f"{uploaded} Transcribe the class list of this show bill, and its futurities and side pots. "
+            f"{_rate_key_instruction(header)} The rest of the bill has been read already: warn only about the "
+            "class list, the futurities and the side pots. Trust the page over the filename.",
+            CLASSES_SCHEMA,
+            filename,
+            usage,
+        ),
+        _read_pass(
+            client,
+            documents,
+            f"{uploaded} Transcribe only the stalls this show sells: each stall period with its stall "
+            "prices and Early Move-In Pass, and the stall rules every period shares. The rest of the bill is "
+            "read separately: warn only about the stalls. Trust the page over the filename.",
+            STALLS_SCHEMA,
+            filename,
+            usage,
+        ),
     )
-    if failure:
-        return failure
+    if failure or stall_failure:
+        return failure or stall_failure
 
     raw = {
         **header,
+        "show": {**(header.get("show") or {}), "stall_notes": stalls.get("stall_notes")},
+        "stall_periods": stalls.get("stall_periods") or [],
         "classes": classes.get("classes") or [],
         "futurities": classes.get("futurities") or [],
         "side_pots": classes.get("side_pots") or [],
-        "warnings": [*(header.get("warnings") or []), *(classes.get("warnings") or [])],
     }
     return ExtractionResult(status=STATUS_SUCCEEDED, fields=normalize_showbill(raw), **usage.as_fields())
 
@@ -901,9 +1249,43 @@ def _rate_key_instruction(header: dict[str, Any]) -> str:
     )
 
 
+def _documents(
+    content: bytes, mime_type: str, filename: str, supporting: Sequence[SupportingDocument]
+) -> list[dict[str, Any]]:
+    """The bill, and each supporting document after it with a line saying what
+    it is. A bill on its own is sent exactly as it always was."""
+    bill = _document_block(content, mime_type)
+    if not supporting:
+        return [bill]
+    blocks: list[dict[str, Any]] = [
+        {"type": "text", "text": f"Document 1 -- the show bill, uploaded as {filename!r}:"},
+        bill,
+    ]
+    for n, doc in enumerate(supporting, start=2):
+        blocks.append(
+            {
+                "type": "text",
+                "text": f"Document {n} -- a supporting document from the same show, uploaded as {doc.filename!r}:",
+            }
+        )
+        blocks.append(_document_block(doc.content, doc.mime_type))
+    return blocks
+
+
+def _uploaded_as(filename: str, supporting: Sequence[SupportingDocument]) -> str:
+    """The sentence each pass's instruction opens with."""
+    if not supporting:
+        return f"Uploaded as {filename!r}."
+    count = len(supporting)
+    return (
+        f"The show bill and {count} supporting document{'s' if count != 1 else ''} from the same show are "
+        "above. Read them together as one show, the way the system prompt says for more than one document."
+    )
+
+
 async def _read_pass(
     client: Any,
-    document: dict[str, Any],
+    documents: list[dict[str, Any]],
     instruction: str,
     schema: dict[str, Any],
     filename: str,
@@ -926,7 +1308,7 @@ async def _read_pass(
             messages=[
                 {
                     "role": "user",
-                    "content": [document, {"type": "text", "text": instruction}],
+                    "content": [*documents, {"type": "text", "text": instruction}],
                 }
             ],
         ) as stream:

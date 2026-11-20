@@ -23,21 +23,23 @@ picks up where it was left if the feature comes back on.
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
-from extraction import extraction_available
-from models import ShowBillImport
+from extraction import extraction_available, supports_extraction
+from models import ShowBillImport, ShowBillImportDocument
 from routers.show_documents import MAX_SHOWBILL_BYTES, _detect_mime
-from schemas import ShowBillDraftNotesIn, ShowBillImportOut, ShowBillImportStart
+from schemas import ShowBillImportOut, ShowBillImportStart
 from show_companies import SHOWBILL_IMPORT, enabled_features, require_feature
 from showbill_import import (
     INTERRUPTED_MESSAGE,
+    MAX_SUPPORTING_DOCUMENTS,
+    MAX_UPLOAD_TOTAL_BYTES,
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_SUCCEEDED,
@@ -46,6 +48,7 @@ from showbill_import import (
     effective_status,
     resolve_read,
     start_read,
+    supporting_filenames,
 )
 
 router = APIRouter(
@@ -118,6 +121,7 @@ async def list_my_imports(
         )
     ).all()
     now = datetime.now(timezone.utc)
+    extras = await supporting_filenames(db, (row.id for row in rows))
     out = []
     for row in rows:
         status, message = _status_and_message(row, now)
@@ -127,6 +131,7 @@ async def list_my_imports(
                 status=status,
                 message=message,
                 original_filename=row.original_filename,
+                supporting_filenames=extras.get(row.id, []),
                 created_at=row.created_at,
                 completed_at=row.completed_at,
                 show_id=row.show_id,
@@ -140,17 +145,25 @@ async def list_my_imports(
 async def upload_show_bill(
     request: Request,
     file: UploadFile = File(...),
+    supporting: list[UploadFile] = File(default=[]),
     x_user_id: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Take the file and start reading it. Answers at once with a `pending` row.
+    """Take the bill, and any supporting documents from the same show (a rules
+    and information sheet, a futurity or stall form -- migration 201), and
+    start reading them together. Answers at once with a `pending` row.
 
     Rate limited because every read spends model tokens on a document tens of
     pages long. Ten an hour is far more than one show needs and far less than
-    a runaway retry loop would spend.
+    a runaway retry loop would spend. One upload is one read, however many
+    documents it carries.
     """
     if not extraction_available():
         raise HTTPException(503, "Reading show bills is not configured on this server. Set the show up by hand.")
+    if len(supporting) > MAX_SUPPORTING_DOCUMENTS:
+        raise HTTPException(
+            400, f"Add at most {MAX_SUPPORTING_DOCUMENTS} supporting documents beside the show bill."
+        )
 
     content = await file.read()
     if not content:
@@ -161,6 +174,26 @@ async def upload_show_bill(
     if mime is None:
         raise HTTPException(400, "Upload the show bill as a PDF, or as a JPEG, PNG or WebP image.")
 
+    extras: list[tuple[str, str, bytes]] = []
+    for upload in supporting:
+        name = upload.filename or "supporting document"
+        data = await upload.read()
+        if not data:
+            raise HTTPException(400, f"{name} is empty.")
+        if len(data) > MAX_SHOWBILL_BYTES:
+            raise HTTPException(400, f"{name} is too large (max 10 MB).")
+        extra_mime = _detect_mime(data)
+        if extra_mime is None or not supports_extraction(extra_mime):
+            raise HTTPException(400, f"{name} isn't a PDF or a JPEG, PNG or WebP image.")
+        extras.append((name, extra_mime, data))
+    total = len(content) + sum(len(data) for _, _, data in extras)
+    if total > MAX_UPLOAD_TOTAL_BYTES:
+        raise HTTPException(
+            400,
+            f"The documents come to more than {MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} MB together. "
+            "Leave out the largest supporting document, or only the pages that matter.",
+        )
+
     row = ShowBillImport(
         created_by_user_id=safe_uuid(x_user_id),
         original_filename=file.filename or "show-bill",
@@ -170,12 +203,25 @@ async def upload_show_bill(
         status=STATUS_PENDING,
     )
     db.add(row)
+    await db.flush()
+    for position, (name, extra_mime, data) in enumerate(extras, start=1):
+        db.add(
+            ShowBillImportDocument(
+                import_id=row.id,
+                position=position,
+                original_filename=name,
+                mime_type=extra_mime,
+                file_size=len(data),
+                file_data=data,
+            )
+        )
     await db.commit()
     start_read(row.id)
     return ShowBillImportOut(
         id=row.id,
         status=STATUS_PENDING,
         original_filename=row.original_filename,
+        supporting_filenames=[name for name, _, _ in extras],
         created_at=row.created_at,
     )
 
@@ -197,11 +243,13 @@ async def get_import(
         raise HTTPException(404, "Show bill import not found")
 
     status, message = _status_and_message(row, datetime.now(timezone.utc))
+    extras = (await supporting_filenames(db, [row.id])).get(row.id, [])
     out = ShowBillImportOut(
         id=row.id,
         status=status,
         message=message,
         original_filename=row.original_filename,
+        supporting_filenames=extras,
         created_at=row.created_at,
         completed_at=row.completed_at,
         show_id=row.show_id,
@@ -210,50 +258,48 @@ async def get_import(
         return out
 
     out.extracted = row.extracted
-    out.resolved, clubs = await resolve_read(db, row.extracted)
-    out.drafted = drafted_notes(row.extracted, out.resolved, clubs, filename=row.original_filename)
+    out.resolved = await resolve_read(db, row.extracted)
+    out.drafted = drafted_notes(row.extracted)
     return out
 
 
-@router.post("/{import_id}/draft-notes", dependencies=_PAID)
-async def redraft_notes(
+@router.delete("/{import_id}", status_code=204, dependencies=_PAID)
+async def cancel_import(
     import_id: UUID,
-    body: ShowBillDraftNotesIn,
     x_user_id: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """The notes again, for the dates, judges and venue as they now stand on
-    the confirm page -- a judge left off changes what a per-judge class price
-    came to, and the office notes say what it came to. Writes nothing."""
+    """Cancel an upload that has not become a show -- still reading, ready to
+    create, or failed -- and delete it, the bill and its supporting documents
+    with it. Nothing else was ever made from it: an upload creates nothing but
+    its own row.
+
+    One a show was created from is kept (409): the row is the record of which
+    read became that show. The row is locked as Create locks it, so a cancel and
+    a Create pressed together cannot both happen. A read still running finishes
+    and finds nothing to write to (`showbill_import._read`).
+    """
     row = (
         await db.execute(
-            select(
-                ShowBillImport.created_by_user_id,
-                ShowBillImport.status,
-                ShowBillImport.original_filename,
-                ShowBillImport.extracted,
-            ).where(ShowBillImport.id == import_id)
+            select(ShowBillImport.created_by_user_id, ShowBillImport.show_id)
+            .where(ShowBillImport.id == import_id)
+            .with_for_update()
         )
     ).one_or_none()
     if row is None or (x_user_role != "ADMIN" and row.created_by_user_id != safe_uuid(x_user_id)):
         raise HTTPException(404, "Show bill import not found")
-    if row.status != STATUS_SUCCEEDED or not row.extracted:
-        raise HTTPException(409, "This show bill has not been read successfully.")
-    resolved, clubs = await resolve_read(db, row.extracted)
-    count = len(row.extracted.get("judges") or [])
-    choices = [{"leave_off": True} if off else {"judge_id": "kept"} for off in body.leave_off[:count]]
-    choices += [{"judge_id": "kept"}] * (count - len(choices))
-    return drafted_notes(
-        row.extracted,
-        resolved,
-        clubs,
-        filename=row.original_filename,
-        start_date=body.start_date,
-        end_date=body.end_date,
-        judge_choices=choices,
-        venue_choice={"venue_id": "picked"} if body.venue_settled else None,
-    )
+    if row.show_id is not None:
+        raise HTTPException(
+            409,
+            {
+                "msg": "A show has already been created from this show bill, so the upload can't be cancelled.",
+                "show_id": str(row.show_id),
+            },
+        )
+    await db.execute(delete(ShowBillImport).where(ShowBillImport.id == import_id))
+    await db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/{import_id}/create-show", status_code=201, dependencies=_PAID)

@@ -9,16 +9,20 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
-  draftInputs,
+  MAX_SUPPORTING_DOCUMENTS,
+  MAX_UPLOAD_TOTAL_BYTES,
   newJudgeFromBill,
   newVenueFromBill,
   notesFile,
+  readFilesLabel,
+  readSourceNames,
   readSummary,
   searchJudges,
   searchVenues,
   startBody,
   startDefaults,
   startProblems,
+  uploadSetProblem,
   type DirectoryJudge,
   type ShowBillImport,
   type StartForm,
@@ -79,7 +83,6 @@ function anImport(overrides: Partial<ShowBillImport> = {}): ShowBillImport {
       fees: [],
       futurities: [{ name: 'Color Futurity' }],
       side_pots: [{ name: 'Novice Jackpot' }],
-      warnings: ['Page 4 is cut off.'],
     },
     resolved: {
       show_type_id: 't-apha',
@@ -210,13 +213,6 @@ describe('what Create sends', () => {
     });
   });
 
-  it('redrafts the notes from the dates, the judges left off and the venue', () => {
-    const form = { ...settled(startDefaults(anImport(), null)), start_date: '' };
-    expect(draftInputs(form)).toEqual({
-      start_date: null, end_date: '2027-08-22', leave_off: [false, true], venue_settled: true,
-    });
-  });
-
   it('keeps both notes in one file', () => {
     const text = notesFile(startDefaults(anImport(), null), 'bill.pdf');
     expect(text).toContain('SHOW NOTES (exhibitors see these)\n\nNo dogs.');
@@ -259,10 +255,58 @@ describe('what Create will make', () => {
       fees: 0,
       futurities: 1,
       sidePots: 1,
+      stallPeriods: [],
+      vaccinationNotes: false,
     });
+  });
+
+  it('says where the bill\'s stall and vaccination notes will go', () => {
+    const imp = anImport();
+    imp.extracted!.show = { ...imp.extracted!.show, stall_notes: 'Unload between the barns.', vaccination_notes: 'EHV' };
+    expect(readSummary(imp)).toMatchObject({ stallPeriods: ['Full show'], vaccinationNotes: true });
+  });
+
+  it('names each stall period the bill sells stalls for', () => {
+    const imp = anImport();
+    imp.extracted!.stall_periods = [
+      { name: 'Full show', stalls: [{ kind: 'box', amount_cents: 26000 }] },
+      { name: 'Pleasure', stalls: [] },
+      { name: 'Games', stalls: [] },
+    ];
+    expect(readSummary(imp)?.stallPeriods).toEqual(['Full show', 'Pleasure', 'Games']);
   });
 
   it('has nothing to say about a read that has not finished', () => {
     expect(readSummary(anImport({ extracted: null, resolved: null }))).toBeNull();
+  });
+});
+
+describe('a show bill read with the show\'s other papers (migration 201)', () => {
+  const MB = 1024 * 1024;
+
+  it('takes the bill alone, or with up to four supporting documents', () => {
+    expect(uploadSetProblem([5 * MB])).toBeNull();
+    expect(uploadSetProblem([5 * MB, 1 * MB, 1 * MB, 1 * MB, 1 * MB])).toBeNull();
+    expect(uploadSetProblem(Array(MAX_SUPPORTING_DOCUMENTS + 2).fill(MB))).toMatch(/at most 4/);
+  });
+
+  it('refuses a set too large to send to the model in one request', () => {
+    expect(uploadSetProblem([10 * MB, 10 * MB])).toBeNull();
+    expect(uploadSetProblem([10 * MB, 10 * MB, 1])).toMatch(/more than 20 MB together/);
+    expect(MAX_UPLOAD_TOTAL_BYTES).toBe(20 * MB);
+  });
+
+  it('names a read by its bill, and counts what came with it', () => {
+    expect(readFilesLabel({ original_filename: 'bill.pdf' })).toBe('bill.pdf');
+    expect(readFilesLabel({ original_filename: 'bill.pdf', supporting_filenames: [] })).toBe('bill.pdf');
+    expect(readFilesLabel({ original_filename: 'bill.pdf', supporting_filenames: ['rules.pdf', 'stalls.jpg'] })).toBe(
+      'bill.pdf + 2 more',
+    );
+  });
+
+  it('names every document in the kept notes, as the office notes do', () => {
+    expect(readSourceNames({ original_filename: 'bill.pdf', supporting_filenames: ['rules.pdf'] })).toBe(
+      'bill.pdf + rules.pdf',
+    );
   });
 });

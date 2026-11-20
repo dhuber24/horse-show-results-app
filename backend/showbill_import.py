@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 from uuid import UUID
@@ -58,21 +59,24 @@ from models import (
     Judge,
     Show,
     ShowBillImport,
+    ShowBillImportDocument,
     ShowDocument,
     ShowFee,
     ShowJudge,
     ShowManager,
     ShowSanctioning,
     ShowSecretary,
+    ShowStallPeriod,
     ShowType,
     SidePot,
     SidePotClass,
     Venue,
 )
-from schemas import DEFAULT_SIDE_POT_PAYOUT_SCHEDULE, ShowBillImportApply
+from schemas import DEFAULT_SIDE_POT_PAYOUT_SCHEDULE, ShowBillImportApply, default_d_percents
 from rules.disciplines import DISCIPLINE_KEYWORDS, classify_class_name, entered_by_qualification
 from show_companies import show_setup_company_for
 from class_numbers import number_in_order
+from stabling import EARLY_MOVE_IN_PREFIX, stalls_open_from
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +93,33 @@ INTERRUPTED_MESSAGE = (
     "The read was interrupted before it finished. Upload the show bill again, "
     "or set the show up by hand."
 )
+
+# Supporting documents read with the bill (migration 201). Every document goes
+# to the model in one request, twice (one per pass), and a request is capped at
+# 32 MB -- base64 adds a third, so 20 MB of files leaves room for the prompt and
+# the schema. Four is more than any show's papers need: the bill, a rules and
+# information sheet, a futurity sheet, a stall form.
+MAX_SUPPORTING_DOCUMENTS = 4
+MAX_UPLOAD_TOTAL_BYTES = 20 * 1024 * 1024
+
+
+async def supporting_filenames(db: AsyncSession, import_ids: Iterable[UUID]) -> dict[UUID, list[str]]:
+    """The supporting documents' names for each import, in the order chosen --
+    without their bytes."""
+    ids = list(import_ids)
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(ShowBillImportDocument.import_id, ShowBillImportDocument.original_filename)
+            .where(ShowBillImportDocument.import_id.in_(ids))
+            .order_by(ShowBillImportDocument.import_id, ShowBillImportDocument.position)
+        )
+    ).all()
+    out: dict[UUID, list[str]] = {}
+    for row in rows:
+        out.setdefault(row.import_id, []).append(row.original_filename)
+    return out
 
 
 # --- Status --------------------------------------------------------------------
@@ -442,6 +473,22 @@ _EARLY_MOVE_IN = re.compile(
     re.IGNORECASE,
 )
 _TACK = re.compile(r"\btack\b", re.IGNORECASE)
+# A parking or other permit (`frontend/lib/permits.ts`): the Lodging step's
+# *Parking & permits* card finds it by this prefix. A bill's "Parking Permit"
+# priced for the show was given the camping slot before it existed.
+PERMIT_PREFIX = "permit_"
+_PERMIT_UNITS = {"per_show", "per_day"}
+# A camping or electrical hook-up option (`frontend/lib/camping.ts`): the first
+# keeps the `camping` slot's code, each further one is `camping_` and its name,
+# so the Lodging step's *Camping* card lists every one -- WSCA's full-show,
+# Wed-Fri and Fri-Mon electrical are three options at three prices.
+CAMPING_PREFIX = "camping_"
+_CAMPING_UNITS = {"per_night", "per_day", "per_show"}
+_CAMPING = re.compile(r"(camp|hook[\s-]*ups?\b|electric|\brv\b|\bwater\b|\bsewer\b)", re.IGNORECASE)
+_PERMIT = re.compile(
+    r"\b(permits?|parking|side[\s-]*by[\s-]*sides?|utvs?|atvs?|golf[\s-]*carts?|vehicles?)\b",
+    re.IGNORECASE,
+)
 # `hookup` is the pre-108 name for the camping line, and `early_arrival_stall`
 # what this import called the pass before the step offered one; the Lodging
 # step still claims a row carrying either, so no imported fee may be handed it.
@@ -463,7 +510,7 @@ _NOT_THE_MAIN_LINE = re.compile(
 )
 
 
-def fee_codes(fees: Iterable[tuple[str, str]]) -> list[str]:
+def fee_codes(fees: Iterable[tuple[str, str]], *, stalls_priced: bool = False) -> list[str]:
     """A `show_fees.code` for each (label, unit), unique within the show.
 
     The main stall, shavings and camping lines take the Lodging step's own codes
@@ -477,7 +524,39 @@ def fee_codes(fees: Iterable[tuple[str, str]]) -> list[str]:
     """
     fees = list(fees)
     codes: list[Optional[str]] = [None] * len(fees)
+    used = set(_RESERVED_CODES)
+    # Permits first, so none is mistaken for the camping line.
+    for i, (label, unit) in enumerate(fees):
+        if unit in _PERMIT_UNITS and _PERMIT.search(label):
+            slug = _NON_WORD.sub("_", label.strip().lower()).strip("_")[:50] or "permit"
+            code, n = f"{PERMIT_PREFIX}{slug}", 2
+            while code in used:
+                code, n = f"{PERMIT_PREFIX}{slug}_{n}", n + 1
+            used.add(code)
+            codes[i] = code
+    # Every camping or hook-up option the bill prices: the first takes the slot.
+    camping = [
+        i for i, (label, unit) in enumerate(fees)
+        if codes[i] is None and unit in _CAMPING_UNITS and _CAMPING.search(label)
+    ]
+    # The plain line keeps the slot's code where there is one, not an early-
+    # arrival or late-departure night beside it.
+    main = next((i for i in camping if not _NOT_THE_MAIN_LINE.search(fees[i][0])), camping[0] if camping else None)
+    for i in camping:
+        if i == main:
+            codes[i] = "camping"
+            continue
+        slug = _NON_WORD.sub("_", fees[i][0].strip().lower()).strip("_")[:50] or "option"
+        code, k = f"{CAMPING_PREFIX}{slug}", 2
+        while code in used:
+            code, k = f"{CAMPING_PREFIX}{slug}_{k}", k + 1
+        used.add(code)
+        codes[i] = code
     for slot, units in _LODGING_SLOTS:
+        if slot == "stall" and stalls_priced:
+            continue
+        if slot == "camping" and camping:
+            continue
         main = next(
             (
                 i
@@ -502,10 +581,9 @@ def fee_codes(fees: Iterable[tuple[str, str]]) -> list[str]:
         ),
         None,
     )
-    if early is not None:
+    if early is not None and not stalls_priced:
         codes[early] = _EARLY_MOVE_IN_CODE
 
-    used = set(_RESERVED_CODES)
     for i, (label, _unit) in enumerate(fees):
         if codes[i] is not None:
             continue
@@ -517,6 +595,74 @@ def fee_codes(fees: Iterable[tuple[str, str]]) -> list[str]:
         used.add(code)
         codes[i] = code
     return codes  # type: ignore[return-value]
+
+
+_STALL_LABEL = {"box": "Box stall", "tie": "Tie stall", "tack": "Tack stall"}
+
+
+def _stall_lines(show_id: UUID, periods: list, period_ids: list[UUID], *, taken: set[str]) -> list[ShowFee]:
+    """Each period's stall prices and Early Move-In Pass as the Lodging step's
+    *Stalls & move-in* card writes them (`StallsCard.save`), so the step opens
+    on the bill's periods with every price in its cell: one `per_stall` line
+    per stall type, named "Box stall — Pleasure", and the pass as an add-on
+    named "Early Move-In Pass — Pleasure". The show's first box or tie stall
+    takes `stall`, the code the rest of the app has always found it by; every
+    other line its type and the start of its period's id."""
+    rows: list[ShowFee] = []
+    used = set(taken) | _RESERVED_CODES
+    first_horse_stall = True
+    for p, period_id in zip(periods, period_ids):
+        short = period_id.hex[:8]
+        name = p.name.strip()
+        for st in p.stalls:
+            if st.kind in ("box", "tie") and first_horse_stall:
+                code = "stall"
+                first_horse_stall = False
+            else:
+                base = code = f"stall_{st.kind}_{short}"
+                n = 2
+                while code in used:
+                    code, n = f"{base}_{n}", n + 1
+            used.add(code)
+            rows.append(
+                ShowFee(
+                    show_id=show_id,
+                    code=code,
+                    label=f"{_STALL_LABEL[st.kind]} — {name}",
+                    amount_cents=st.amount_cents,
+                    unit="per_stall",
+                    notes=(st.notes or "").strip() or None,
+                    early_amount_cents=st.early_amount_cents,
+                    early_deadline=st.early_deadline,
+                    stall_kind=st.kind,
+                    stall_period_id=period_id,
+                    horses_per_tack_stall=st.horses_per_tack_stall if st.kind == "tack" else None,
+                    sort_order=len(rows) + 1,
+                )
+            )
+    for p, period_id in zip(periods, period_ids):
+        ps = p.early_move_in_pass
+        if ps is None:
+            continue
+        rows.append(
+            ShowFee(
+                show_id=show_id,
+                code=f"{EARLY_MOVE_IN_PREFIX}{period_id.hex[:8]}",
+                label=f"Early Move-In Pass — {p.name.strip()}",
+                amount_cents=ps.amount_cents,
+                unit="per_stall",
+                notes="\n".join(x for x in ((ps.label or "").strip(), (ps.notes or "").strip()) if x) or None,
+                stall_kind="add_on",
+                stall_period_id=period_id,
+                move_in_date=ps.move_in_date,
+                move_in_time=ps.move_in_time if ps.move_in_date else None,
+                move_in_end_date=ps.move_in_end_date if ps.move_in_date else None,
+                move_in_end_time=ps.move_in_end_time if ps.move_in_date and ps.move_in_end_date else None,
+                one_per_exhibitor=ps.one_per_exhibitor,
+                sort_order=len(rows) + 1,
+            )
+        )
+    return rows
 
 
 # --- Creating the show ------------------------------------------------------------
@@ -685,6 +831,7 @@ async def apply_import(
         requires_health_certificate=s.requires_health_certificate,
         health_certificate_valid_days=s.health_certificate_valid_days,
         requires_vaccination=s.requires_vaccination,
+        vaccination_notes=(s.vaccination_notes or "").strip() or None,
         public_notes=s.public_notes,
         office_notes=s.office_notes,
         created_by_user_id=user_id,
@@ -694,8 +841,31 @@ async def apply_import(
         # order instead, as a show built by hand is.
         class_numbers_as_printed=any((c.class_number or "").strip() for c in body.classes),
     )
+    # The first period's move-in is the show's "stalls open", as
+    # `PUT /shows/{id}/stall-periods` keeps it.
+    show.stalls_open_date, show.stalls_open_time = stalls_open_from(body.stall_periods)
     db.add(show)
     await db.flush()
+    # Ids given here rather than at the flush: a stall line's code is made
+    # from its period's.
+    period_ids = [uuid.uuid4() for _ in body.stall_periods]
+    for order, (p, period_id) in enumerate(zip(body.stall_periods, period_ids)):
+        db.add(
+            ShowStallPeriod(
+                id=period_id,
+                show_id=show.id,
+                name=p.name.strip(),
+                move_in_date=p.move_in_date,
+                move_in_time=p.move_in_time,
+                move_out_date=p.move_out_date,
+                move_out_time=p.move_out_time,
+                move_out_note=(p.move_out_note or "").strip() or None,
+                move_in_notes=(p.move_in_notes or "").strip() or None,
+                sort_order=order,
+            )
+        )
+    if body.stall_periods:
+        await db.flush()
     # Through the company when there is one (migration 156): a per-show row as
     # well would keep the caller on the show after they had left the company.
     if company_id is None:
@@ -790,7 +960,13 @@ async def apply_import(
 
     # --- Fees ---
     fee_rows: list[ShowFee] = []
-    for order, (fee, code) in enumerate(zip(body.fees, fee_codes((f.label, f.unit) for f in body.fees)), start=1):
+    # The periods' stall prices and passes first, as the Lodging step saves
+    # them: fees list in this order at sign-up and on the bill.
+    stalls_priced = any(p.stalls or p.early_move_in_pass for p in body.stall_periods)
+    codes = fee_codes(((f.label, f.unit) for f in body.fees), stalls_priced=stalls_priced)
+    stall_rows = _stall_lines(show.id, body.stall_periods, period_ids, taken=set(codes))
+    fee_rows.extend(stall_rows)
+    for order, (fee, code) in enumerate(zip(body.fees, codes), start=len(stall_rows) + 1):
         fee_rows.append(
             ShowFee(
                 show_id=show.id,
@@ -810,8 +986,10 @@ async def apply_import(
 
     # Read after the flush above: a class's id is assigned when it is written.
     class_ids = [UUID(int=0)] * len(body.classes)
+    class_by_index: dict[int, Any] = {}
     for made, i in zip(made_classes, payload_order):
         class_ids[i] = made.id
+        class_by_index[i] = made
 
     # --- Futurities and side pots, as their own create routes make them ---
     for fut in body.futurities:
@@ -842,6 +1020,7 @@ async def apply_import(
                 )
             )
     for p in body.side_pots:
+        timed = p.scoring_method == "fastest_time"
         pot = SidePot(
             show_id=show.id,
             name=p.name.strip(),
@@ -849,7 +1028,20 @@ async def apply_import(
             entry_fee_cents=p.entry_fee_cents,
             payback_percent=p.payback_percent,
             payout_schedule=dict(DEFAULT_SIDE_POT_PAYOUT_SCHEDULE),
+            scoring_method=p.scoring_method,
+            added_money_cents=p.added_money_cents,
+            d_count=p.d_count if timed else 1,
+            d_split_ms=p.d_split_ms,
+            d_percents=default_d_percents(p.d_count if timed else 1),
         )
+        if timed:
+            # A pot paid on time reads its classes' times, and its own create
+            # route refuses a class that is not timed (migration 205). The bill
+            # says these are where the times come from, so they are timed.
+            for i in p.class_indexes:
+                made = class_by_index.get(i)
+                if made is not None and made.score_type != "time":
+                    made.score_type = "time"
         db.add(pot)
         await db.flush()
         for i in dict.fromkeys(p.class_indexes):
@@ -887,78 +1079,32 @@ async def apply_import(
     return show.id
 
 
-async def resolve_read(db: AsyncSession, extracted: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """`prepare_draft` against what the app holds now, and the clubs by id."""
+async def resolve_read(db: AsyncSession, extracted: dict[str, Any]) -> dict[str, Any]:
+    """`prepare_draft` against what the app holds now."""
     show_types = (await db.execute(select(ShowType))).scalars().all()
     associations = (
         await db.execute(select(Association).where(Association.is_active.is_(True)))
     ).scalars().all()
     judges = (await db.execute(select(Judge).where(Judge.is_active.is_(True)))).scalars().all()
     venues = (await db.execute(select(Venue))).scalars().all()
-    resolved = prepare_draft(
+    return prepare_draft(
         extracted,
         show_types=show_types,
         associations=associations,
         judges=judges,
         venues=venues,
     )
-    clubs = {a.id: a for a in associations if a.association_type == "club"}
-    return resolved, clubs
 
 
-def _bill_dates(extracted: dict[str, Any]) -> tuple[date, date]:
-    """The show's days as the bill gives them, for drafting notes before a
-    person has confirmed them: its own dates, else its classes' days."""
-    from showbill_draft import _as_date
+def drafted_notes(extracted: dict[str, Any]) -> dict[str, Optional[str]]:
+    """The show notes and office notes the confirm page starts from: what the
+    bill tells exhibitors, and what it tells the show office, that no field
+    holds."""
+    from showbill_draft import office_notes_text, public_notes_text
 
-    show = extracted.get("show") or {}
-    start, end = _as_date(show.get("start_date")), _as_date(show.get("end_date"))
-    if start and end and start <= end:
-        return start, end
-    days = sorted(d for d in (_as_date(c.get("date")) for c in extracted.get("classes") or []) if d)
-    if days:
-        return days[0], days[-1]
-    today = date.today()
-    return today, today
-
-
-def drafted_notes(
-    extracted: dict[str, Any],
-    resolved: dict[str, Any],
-    clubs: dict[Any, Any],
-    *,
-    filename: Optional[str],
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
-    judge_choices: Optional[list[dict[str, Any]]] = None,
-    venue_choice: Optional[dict[str, Any]] = None,
-) -> dict[str, Optional[str]]:
-    """The show notes and office notes the confirm page starts from, for the
-    dates and judges as they stand on it (the bill's, until somebody changes
-    them: a judge left off changes what a per-judge price came to)."""
-    from showbill_draft import default_judge_choices, draft_from_read, office_notes_text, public_notes_text
-
-    bill_start, bill_end = _bill_dates(extracted)
-    start, end = start_date or bill_start, end_date or bill_end
-    if end < start:
-        end = start
-    judges = extracted.get("judges") or []
-    draft = draft_from_read(
-        extracted,
-        resolved,
-        name=(extracted.get("show") or {}).get("name") or "",
-        show_type_id=None,
-        start_date=start,
-        end_date=end,
-        judge_choices=judge_choices if judge_choices is not None else default_judge_choices(resolved, len(judges)),
-        venue_choice=venue_choice if venue_choice is not None else (
-            {"venue_id": resolved["venue_id"]} if resolved.get("venue_id") else None
-        ),
-        clubs=clubs,
-    )
     return {
         "public_notes": public_notes_text(extracted),
-        "office_notes": office_notes_text(draft, extracted, filename),
+        "office_notes": office_notes_text(extracted),
     }
 
 
@@ -1016,7 +1162,7 @@ async def create_show_from_read(
         raise HTTPException(409, "This show bill has not been read successfully, so there is nothing to create.")
 
     _reject(start_problems(start, row.extracted, user_role))
-    resolved, clubs = await resolve_read(db, row.extracted)
+    resolved = await resolve_read(db, row.extracted)
     draft = draft_from_read(
         row.extracted,
         resolved,
@@ -1026,7 +1172,6 @@ async def create_show_from_read(
         end_date=start.end_date,
         judge_choices=[c.model_dump(exclude_none=True) for c in start.judges],
         venue_choice=start.venue.model_dump(exclude_none=True) if start.venue else None,
-        clubs=clubs,
     )
     payload = ShowBillImportApply.model_validate(
         draft.payload(
@@ -1055,7 +1200,7 @@ def start_read(import_id: UUID) -> None:
 
 async def _read(import_id: UUID) -> None:
     from database import AsyncSessionLocal
-    from extraction.showbill import extract_showbill
+    from extraction.showbill import SupportingDocument, extract_showbill
 
     values: dict[str, Any]
     try:
@@ -1068,8 +1213,27 @@ async def _read(import_id: UUID) -> None:
                         ShowBillImport.original_filename,
                     ).where(ShowBillImport.id == import_id)
                 )
-            ).one()
-        result = await extract_showbill(file.file_data, file.mime_type, file.original_filename)
+            ).one_or_none()
+            if file is None:
+                # Cancelled before the read began (`DELETE /show-bill-imports/{id}`).
+                return
+            supporting = [
+                SupportingDocument(content=d.file_data, mime_type=d.mime_type, filename=d.original_filename)
+                for d in (
+                    await db.execute(
+                        select(
+                            ShowBillImportDocument.file_data,
+                            ShowBillImportDocument.mime_type,
+                            ShowBillImportDocument.original_filename,
+                        )
+                        .where(ShowBillImportDocument.import_id == import_id)
+                        .order_by(ShowBillImportDocument.position)
+                    )
+                ).all()
+            ]
+        result = await extract_showbill(
+            file.file_data, file.mime_type, file.original_filename, supporting=supporting
+        )
         values = {
             "status": result.status,
             "error_message": result.error_message,
@@ -1085,6 +1249,8 @@ async def _read(import_id: UUID) -> None:
             "error_message": "Could not read the show bill. Try again, or set the show up by hand.",
         }
 
+    # A read cancelled while it ran updates no row: the upload is gone, and so
+    # is anything there was to say about it.
     try:
         async with AsyncSessionLocal() as db:
             await db.execute(

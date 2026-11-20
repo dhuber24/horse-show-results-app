@@ -4,7 +4,13 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { errorMessage } from "@/lib/api-error";
-import type { ShowBillImport } from "@/lib/showbill-import";
+import {
+  MAX_SUPPORTING_DOCUMENTS,
+  readFilesLabel,
+  uploadSetProblem,
+  type ShowBillImport,
+} from "@/lib/showbill-import";
+import CancelUploadButton from "./CancelUploadButton";
 
 // What the backend's magic-byte check accepts (`show_documents._detect_mime`).
 const ACCEPTED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
@@ -20,12 +26,12 @@ function formatSize(bytes: number): string {
  * round trip. The backend checks the bytes themselves; this only catches the
  * obvious cases a browser can see -- a Word file, a 40 MB scan.
  */
-function fileProblem(file: File): string | null {
+function fileProblem(file: File, what = "the show bill"): string | null {
   if (file.type && !ACCEPTED_TYPES.includes(file.type)) {
-    return `${file.name} isn't a PDF or an image. Save the show bill as a PDF and choose that.`;
+    return `${file.name} isn't a PDF or an image. Save ${what} as a PDF and choose that.`;
   }
   if (file.size > MAX_BYTES) {
-    return `${file.name} is ${formatSize(file.size)}, over the 10 MB limit. Try the class schedule pages on their own.`;
+    return `${file.name} is ${formatSize(file.size)}, over the 10 MB limit. Try the pages that matter on their own.`;
   }
   return null;
 }
@@ -38,28 +44,63 @@ const STATUS_LABEL: Record<ShowBillImport["status"], string> = {
 };
 
 export default function UploadClient({
-  recent,
+  recent: initialRecent,
   canUpload,
 }: {
   recent: ShowBillImport[];
   canUpload: boolean;
 }) {
   const router = useRouter();
+  // Local so a cancelled upload leaves the list at once.
+  const [recent, setRecent] = useState(initialRecent);
   const [file, setFile] = useState<File | null>(null);
+  // The show's other papers, read together with the bill (migration 201): a
+  // rules and information sheet, a futurity sheet, a stall form.
+  const [supporting, setSupporting] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const supportingInput = useRef<HTMLInputElement>(null);
 
   function choose(chosen: File | null) {
     setError(null);
     if (!chosen) return;
-    const problem = fileProblem(chosen);
+    const problem =
+      fileProblem(chosen) ?? uploadSetProblem([chosen.size, ...supporting.map((f) => f.size)]);
     if (problem) {
       setError(problem);
       return;
     }
     setFile(chosen);
+  }
+
+  function addSupporting(chosen: File[]) {
+    setError(null);
+    if (supportingInput.current) supportingInput.current.value = "";
+    if (chosen.length === 0) return;
+    const next = [...supporting, ...chosen];
+    const problem =
+      chosen.map((f) => fileProblem(f, "it")).find(Boolean) ??
+      uploadSetProblem([file?.size ?? 0, ...next.map((f) => f.size)]);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setSupporting(next);
+  }
+
+  function removeSupporting(index: number) {
+    setError(null);
+    setSupporting(supporting.filter((_, i) => i !== index));
+  }
+
+  /** Several files dropped on the bill's area: the first is the bill, the rest
+   * are read with it. */
+  function dropped(files: File[]) {
+    if (files.length === 0) return;
+    choose(files[0]);
+    if (files.length > 1) addSupporting(files.slice(1));
   }
 
   function clear() {
@@ -75,6 +116,7 @@ export default function UploadClient({
     setError(null);
     const form = new FormData();
     form.append("file", file);
+    for (const extra of supporting) form.append("supporting", extra);
     try {
       const res = await fetch("/api/show-bill-imports", {
         method: "POST",
@@ -107,8 +149,9 @@ export default function UploadClient({
               small grey type, which is easy to miss as the thing to press. The
               input stays in the label -- hidden, not removed -- so a click, the
               keyboard and a screen reader all still reach it, and a file can
-              also be dropped on the area. One file is read per upload, which is
-              why the hint asks for a PDF rather than a photo of each page. */}
+              also be dropped on the area. The bill is one file, which is why
+              the hint asks for a PDF rather than a photo of each page; the
+              show's other papers go under "Anything the bill leaves out?". */}
           <input
             ref={input}
             id="showbill-file"
@@ -160,7 +203,7 @@ export default function UploadClient({
               onDrop={(e) => {
                 e.preventDefault();
                 setDragging(false);
-                choose(e.dataTransfer.files?.[0] ?? null);
+                dropped(Array.from(e.dataTransfer.files ?? []));
               }}
               className="flex flex-col items-center justify-center gap-2 w-full rounded-lg border-2 border-dashed px-4 py-8 text-center cursor-pointer transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-[color:var(--accent)]"
               style={{
@@ -183,6 +226,14 @@ export default function UploadClient({
               </span>
             </label>
           )}
+
+          <SupportingDocuments
+            files={supporting}
+            busy={busy}
+            inputRef={supportingInput}
+            onAdd={addSupporting}
+            onRemove={removeSupporting}
+          />
 
           {error && (
             <div
@@ -214,7 +265,11 @@ export default function UploadClient({
                 color: "var(--primary-foreground)",
               }}
             >
-              {busy ? "Uploading…" : "Read this show bill"}
+              {busy
+                ? "Uploading…"
+                : supporting.length
+                  ? `Read the show bill and ${supporting.length} more`
+                  : "Read this show bill"}
             </button>
           </div>
         </section>
@@ -248,7 +303,7 @@ export default function UploadClient({
                     className="truncate"
                     style={{ color: "var(--foreground)" }}
                   >
-                    {imp.original_filename}
+                    {readFilesLabel(imp)}
                   </div>
                   <div className="text-xs" style={{ color: "var(--muted)" }}>
                     {imp.created_at
@@ -265,18 +320,27 @@ export default function UploadClient({
                   >
                     Open the show →
                   </Link>
-                ) : imp.status === "pending" || imp.status === "succeeded" ? (
-                  <Link
-                    href={`/admin/shows/new/from-showbill/${imp.id}`}
-                    className="underline"
-                    style={{ color: "var(--primary)" }}
-                  >
-                    {imp.status === "pending" ? "Check on it →" : "Create →"}
-                  </Link>
                 ) : (
-                  <span className="text-xs" style={{ color: "var(--muted)" }}>
-                    {imp.message}
-                  </span>
+                  <div className="flex items-center gap-4 flex-wrap">
+                    {imp.status === "pending" || imp.status === "succeeded" ? (
+                      <Link
+                        href={`/admin/shows/new/from-showbill/${imp.id}`}
+                        className="underline"
+                        style={{ color: "var(--primary)" }}
+                      >
+                        {imp.status === "pending" ? "Check on it →" : "Create →"}
+                      </Link>
+                    ) : (
+                      <span className="text-xs" style={{ color: "var(--muted)" }}>
+                        {imp.message}
+                      </span>
+                    )}
+                    <CancelUploadButton
+                      importId={imp.id}
+                      label={readFilesLabel(imp)}
+                      onCancelled={() => setRecent((rs) => rs.filter((r) => r.id !== imp.id))}
+                    />
+                  </div>
                 )}
               </li>
             ))}
@@ -287,6 +351,98 @@ export default function UploadClient({
   );
 }
 
+/**
+ * The show's other papers, read with the bill as one show: a rules and
+ * information sheet is where a bill's refund policy, health papers, arrival
+ * rules and high-point awards often are, and what the reader cannot see it can
+ * only leave blank. Optional, and below the bill so the bill stays the one
+ * thing the page asks for.
+ */
+function SupportingDocuments({
+  files,
+  busy,
+  inputRef,
+  onAdd,
+  onRemove,
+}: {
+  files: File[];
+  busy: boolean;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onAdd: (files: File[]) => void;
+  onRemove: (index: number) => void;
+}) {
+  const full = files.length >= MAX_SUPPORTING_DOCUMENTS;
+  return (
+    <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: "var(--border)" }}>
+      <div>
+        <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
+          Anything the bill leaves out?{" "}
+          <span className="font-normal" style={{ color: "var(--muted)" }}>
+            Optional
+          </span>
+        </p>
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          Add the show&apos;s rules and information sheet, a futurity sheet or a stall form, and
+          we&apos;ll read them together with the bill. Where they disagree with the bill, the
+          bill&apos;s value is used and your office notes say so.
+        </p>
+      </div>
+      {files.length > 0 && (
+        <ul className="space-y-1">
+          {files.map((f, i) => (
+            <li
+              key={`${f.name}-${i}`}
+              className="flex items-center gap-3 rounded border px-3 py-2"
+              style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--background)" }}
+            >
+              <FileIcon />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm truncate" style={{ color: "var(--foreground)" }}>
+                  {f.name}
+                </p>
+                <p className="text-xs" style={{ color: "var(--muted)" }}>
+                  {formatSize(f.size)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemove(i)}
+                disabled={busy}
+                className="shrink-0 text-sm font-medium hover:underline disabled:opacity-50"
+                style={{ color: "var(--muted)" }}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <input
+        ref={inputRef}
+        id="showbill-supporting"
+        type="file"
+        multiple
+        accept={ACCEPTED_TYPES.join(",")}
+        onChange={(e) => onAdd(Array.from(e.target.files ?? []))}
+        disabled={full || busy}
+        className="sr-only peer"
+      />
+      {full ? (
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          That&apos;s the most one read takes ({MAX_SUPPORTING_DOCUMENTS} beside the bill).
+        </p>
+      ) : (
+        <label
+          htmlFor="showbill-supporting"
+          className="inline-block text-sm font-medium underline cursor-pointer peer-focus-visible:ring-2 peer-focus-visible:ring-[color:var(--accent)] rounded"
+          style={{ color: "var(--accent)" }}
+        >
+          + Add a supporting document
+        </label>
+      )}
+    </div>
+  );
+}
 
 function UploadIcon() {
   return (

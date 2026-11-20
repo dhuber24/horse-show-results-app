@@ -4,6 +4,9 @@ interface Props {
   title: string;
   message: string;
   confirmLabel?: string;
+  /** The button that closes the dialog doing nothing -- "Keep it" where the
+   * action itself is a cancel, so the two buttons don't both say Cancel. */
+  cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
   confirming?: boolean;
@@ -14,6 +17,7 @@ export default function ConfirmDialog({
   title,
   message,
   confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
   onConfirm,
   onCancel,
   confirming = false,
@@ -39,7 +43,7 @@ export default function ConfirmDialog({
             className="px-4 py-2 rounded text-sm font-medium border disabled:opacity-50"
             style={{ color: 'var(--text-deep)', borderColor: 'var(--border)' }}
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
             onClick={onConfirm}

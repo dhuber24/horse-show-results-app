@@ -1523,6 +1523,29 @@ class ShowBillImport(Base):
     applied_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
 
+class ShowBillImportDocument(Base):
+    """A supporting document read together with a show bill (migration 201): a
+    rules and information sheet, a futurity or stall form. The bill itself
+    stays on `ShowBillImport`; these are the extras, in the order chosen.
+
+    No relationships, for the same reason as `ShowBillImport`: `file_data` is
+    multi-megabyte, so readers select columns by name.
+    """
+    __tablename__ = "show_bill_import_documents"
+    __table_args__ = (
+        Index("uq_show_bill_import_documents_position", "import_id", "position", unique=True),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    import_id = Column(UUID(as_uuid=True), ForeignKey("show_bill_imports.id", ondelete="CASCADE"), nullable=False)
+    position = Column(SmallInteger, nullable=False)
+    original_filename = Column(Text, nullable=False)
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
 # `show_bill_checks` (migration 187) is no longer mapped: a show set up from its
 # show bill no longer waits on an Accept for each doubt about the read, which is
 # written into its office notes instead (`showbill_draft.py`). Migration 189

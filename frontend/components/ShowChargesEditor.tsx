@@ -823,7 +823,6 @@ export default function ShowChargesEditor({
             const dirty = isDirty(charge, draft);
             return (
               <li key={charge.id} className="py-2.5 space-y-1.5">
-                {/* What was read off the show bill about this fee (migration 187). */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <input
                     value={draft.label}

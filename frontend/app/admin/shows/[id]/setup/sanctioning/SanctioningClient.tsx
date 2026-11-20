@@ -462,7 +462,6 @@ export default function SanctioningClient({
                       {a.name}
                     </span>
                   </label>
-                  {/* What was read off the show bill about this club (migration 187). */}
 
                   {isPicked && (
                     <div className="pl-6 flex items-end gap-3 flex-wrap">

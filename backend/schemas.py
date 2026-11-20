@@ -1528,6 +1528,9 @@ class ShowBillImportOut(BaseModel):
     status: str
     message: Optional[str] = None
     original_filename: str
+    # Supporting documents read with the bill, in the order chosen
+    # (migration 201): a rules and information sheet, a futurity form.
+    supporting_filenames: list[str] = Field(default_factory=list)
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     show_id: Optional[UUID] = None
@@ -1552,6 +1555,8 @@ class ShowBillImportShow(BaseModel):
     requires_health_certificate: bool = False
     health_certificate_valid_days: int = Field(default=30, ge=1, le=365)
     requires_vaccination: bool = False
+    # Which vaccinations, as the bill words it -- the Paperwork step's notes.
+    vaccination_notes: Optional[str] = Field(default=None, max_length=2000)
     public_notes: Optional[str] = Field(default=None, max_length=5000)
     office_notes: Optional[str] = Field(default=None, max_length=20000)
 
@@ -1648,12 +1653,75 @@ class ShowBillImportFuturity(BaseModel):
 
 class ShowBillImportSidePot(BaseModel):
     """A side pot the bill runs, as `SidePotCreate` takes one, with the default
-    scoring and payout; its classes by their index in `classes`."""
+    payout schedule; its classes by their index in `classes`.
+
+    `scoring_method` is `fastest_time` for a pot paid on the time of a run the
+    exhibitor makes in one of its classes (a barrel sidepot, migration 205),
+    with its Ds; otherwise the default `sum_placings` and the D fields unused.
+    """
     name: str = Field(min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=1000)
     entry_fee_cents: int = Field(default=1000, ge=0)
     payback_percent: int = Field(default=100, ge=0, le=100)
+    scoring_method: Literal["sum_placings", "fastest_time"] = "sum_placings"
+    added_money_cents: int = Field(default=0, ge=0)
+    d_count: int = Field(default=1, ge=1, le=10)
+    d_split_ms: int = Field(default=500, gt=0, le=60000)
     class_indexes: list[int] = Field(min_length=1)
+
+
+class ShowBillImportStall(BaseModel):
+    """One stall type a period sells, as the Lodging step prices it: a
+    `per_stall` line with its `stall_kind`, sold for its period."""
+    kind: Literal["box", "tie", "tack"]
+    amount_cents: int = Field(ge=0)
+    early_amount_cents: Optional[int] = Field(default=None, ge=0)
+    early_deadline: Optional[date] = None
+    horses_per_tack_stall: Optional[int] = Field(default=None, ge=1, le=99)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _early_pair(self):
+        if (self.early_amount_cents is None) != (self.early_deadline is None):
+            raise ValueError("A stall's early price needs both an amount and a day.")
+        if self.early_amount_cents is not None and self.early_amount_cents > self.amount_cents:
+            raise ValueError("A stall's early price must be no more than its standard price.")
+        if self.horses_per_tack_stall and self.kind != "tack":
+            raise ValueError("Only a tack stall needs a number of horses.")
+        return self
+
+
+class ShowBillImportPass(BaseModel):
+    """A period's Early Move-In Pass, as the Lodging step sells it."""
+    label: Optional[str] = Field(default=None, max_length=200)
+    amount_cents: int = Field(ge=0)
+    move_in_date: Optional[date] = None
+    move_in_time: Optional[time] = None
+    move_in_end_date: Optional[date] = None
+    move_in_end_time: Optional[time] = None
+    one_per_exhibitor: bool = False
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class ShowBillImportStallPeriod(BaseModel):
+    """A window the bill sells stalls for, with its prices and pass, as the
+    Lodging step's *Stalls & move-in* card sets one. Held to `StallPeriodIn`'s
+    limits."""
+    name: str = Field(min_length=1, max_length=60)
+    move_in_date: date
+    move_in_time: Optional[time] = None
+    move_out_date: date
+    move_out_time: Optional[time] = None
+    move_out_note: Optional[str] = Field(default=None, max_length=200)
+    move_in_notes: Optional[str] = Field(default=None, max_length=2000)
+    stalls: list[ShowBillImportStall] = Field(default_factory=list, max_length=3)
+    early_move_in_pass: Optional[ShowBillImportPass] = None
+
+    @model_validator(mode="after")
+    def _out_after_in(self):
+        if self.move_out_date < self.move_in_date:
+            raise ValueError("A stall period cannot move out before it moves in.")
+        return self
 
 
 class ShowBillImportApply(BaseModel):
@@ -1671,6 +1739,8 @@ class ShowBillImportApply(BaseModel):
     futurities: list[ShowBillImportFuturity] = Field(default_factory=list, max_length=10)
     side_pots: list[ShowBillImportSidePot] = Field(default_factory=list, max_length=30)
     attach_showbill: bool = True
+    # The windows the bill sells stalls for, with their prices, on the Lodging step.
+    stall_periods: list[ShowBillImportStallPeriod] = Field(default_factory=list, max_length=10)
 
 
 class ShowBillNewJudge(BaseModel):
@@ -1738,16 +1808,6 @@ class ShowBillVenueChoice(BaseModel):
         if (self.venue_id is None) == (self.new is None):
             raise ValueError("Pick the venue from the directory, or add it.")
         return self
-
-
-class ShowBillDraftNotesIn(BaseModel):
-    """The confirm page as it stands, for redrafting its notes: the dates, which
-    of the bill's judges are left off (in the bill's order), and whether a venue
-    has been settled."""
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    leave_off: list[bool] = Field(default_factory=list, max_length=30)
-    venue_settled: bool = False
 
 
 class ShowBillImportStart(BaseModel):

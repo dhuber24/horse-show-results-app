@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import type { ShowBillImport } from '@/lib/showbill-import';
+import { readFilesLabel, type ShowBillImport } from '@/lib/showbill-import';
+import CancelUploadButton from './new/from-showbill/CancelUploadButton';
 
 const POLL_MS = 8000;
 
@@ -63,20 +64,27 @@ export default function ShowbillReads({ initial }: { initial: ShowBillImport[] }
           <li key={imp.id} className="py-2 flex items-center justify-between gap-3 flex-wrap text-sm">
             <div className="min-w-0">
               <div className="truncate" style={{ color: 'var(--foreground)' }}>
-                {imp.original_filename}
+                {readFilesLabel(imp)}
               </div>
               <div className="text-xs" style={{ color: 'var(--muted)' }}>
                 {imp.created_at ? new Date(imp.created_at).toLocaleString() : ''} ·{' '}
                 {imp.status === 'pending' ? 'Reading…' : 'Ready to create'}
               </div>
             </div>
-            <Link
-              href={`/admin/shows/new/from-showbill/${imp.id}`}
-              className="underline"
-              style={{ color: 'var(--primary)' }}
-            >
-              {imp.status === 'pending' ? 'Check on it →' : 'Create →'}
-            </Link>
+            <div className="flex items-center gap-4 flex-wrap">
+              <CancelUploadButton
+                importId={imp.id}
+                label={readFilesLabel(imp)}
+                onCancelled={() => setReads((rs) => rs.filter((r) => r.id !== imp.id))}
+              />
+              <Link
+                href={`/admin/shows/new/from-showbill/${imp.id}`}
+                className="underline"
+                style={{ color: 'var(--primary)' }}
+              >
+                {imp.status === 'pending' ? 'Check on it →' : 'Create →'}
+              </Link>
+            </div>
           </li>
         ))}
       </ul>

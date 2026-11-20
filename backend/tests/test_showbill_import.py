@@ -77,7 +77,6 @@ def raw_read(**overrides):
         "side_pots": [],
         "notes_for_exhibitors": "",
         "notes_for_office": "",
-        "warnings": [],
     }
     base.update(overrides)
     return base
@@ -96,7 +95,6 @@ def a_class(**overrides):
         "is_championship": False,
         "futurity": "",
         "side_pots": [],
-        "note": None,
     }
     base.update(overrides)
     return base
@@ -151,16 +149,18 @@ def test_the_schema_stays_under_the_union_limit():
         assert len(list(_union_properties(schema))) <= 16
 
 
-def test_the_two_passes_split_the_bill_between_them():
+def test_the_passes_split_the_bill_between_them():
     """One schema for the whole bill compiles to a grammar the API refuses as
-    too large; the class list is read on its own pass. Every top-level section
-    must be read by exactly one pass, except the reviewer's warnings. The
-    futurities and side pots go with the classes, which name them."""
-    header, classes = SHOWBILL_SCHEMAS
+    too large, and so did the header with the stall periods in it
+    (2026-11-18). Every top-level section must be read by exactly one pass.
+    The futurities and side pots go with the
+    classes, which name them; the stalls have a pass of their own."""
+    header, classes, stalls = SHOWBILL_SCHEMAS
     for key in ("classes", "futurities", "side_pots"):
         assert key in classes["properties"] and key not in header["properties"]
-    shared = set(header["properties"]) & set(classes["properties"])
-    assert shared == {"warnings"}
+    assert set(stalls["properties"]) == {"stall_notes", "stall_periods"}
+    sections = [set(schema["properties"]) for schema in SHOWBILL_SCHEMAS]
+    assert sum(len(x) for x in sections) == len(set().union(*sections))
 
 
 def test_the_header_holds_only_what_the_app_has_a_place_for():
@@ -169,12 +169,17 @@ def test_the_header_holds_only_what_the_app_has_a_place_for():
     here must be tried against the API before it ships -- the header pass
     has been refused as "The compiled grammar is too large" before
     (docs/showbill-import.md)."""
-    header, _classes = SHOWBILL_SCHEMAS
+    header, _classes, _stalls = SHOWBILL_SCHEMAS
     assert set(header["properties"]) == {
         "show", "judges", "clubs", "class_rates", "fees",
-        "notes_for_exhibitors", "notes_for_office", "warnings",
+        "notes_for_exhibitors", "notes_for_office",
     }
     assert "staff" not in header["properties"]["show"]["properties"]
+    # Each note for the step that holds it (2026-11-18): Paperwork's here,
+    # the stall rules in the stall pass. Plain text, so no union is added.
+    show = header["properties"]["show"]["properties"]
+    assert show["vaccination_notes"]["type"] == "string"
+    assert "stall_notes" not in show and "stalls_move_in" not in show
     assert set(header["properties"]["judges"]["items"]["properties"]) == {"first_name", "last_name", "associations"}
 
 
@@ -233,38 +238,128 @@ def test_the_class_pass_is_told_the_header_pass_rate_keys(monkeypatch):
         "fees": [],
         "notes_for_exhibitors": "",
         "notes_for_office": "",
-        "warnings": ["Year inferred."],
     }
     classes = {
         "classes": [
             {"date": "", "number": "1", "name": "Trail", "discipline": "Trail", "bracket": "Open",
              "association_class_code": "", "rate_key": "apha_open", "club_codes": [],
-             "is_championship": False, "futurity": "", "side_pots": [], "note": ""}
+             "is_championship": False, "futurity": "", "side_pots": []}
         ],
         "futurities": [],
         "side_pots": [{"name": "Novice Jackpot", "description": "", "entry_fee_cents": 2500, "payback_percent": None}],
-        "warnings": ["Page 3 is faint."],
     }
-    client = _FakeClient([header, classes])
+    stalls = {
+        "stall_notes": "No switching stalls.",
+        "stall_periods": [
+            {"name": "Games", "move_in": "2027-08-20 21:00", "move_out": "2027-08-22", "move_out_note": "",
+             "move_in_notes": "", "reserve_by": "",
+             "stalls": [{"kind": "box", "amount_cents": 5600, "early_amount_cents": 0,
+                         "horses_per_tack_stall": 0, "notes": ""}],
+             "early_move_in_pass": []}
+        ],
+    }
+    client = _FakeClient([header, classes, stalls])
     monkeypatch.setattr(showbill, "_get_client", lambda: client)
     monkeypatch.setattr(showbill, "extraction_available", lambda: True)
 
     result = asyncio.run(showbill.extract_showbill(b"%PDF", "application/pdf", "bill.pdf"))
 
     assert result.succeeded, result.error_message
-    assert len(client.calls) == 2
-    first, second = client.calls
+    assert len(client.calls) == 3
+    first, second, third = client.calls
     assert first["output_config"]["format"]["schema"] is showbill.HEADER_SCHEMA
     assert second["output_config"]["format"]["schema"] is showbill.CLASSES_SCHEMA
+    assert third["output_config"]["format"]["schema"] is showbill.STALLS_SCHEMA
     # Both passes read the same bill, uncached (see the note above HEADER_SCHEMA).
     assert first["messages"][0]["content"][0] == second["messages"][0]["content"][0]
     assert "cache_control" not in first["messages"][0]["content"][0]
     assert "apha_open ($9 per judge)" in second["messages"][0]["content"][1]["text"]
     assert result.fields["classes"][0]["rate_key"] == "apha_open"
-    assert result.fields["warnings"] == ["Year inferred.", "Page 3 is faint."]
+    assert "warnings" not in result.fields
+    # The stall pass's periods and shared rules reach the read.
+    assert result.fields["show"]["stall_notes"] == "No switching stalls."
+    assert [p["name"] for p in result.fields["stall_periods"]] == ["Games"]
     # The class pass's futurities and side pots reach the read.
     assert result.fields["side_pots"][0]["name"] == "Novice Jackpot"
-    assert (result.input_tokens, result.output_tokens) == (220, 10)
+    assert (result.input_tokens, result.output_tokens) == (330, 15)
+
+
+_EMPTY_HEADER = {"show": {}, "judges": [], "clubs": [], "class_rates": [], "fees": [],
+                 "notes_for_exhibitors": "", "notes_for_office": ""}
+_EMPTY_CLASSES = {"classes": [], "futurities": [], "side_pots": []}
+_EMPTY_STALLS = {"stall_notes": "", "stall_periods": []}
+
+
+def test_supporting_documents_are_read_by_every_pass_after_the_bill(monkeypatch):
+    """A rules sheet uploaded beside the bill (migration 201) reaches every
+    pass, each document labelled, the bill first -- so the prompt's "Document 1
+    is always the show bill" is true of every request."""
+    import asyncio
+
+    from extraction import showbill
+
+    client = _FakeClient([_EMPTY_HEADER, _EMPTY_CLASSES, _EMPTY_STALLS])
+    monkeypatch.setattr(showbill, "_get_client", lambda: client)
+    monkeypatch.setattr(showbill, "extraction_available", lambda: True)
+
+    rules = showbill.SupportingDocument(content=b"%PDF rules", mime_type="application/pdf", filename="rules.pdf")
+    photo = showbill.SupportingDocument(content=b"\xff\xd8\xff", mime_type="image/jpeg", filename="stalls.jpg")
+    result = asyncio.run(
+        showbill.extract_showbill(b"%PDF bill", "application/pdf", "bill.pdf", supporting=[rules, photo])
+    )
+
+    assert result.succeeded, result.error_message
+    first, second, third = client.calls
+    assert first["messages"][0]["content"][:-1] == second["messages"][0]["content"][:-1]
+    assert first["messages"][0]["content"][:-1] == third["messages"][0]["content"][:-1]
+    content = first["messages"][0]["content"]
+    assert [b["type"] for b in content] == ["text", "document", "text", "document", "text", "image", "text"]
+    assert "Document 1 -- the show bill" in content[0]["text"] and "bill.pdf" in content[0]["text"]
+    assert "Document 2" in content[2]["text"] and "rules.pdf" in content[2]["text"]
+    assert "Document 3" in content[4]["text"] and "stalls.jpg" in content[4]["text"]
+    assert "2 supporting documents" in content[-1]["text"]
+    assert "2 supporting documents" in second["messages"][0]["content"][-1]["text"]
+
+
+def test_a_bill_on_its_own_is_sent_as_it_always_was(monkeypatch):
+    import asyncio
+
+    from extraction import showbill
+
+    client = _FakeClient([_EMPTY_HEADER, _EMPTY_CLASSES, _EMPTY_STALLS])
+    monkeypatch.setattr(showbill, "_get_client", lambda: client)
+    monkeypatch.setattr(showbill, "extraction_available", lambda: True)
+
+    asyncio.run(showbill.extract_showbill(b"%PDF", "application/pdf", "bill.pdf"))
+
+    content = client.calls[0]["messages"][0]["content"]
+    assert [b["type"] for b in content] == ["document", "text"]
+    assert content[1]["text"].startswith("Uploaded as 'bill.pdf'.")
+
+
+def test_a_supporting_document_the_model_cannot_read_stops_the_read_before_any_tokens(monkeypatch):
+    import asyncio
+
+    from extraction import showbill
+
+    client = _FakeClient([])
+    monkeypatch.setattr(showbill, "_get_client", lambda: client)
+    monkeypatch.setattr(showbill, "extraction_available", lambda: True)
+
+    tiff = showbill.SupportingDocument(content=b"II*\x00", mime_type="image/tiff", filename="scan.tif")
+    result = asyncio.run(showbill.extract_showbill(b"%PDF", "application/pdf", "bill.pdf", supporting=[tiff]))
+
+    assert result.status == "unsupported_media"
+    assert client.calls == []
+
+
+def test_the_prompt_says_the_bill_wins_a_disagreement():
+    """Transcribe, never guess: where a rules sheet and the bill disagree the
+    read keeps the bill's value."""
+    from extraction.showbill import SYSTEM_PROMPT
+
+    assert "Document 1 is always the show bill" in SYSTEM_PROMPT
+    assert "take the show bill's value." in SYSTEM_PROMPT
 
 
 def test_a_failed_class_pass_fails_the_read(monkeypatch):
@@ -273,7 +368,7 @@ def test_a_failed_class_pass_fails_the_read(monkeypatch):
     from extraction import showbill
 
     client = _FakeClient([{"show": {}, "judges": [], "clubs": [], "class_rates": [], "fees": [],
-                           "notes_for_exhibitors": "", "notes_for_office": "", "warnings": []}])
+                           "notes_for_exhibitors": "", "notes_for_office": ""}])
 
     def stream(**kwargs):
         if client.calls:
@@ -306,7 +401,7 @@ def test_a_blank_text_field_reads_as_not_printed():
             "classes": [
                 {"date": "", "number": "", "name": "Trail", "discipline": "", "bracket": "",
                  "association_class_code": "", "rate_key": "", "club_codes": [],
-                 "is_championship": False, "futurity": "", "side_pots": [], "note": ""}
+                 "is_championship": False, "futurity": "", "side_pots": []}
             ],
             "fees": [
                 {"label": "Stall", "amount_cents": 9000, "unit": "per_stall", "notes": "",
@@ -314,7 +409,6 @@ def test_a_blank_text_field_reads_as_not_printed():
             ],
             "notes_for_exhibitors": "  ",
             "notes_for_office": "",
-            "warnings": [],
         }
     )
     assert fields["show"]["name"] is None
@@ -324,10 +418,9 @@ def test_a_blank_text_field_reads_as_not_printed():
     assert fields["clubs"][0]["name"] is None
     assert fields["class_rates"][0]["association_code"] is None
     cls = fields["classes"][0]
-    assert (cls["date"], cls["number"], cls["discipline"], cls["rate_key"], cls["note"]) == (None,) * 5
+    assert (cls["date"], cls["number"], cls["discipline"], cls["rate_key"]) == (None,) * 4
     assert fields["fees"][0]["notes"] is None
     assert fields["fees"][0]["early_deadline"] is None
-    assert fields["warnings"] == []
 
 
 def test_the_withdrawn_fee_units_are_not_offered_to_the_model():
@@ -337,17 +430,15 @@ def test_the_withdrawn_fee_units_are_not_offered_to_the_model():
 
 # ── Cleaning the read ─────────────────────────────────────────────────────────
 
-def test_a_date_that_is_not_a_date_is_blanked_and_reported():
+def test_a_date_that_is_not_a_date_is_blanked():
     read = normalize_showbill(raw_read(classes=[a_class(date="Saturday")]))
     assert read["classes"][0]["date"] is None
-    assert any("date" in w for w in read["warnings"])
 
 
 def test_a_reversed_date_range_is_left_for_the_reviewer_rather_than_guessed():
     show = raw_read()["show"] | {"start_date": "2027-08-22", "end_date": "2027-08-21"}
     read = normalize_showbill(raw_read(show=show))
     assert read["show"]["start_date"] is None and read["show"]["end_date"] is None
-    assert read["warnings"]
 
 
 def test_a_class_pointing_at_a_rate_that_does_not_exist_comes_back_unpriced():
@@ -362,7 +453,6 @@ def test_a_class_pointing_at_a_rate_that_does_not_exist_comes_back_unpriced():
     )
     assert read["classes"][0]["rate_key"] == "open"
     assert read["classes"][1]["rate_key"] is None
-    assert any("youth" in w for w in read["warnings"])
 
 
 def test_an_early_rate_without_its_deadline_is_dropped_not_half_kept():
@@ -628,8 +718,9 @@ def test_fee_codes_are_unique_within_the_show():
 
 def test_the_main_lodging_lines_take_the_lodging_steps_own_codes():
     """The MNSPHC bill's order: the horse stall is the Stalls slot, the
-    early-arrival stall is the Early Move-In Pass, and the tack stall and the
-    late-departure hook-up are extra lines beside them."""
+    early-arrival stall is the Early Move-In Pass, the tack stall an extra
+    line beside them, and the late-departure hook-up a second camping option
+    (2026-11-18: the Camping card lists several)."""
     fees = [
         ("Early arrival — stall", "per_stall"),
         ("Horse stall", "per_stall"),
@@ -644,7 +735,7 @@ def test_the_main_lodging_lines_take_the_lodging_steps_own_codes():
         "tack_stall",
         "shavings",
         "camping",
-        "late_departure_hook_up",
+        "camping_late_departure_hook_up",
     ]
 
 
@@ -673,7 +764,8 @@ def test_a_priority_or_early_move_in_stall_is_the_pass_not_the_stall(label):
 
 def test_early_lines_that_are_not_a_stall_are_not_the_pass():
     """Early arrival is sold by the night, by the hook-up and as a tack stall
-    too; the pass is the per-stall line, so those keep a code of their own."""
+    too; the pass is the per-stall line, so those keep a code of their own --
+    the hook-up a camping option, the only one this bill prices."""
     fees = [
         ("Early arrival — night", "per_night"),
         ("Early arrival — electrical hook-up", "per_show"),
@@ -681,7 +773,7 @@ def test_early_lines_that_are_not_a_stall_are_not_the_pass():
     ]
     assert fee_codes(fees) == [
         "early_arrival_night",
-        "early_arrival_electrical_hook_up",
+        "camping",
         "early_arrival_tack_stall",
     ]
 
@@ -690,3 +782,115 @@ def test_no_other_fee_is_handed_a_lodging_slot_code():
     """A flat "Camping" note would otherwise be claimed by the Lodging step's
     camping card and edited as though it were the booked line."""
     assert fee_codes([("Camping", "flat"), ("Stall", "flat")]) == ["camping_2", "stall_2"]
+
+
+# --- Cancelling an upload ------------------------------------------------------
+
+
+class _CancelSession:
+    """Answers the cancel's one locked read, then records the delete."""
+
+    def __init__(self, row):
+        self._row = row
+        self.statements = []
+        self.committed = False
+
+    async def execute(self, statement):
+        self.statements.append(statement)
+        return SimpleNamespace(one_or_none=lambda: self._row)
+
+    async def commit(self):
+        self.committed = True
+
+
+def _cancel(row, user_id, role="SHOW_MANAGER"):
+    import asyncio
+
+    from routers.show_bill_imports import cancel_import
+
+    db = _CancelSession(row)
+    try:
+        response = asyncio.run(cancel_import(uuid4(), x_user_id=str(user_id), x_user_role=role, db=db))
+    except Exception as exc:  # noqa: BLE001 - the test reads the HTTPException
+        return db, exc
+    return db, response
+
+
+def _deleted(db) -> bool:
+    return any(getattr(s, "is_delete", False) for s in db.statements)
+
+
+def test_an_upload_that_is_not_a_show_yet_is_cancelled_by_whoever_uploaded_it():
+    owner = uuid4()
+    db, response = _cancel(SimpleNamespace(created_by_user_id=owner, show_id=None), owner)
+
+    assert response.status_code == 204
+    assert _deleted(db) and db.committed
+    # Locked as Create locks it, so the two cannot both happen.
+    assert db.statements[0]._for_update_arg is not None
+
+
+def test_somebody_else_cannot_cancel_an_upload_but_an_admin_can():
+    from fastapi import HTTPException
+
+    row = SimpleNamespace(created_by_user_id=uuid4(), show_id=None)
+    db, exc = _cancel(row, uuid4())
+    assert isinstance(exc, HTTPException) and exc.status_code == 404
+    assert not _deleted(db)
+
+    db, response = _cancel(row, uuid4(), role="ADMIN")
+    assert response.status_code == 204 and _deleted(db)
+
+
+def test_an_upload_a_show_was_made_from_is_kept_as_the_record_of_it():
+    from fastapi import HTTPException
+
+    owner, show_id = uuid4(), uuid4()
+    db, exc = _cancel(SimpleNamespace(created_by_user_id=owner, show_id=show_id), owner)
+
+    assert isinstance(exc, HTTPException) and exc.status_code == 409
+    assert exc.detail["show_id"] == str(show_id)
+    assert not _deleted(db) and not db.committed
+
+
+def test_a_missing_upload_is_not_found():
+    from fastapi import HTTPException
+
+    _, exc = _cancel(None, uuid4(), role="ADMIN")
+    assert isinstance(exc, HTTPException) and exc.status_code == 404
+
+
+def test_a_bills_parking_and_other_permits_are_permits_never_the_camping_line():
+    """WSCA 2026 (2026-11-18): "Parking Permit (Non-Electrical)" priced for the
+    show took the camping slot, so the Lodging step called it camping. Each
+    permit is the *Parking & permits* card's (`permit_`)."""
+    fees = [
+        ("Parking Permit (Non-Electrical)", "per_show"),
+        ("Full Show Electrical (Wed - Mon)", "per_show"),
+        ("Side by Side Permit", "per_show"),
+        ("Golf cart", "per_day"),
+    ]
+    assert fee_codes(fees) == [
+        "permit_parking_permit_non_electrical",
+        "camping",
+        "permit_side_by_side_permit",
+        "permit_golf_cart",
+    ]
+
+
+def test_each_electrical_option_a_bill_prices_is_a_camping_option():
+    """WSCA sells electrical for the full show, Wed-Fri and Fri-Mon at three
+    prices: the first keeps the camping slot's code, the others `camping_`, so
+    the Lodging step's *Camping* card lists all three."""
+    fees = [
+        ("Full Show Electrical (Wed - Mon)", "per_show"),
+        ("Wednesday - Friday Electrical", "per_show"),
+        ("Late Friday - Monday Electrical", "per_show"),
+        ("4H Carryover", "flat"),
+    ]
+    assert fee_codes(fees) == [
+        "camping",
+        "camping_wednesday_friday_electrical",
+        "camping_late_friday_monday_electrical",
+        "4h_carryover",
+    ]
