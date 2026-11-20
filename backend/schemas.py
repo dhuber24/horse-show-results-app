@@ -451,6 +451,21 @@ class ClassCardPhotoOut(BaseModel):
 
 # ── Sanctioned Associations ────────────────────────────────────────────────────
 
+class ShowPatternReadOut(BaseModel):
+    """What reading an uploaded pattern file did (GaitDesk Pro, `pattern_reading`).
+
+    `patterns` is every pattern on the show afterwards, in the list's order, as
+    `PUT /assignments` answers, so the screen redraws from one answer. `added`
+    names the ones this file made. `assigned` counts the classes it attached;
+    `kept` the classes it named that already had a pattern, which it left as
+    the office had them.
+    """
+    patterns: list[ShowPatternOut]
+    added: list[UUID]
+    assigned: int
+    kept: int
+
+
 class SanctionedAssociationCreate(BaseModel):
     code: str = Field(min_length=1, max_length=20)
     name: str = Field(min_length=1, max_length=200)

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import LocalTime from '@/components/LocalTime';
 import { errorMessage } from '@/lib/api-error';
 import {
@@ -26,6 +26,12 @@ import {
  * per group, because one showmanship pattern usually runs every showmanship
  * division.
  *
+ * On GaitDesk Pro the office can instead upload the whole pattern book and
+ * have it read (`canRead`): each pattern is filed and attached to the classes
+ * its heading names, leaving any class already attached alone. On Basic that
+ * spot holds the upgrade offer (`readingLock`), and the upload below it works
+ * the same.
+ *
  * When a judge changes a pattern, *Replace file* keeps it attached to its
  * classes and moves its date, which is what tells an exhibitor who read
  * Thursday's copy that it changed. Deleting and re-adding would lose both.
@@ -41,6 +47,15 @@ export type PickerClass = {
 };
 
 const UPLOAD_HINT = 'A PDF, or a JPEG, PNG or WebP image — a photo of a hand-drawn pattern is fine. 10 MB at most.';
+
+const READ_HINT = 'The whole pattern book as a PDF, or one pattern as a PDF or photo. 10 MB at most.';
+
+/** What reading a pattern file answers (`ShowPatternReadOut`). */
+type ReadOut = { patterns: ShowPattern[]; added: string[]; assigned: number; kept: number };
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
 
 /** The "set all" dropdown's value for taking a group's pattern away. */
 const NO_PATTERN = '__none__';
@@ -65,10 +80,16 @@ export default function PatternsClient({
   showId,
   classes,
   initialPatterns,
+  canRead = false,
+  readingLock = null,
 }: {
   showId: string;
   classes: PickerClass[];
   initialPatterns: ShowPattern[];
+  /** The show is on GaitDesk Pro or Pro+ (`pattern_reading`). */
+  canRead?: boolean;
+  /** The upgrade offer shown where the read would be, on Basic. */
+  readingLock?: ReactNode;
 }) {
   const [patterns, setPatterns] = useState<ShowPattern[]>(initialPatterns);
   const [error, setError] = useState<string | null>(null);
@@ -157,6 +178,35 @@ export default function PatternsClient({
           ? `“${created.name}” added. Exhibitors can view it now — attach it to its classes below if you like.`
           : `“${created.name}” added. Exhibitors can view it now.`,
       );
+      return true;
+    } catch {
+      setError('Could not reach the server.');
+      return false;
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function readFile(file: File): Promise<boolean> {
+    begin('read');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`/api/shows/${showId}/patterns/read`, { method: 'POST', body: form });
+      const json = await readJson(res);
+      if (!res.ok) {
+        setError(errorMessage(json, 'Could not read that file.'));
+        return false;
+      }
+      const out = json as ReadOut;
+      update(() => out.patterns);
+      const parts = [`${plural(out.added.length, 'pattern', 'patterns')} added from “${file.name}”`];
+      if (out.assigned > 0) parts.push(`attached to ${plural(out.assigned, 'class', 'classes')}`);
+      let message = parts.join(' and ') + '.';
+      if (out.kept > 0) {
+        message += ` ${plural(out.kept, 'class', 'classes')} already had a pattern and kept it.`;
+      }
+      setSuccess(`${message} Check each one below — a class no pattern named is left for you to attach.`);
       return true;
     } catch {
       setError('Could not reach the server.');
@@ -300,6 +350,12 @@ export default function PatternsClient({
         }}
       />
 
+      {canRead ? (
+        <ReadPatternsForm busy={busyId === 'read'} locked={busyId !== null || assigning} onRead={readFile} />
+      ) : (
+        readingLock
+      )}
+
       <AddPatternForm busy={busyId === 'new'} onUpload={uploadNew} />
 
       <section className="space-y-3">
@@ -358,6 +414,123 @@ export default function PatternsClient({
         onAssign={assign}
       />
     </div>
+  );
+}
+
+/**
+ * GaitDesk Pro: one file in, every pattern in it filed and attached. The read
+ * takes a few seconds to a minute or two, so the button says what is happening
+ * and the rest of the page waits for it.
+ */
+function ReadPatternsForm({
+  busy,
+  locked,
+  onRead,
+}: {
+  busy: boolean;
+  locked: boolean;
+  onRead: (file: File) => Promise<boolean>;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  return (
+    <section
+      className="p-4 rounded-lg border space-y-3"
+      style={{ borderColor: 'var(--accent-border)', backgroundColor: 'var(--accent-bg)' }}
+    >
+      <div>
+        <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>
+          Read the pattern book
+        </h2>
+        <p className="text-sm mt-1" style={{ color: 'var(--text-deep)' }}>
+          Upload the show&apos;s patterns and GaitDesk files each one under its own name and attaches it
+          to the classes its heading names. Classes that already have a pattern keep it.
+        </p>
+      </div>
+
+      <input
+        ref={input}
+        type="file"
+        accept={PATTERN_ACCEPT}
+        className="hidden"
+        onChange={(e) => {
+          const picked = e.target.files?.[0];
+          e.target.value = '';
+          if (picked) setFile(picked);
+        }}
+      />
+
+      {!file ? (
+        <button
+          type="button"
+          onClick={() => input.current?.click()}
+          disabled={locked}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const picked = e.dataTransfer.files?.[0];
+            if (picked && !locked) setFile(picked);
+          }}
+          title={READ_HINT}
+          className="w-full rounded-lg border-2 border-dashed px-4 py-6 text-sm text-center transition disabled:opacity-50"
+          style={{
+            borderColor: dragging ? 'var(--accent)' : 'var(--border)',
+            backgroundColor: dragging ? 'var(--bg-subtle)' : 'var(--surface)',
+            color: 'var(--text-deep)',
+          }}
+        >
+          <span className="block font-medium" style={{ color: 'var(--foreground)' }}>
+            Choose the pattern book, or drop it here
+          </span>
+          <span className="block text-xs mt-1" style={{ color: 'var(--muted)' }}>{READ_HINT}</span>
+        </button>
+      ) : (
+        <form
+          className="space-y-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (busy || locked) return;
+            if (await onRead(file)) setFile(null);
+          }}
+        >
+          <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
+            <span className="font-medium" style={{ color: 'var(--foreground)' }}>{file.name}</span>{' '}
+            · {formatFileSize(file.size)}
+          </p>
+          <div className="flex gap-2 flex-wrap items-center">
+            <button
+              type="submit"
+              disabled={busy || locked}
+              className="text-sm rounded px-4 py-2 font-medium disabled:opacity-50"
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
+            >
+              {busy ? 'Reading the patterns…' : 'Read and add patterns'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFile(null)}
+              disabled={busy}
+              className="text-sm rounded px-4 py-2 border disabled:opacity-50"
+              style={buttonStyle}
+            >
+              Cancel
+            </button>
+            {busy && (
+              <span className="text-xs" role="status" style={{ color: 'var(--muted)' }}>
+                This can take up to a minute or two.
+              </span>
+            )}
+          </div>
+        </form>
+      )}
+    </section>
   );
 }
 

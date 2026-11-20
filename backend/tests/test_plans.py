@@ -29,8 +29,10 @@ from show_companies import (
     FINANCIAL_REPORTS,
     LIVE_BOARDS,
     ONLINE_PAYMENTS,
+    PATTERN_READING,
     PLANS,
     PRO,
+    PRO_PLUS,
     SHOWBILL_IMPORT,
     combined_features,
     company_features,
@@ -67,10 +69,12 @@ def test_basic_includes_no_paid_feature():
         LIVE_BOARDS,
         ONLINE_PAYMENTS,
         CARD_PHOTOS,
+        PATTERN_READING,
     ],
 )
 def test_pro_includes_every_paid_feature(feature):
     assert feature in plan_features(PRO)
+    assert feature in plan_features(PRO_PLUS)
     assert FEATURES[feature].plan == PLANS[PRO].label
 
 

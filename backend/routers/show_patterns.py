@@ -29,25 +29,42 @@ is read at the rail on a phone, by people who never signed in. Writes are the
 show office's -- ADMIN, or a secretary or manager assigned to the show.
 """
 
+import asyncio
+import logging
 import re
 from typing import Optional
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
-from models import Class, Show, ShowPattern, ShowPatternClass
+from extraction.patterns import numbered, pattern_file, read_patterns
+from models import Class, Discipline, Division, Show, ShowPattern, ShowPatternClass
 from routers.show_documents import _detect_mime
 from routers.shows import _assert_show_access
-from schemas import ShowPatternAssignment, ShowPatternOut, ShowPatternUpdate
+from schemas import ShowPatternAssignment, ShowPatternOut, ShowPatternReadOut, ShowPatternUpdate
+from show_companies import PATTERN_READING, require_show_feature
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/shows/{show_id}/patterns", tags=["Show Patterns"])
+
+
+def _rate_key(request: Request) -> str:
+    """Per user: every request comes through the Next.js server, so an IP key
+    would be one limit for everybody (`show_bill_imports._rate_key`)."""
+    return request.headers.get("x-user-id") or get_remote_address(request)
+
+
+_limiter = Limiter(key_func=_rate_key)
 
 # The same limit as a show bill and a horse document: the same phones and
 # scanners produce all three, and a second number to remember buys nothing.
@@ -156,6 +173,38 @@ def plan_assignment(
     clear = {c for c in class_ids if c in current and current[c] != pattern_id}
     add = {c for c in class_ids if current.get(c) != pattern_id}
     return clear, add
+
+
+def plan_read(
+    found: list[dict],
+    class_ids: list[UUID],
+    assigned: set[UUID],
+    names_on_file: set[str],
+) -> tuple[list[tuple[str, int, int, list[UUID]]], int]:
+    """What a read pattern file adds to the show: each pattern's name, pages
+    and the classes to attach, and how many classes it named that already had
+    a pattern.
+
+    `found` is `extraction.patterns.clean_patterns`' list, its classes indexes
+    into `class_ids`. **A class the office already attached keeps its
+    pattern** -- the read files new patterns and fills the gaps, and never
+    undoes somebody's choice. A name already on file is numbered, since names
+    are unique per show.
+    """
+    taken = {name_key(n) for n in names_on_file}
+    plan: list[tuple[str, int, int, list[UUID]]] = []
+    kept = 0
+    for p in found:
+        name = numbered(normalize_name(p["name"]) or "Pattern", taken)
+        taken.add(name_key(name))
+        attach = []
+        for i in p["classes"]:
+            if class_ids[i] in assigned:
+                kept += 1
+            else:
+                attach.append(class_ids[i])
+        plan.append((name, p["first_page"], p["last_page"], attach))
+    return plan, kept
 
 
 def pattern_sort_key(name: str, first_position: Optional[int]) -> tuple:
@@ -380,6 +429,122 @@ async def upload_pattern(
         raise HTTPException(409, _name_taken(clean_name))
 
     return await _load_one(show_id, pattern_id, db)
+
+
+@router.post(
+    "/read",
+    response_model=ShowPatternReadOut,
+    status_code=201,
+    dependencies=[
+        Depends(require_admin_or_show_admin),
+        Depends(require_show_feature(PATTERN_READING)),
+    ],
+)
+@_limiter.limit("20/hour")
+async def read_patterns_file(
+    request: Request,
+    show_id: UUID,
+    file: UploadFile = File(...),
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read an uploaded pattern file -- one pattern or the whole book -- and
+    put each pattern in it on file, attached to the classes that run it
+    (GaitDesk Pro). Each is saved as `POST ""` would save it, cut to its own
+    pages; the classes it is given are those its heading names that have no
+    pattern yet (`plan_read`). Takes a minute or two: the read is one model
+    call, made while the request waits.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+    content = await file.read()
+    mime = validate_upload(content)
+
+    classes = (
+        await db.execute(
+            select(
+                Class.id,
+                Class.class_number,
+                Class.class_name,
+                Discipline.name.label("discipline"),
+                Division.name.label("division"),
+            )
+            .outerjoin(Discipline, Discipline.id == Class.discipline_id)
+            .outerjoin(Division, Division.id == Class.division_id)
+            .where(Class.show_id == show_id)
+            .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
+        )
+    ).mappings().all()
+    # The database session is not held across the read, which takes minutes.
+    await db.commit()
+
+    result = await read_patterns(content, mime, file.filename or "patterns", [dict(c) for c in classes])
+    if not result.succeeded:
+        raise HTTPException(502 if result.status == "failed" else 422, result.error_message)
+    found = result.fields["patterns"]
+    if not found:
+        raise HTTPException(
+            422, "No patterns were found in that file. Add it as a single pattern below instead."
+        )
+
+    names_on_file = set((await db.execute(select(ShowPattern.name).where(ShowPattern.show_id == show_id))).scalars())
+    assigned = set(
+        (
+            await db.execute(
+                select(ShowPatternClass.class_id)
+                .join(Class, Class.id == ShowPatternClass.class_id)
+                .where(Class.show_id == show_id)
+            )
+        ).scalars()
+    )
+    plan, kept = plan_read(found, [c["id"] for c in classes], assigned, names_on_file)
+
+    added: list[UUID] = []
+    attached = 0
+    stem = (file.filename or "patterns").rsplit(".", 1)[0]
+    for name, first, last, class_ids in plan:
+        data = await asyncio.to_thread(pattern_file, content, mime, first, last)
+        if data is None:
+            continue
+        pages = f"p{first}" if first == last else f"pp{first}-{last}"
+        pattern_id = uuid4()
+        db.add(
+            ShowPattern(
+                id=pattern_id,
+                show_id=show_id,
+                name=name,
+                # Where it came from ("Patterns p6.pdf"); an image is its own file.
+                original_filename=f"{stem} {pages}.pdf" if mime == "application/pdf" else (file.filename or "pattern"),
+                file_data=data,
+                mime_type=mime,
+                file_size=len(data),
+                uploaded_by_user_id=safe_uuid(x_user_id),
+            )
+        )
+        await db.flush()
+        for class_id in class_ids:
+            db.add(ShowPatternClass(class_id=class_id, pattern_id=pattern_id))
+        attached += len(class_ids)
+        added.append(pattern_id)
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A pattern of the same name, or an attachment to the same class, made
+        # by somebody else while the file was being read.
+        await db.rollback()
+        raise HTTPException(
+            409, "The patterns changed while that file was being read. Reload and try again."
+        )
+    logger.info(
+        "pattern reading: show %s, %s patterns, %s classes, %s in / %s out tokens (%s)",
+        show_id, len(added), attached, result.input_tokens, result.output_tokens, result.model,
+    )
+    return ShowPatternReadOut(
+        patterns=await _load_patterns(show_id, db), added=added, assigned=attached, kept=kept
+    )
 
 
 @router.patch(

@@ -1,19 +1,33 @@
 import { fetchShow, fetchClasses, fetchShowPatterns } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/backend-fetch';
+import { PATTERN_READING, fetchMyFeatures, fetchShowPlan, showHasFeature } from '@/lib/show-companies';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import ProLockedPanel from '@/components/ProLockedPanel';
 import PatternsClient, { type PickerClass } from './PatternsClient';
 
 /**
  * The show's patterns — added by the office, and optionally attached to the
  * classes that run them (migration 146). Exhibitors read them on the show's
  * public Patterns page and beside each class on the schedule.
+ *
+ * On GaitDesk Pro and Pro+ the office can also upload the whole pattern book
+ * and have it read: each pattern filed and attached to its classes
+ * (`pattern_reading`). On Basic the upload below is the same, and classes are
+ * attached by hand; the read is offered as an upgrade in its place.
  */
 export default async function ShowPatternsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, classes, patterns] = await Promise.all([
+  const staffHeaders = await getAuthHeaders();
+  const [show, classes, patterns, plan] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchShowPatterns(id),
+    fetchShowPlan(id, staffHeaders),
   ]);
+  const canRead = showHasFeature(plan, PATTERN_READING) || staffHeaders?.['X-User-Role'] === 'ADMIN';
+  const readingLock = canRead ? null : (
+    <ProLockedPanel feature={PATTERN_READING} plan={plan} mine={await fetchMyFeatures(staffHeaders)} />
+  );
 
   const pickerClasses: PickerClass[] = classes.map((c: PickerClass) => ({
     id: c.id,
@@ -46,7 +60,13 @@ export default async function ShowPatternsPage({ params }: { params: Promise<{ i
         done below.
       </div>
 
-      <PatternsClient showId={id} classes={pickerClasses} initialPatterns={patterns} />
+      <PatternsClient
+        showId={id}
+        classes={pickerClasses}
+        initialPatterns={patterns}
+        canRead={canRead}
+        readingLock={readingLock}
+      />
     </main>
   );
 }

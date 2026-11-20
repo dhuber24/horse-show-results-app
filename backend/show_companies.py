@@ -118,6 +118,7 @@ DATA_EXPORT = "data_export"
 LIVE_BOARDS = "live_boards"
 ONLINE_PAYMENTS = "online_payments"
 CARD_PHOTOS = "card_photos"
+PATTERN_READING = "pattern_reading"
 
 FEATURES: dict[str, Feature] = {
     SHOWBILL_IMPORT: Feature(
@@ -195,6 +196,19 @@ FEATURES: dict[str, Feature] = {
         ),
         plan=PRO_LABEL,
     ),
+    # 2026-11-20: the Patterns step reads an uploaded pattern book, files each
+    # pattern and attaches it to its classes. Basic keeps the upload itself
+    # and attaches classes by hand. Gated where the file is read
+    # (`routers/show_patterns.read_patterns_file`), on the show's plan.
+    PATTERN_READING: Feature(
+        key=PATTERN_READING,
+        label="Patterns read and attached to their classes",
+        description=(
+            "Upload the show's patterns -- one page or the whole book -- and GaitDesk files each "
+            "pattern and attaches it to the classes that run it."
+        ),
+        plan=PRO_LABEL,
+    ),
 }
 
 
@@ -258,6 +272,7 @@ PLANS: dict[str, Plan] = {
             "Live Boards for exhibitors and spectators (monitors not included)",
             "Online payments from exhibitors, to your own Stripe account",
             "Photos of the judge's card on each class's results",
+            "Patterns read and attached to their classes",
         ),
         self_serve=True,
     ),
