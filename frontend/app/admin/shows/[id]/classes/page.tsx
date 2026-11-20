@@ -1,4 +1,4 @@
-import { fetchShow, fetchClasses, fetchShowTypes, fetchDisciplines, fetchDivisions } from '@/lib/api';
+import { fetchShow, fetchClasses, fetchShowTypes, fetchDisciplines, fetchDivisions, fetchRings } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import StepLayout from '../setup/_lib/StepLayout';
 import { fetchStepCounts } from '../setup/_lib/fetchStepCounts';
@@ -7,6 +7,7 @@ import ClassWizardClient, {
   type DivisionItem,
   type ClassItem,
   type StandardItem,
+  type RingItem,
 } from './_wizard/ClassWizardClient';
 
 async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
@@ -101,11 +102,12 @@ export default async function ShowClassesPage({
   const show = await fetchShow(id);
   const stepsInput = await fetchStepCounts(id);
 
-  const [showTypes, disciplines, divisions, classes] = await Promise.all([
+  const [showTypes, disciplines, divisions, classes, rings] = await Promise.all([
     fetchShowTypes(),
     fetchDisciplines(id),
     fetchDivisions(id),
     fetchClasses(id),
+    fetchRings(id),
   ]);
   const standardLibrary = await fetchStandardLibrary(
     showTypes,
@@ -132,6 +134,7 @@ export default async function ShowClassesPage({
         standardDisciplines={standardLibrary.disciplines}
         standardDivisions={standardLibrary.divisions}
         numbersAsPrinted={Boolean(show.class_numbers_as_printed)}
+        rings={rings as RingItem[]}
       />
     </StepLayout>
   );

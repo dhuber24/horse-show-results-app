@@ -64,6 +64,7 @@ from rules.apha import (
     show_minimums,
 )
 import standard_classes
+from venue_rings import adopt_venue_rings, apply_venue_change
 from self_entry import signup_open
 from show_access import SHOW_OFFICE_TABLES, show_office_users, worked_show_ids, works_show
 from show_companies import (
@@ -322,6 +323,10 @@ async def create_show(
     company_id = await show_setup_company_for(db, creator, x_user_role)
     show = Show(**body.model_dump(), created_by_user_id=creator, company_id=company_id)
     db.add(show)
+    await db.flush()
+    # Migration 204: a show at a venue starts with the venue's rings.
+    if show.venue_id is not None:
+        await adopt_venue_rings(show.id, show.venue_id, db)
     await db.commit()
 
     # The creator reaches the show through the company when it has one; a
@@ -690,11 +695,18 @@ async def update_show(
     if "back_number_per" in updates and updates["back_number_per"] is None:
         del updates["back_number_per"]
 
+    venue_changed = "venue_id" in updates and updates["venue_id"] != show.venue_id
     for k, v in updates.items():
         setattr(show, k, v)
     if renumber:
         await db.flush()
         await _hand_out_back_numbers(show_id, db)
+    # Migration 204: a show at a venue runs the venue's rings. Nothing is moved
+    # or deleted -- each ring is matched to the new venue by name, and a show
+    # with none yet takes the venue's list (`venue_rings.apply_venue_change`).
+    if venue_changed:
+        await db.flush()
+        await apply_venue_change(show_id, show.venue_id, db)
     await db.commit()
     show = await _get_show_with_type(db, show_id)
     return _serialize(show)

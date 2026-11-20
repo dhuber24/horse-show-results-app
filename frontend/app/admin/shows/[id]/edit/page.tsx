@@ -1,6 +1,7 @@
 import { fetchShow, fetchVenues, fetchShowTypes, fetchShowCategories } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import EditShowForm from '../EditShowForm';
+import RingsSection, { type ShowRing, type VenueRing } from '../RingsSection';
 import ShowCompanyStaff, { type PendingInvite, type ShowCompanyStaffPayload } from '../ShowCompanyStaff';
 import StepLayout from '../setup/_lib/StepLayout';
 import { fetchStepCounts } from '../setup/_lib/fetchStepCounts';
@@ -41,6 +42,8 @@ export default async function EditShowDetailsPage({
     stepsInput,
     companyCrew,
     officeNotes,
+    rings,
+    venueRings,
   ] = await Promise.all([
     fetchVenues(),
     fetchShowTypes(),
@@ -58,6 +61,12 @@ export default async function EditShowDetailsPage({
     // The office's own notes (migration 184), off the public show payload.
     // Null when the read fails, which the form treats as "do not touch".
     fetchAuthed<{ office_notes: string | null } | null>(`${API_URL}/shows/${id}/office-notes`, null),
+    // The show's rings and its venue's (migration 204). Null rings is "could
+    // not be read", which the section says rather than offering an empty list.
+    fetchAuthed<ShowRing[] | null>(`${API_URL}/shows/${id}/rings/`, null),
+    show.venue_id
+      ? fetchAuthed<VenueRing[]>(`${API_URL}/shows/${id}/rings/venue`, [])
+      : Promise.resolve([] as VenueRing[]),
   ]);
 
   return (
@@ -66,7 +75,7 @@ export default async function EditShowDetailsPage({
       showName={show.name}
       current="basic"
       title="Basics & Staff"
-      subtitle="Name, dates, venue, show type, show notes, and who runs the show."
+      subtitle="Name, dates, venue and its rings, show type, show notes, and who runs the show."
       stepsInput={stepsInput}
     >
       <div className="space-y-6">
@@ -76,6 +85,16 @@ export default async function EditShowDetailsPage({
           showTypes={showTypes}
           showCategories={showCategories}
           officeNotes={officeNotes ? officeNotes.office_notes : undefined}
+        />
+
+        {/* Keyed on the saved venue: saving a different one above refreshes
+            the page, and the section starts again at the new venue. */}
+        <RingsSection
+          key={show.venue_id ?? 'no-venue'}
+          showId={id}
+          venueName={show.venue_id ? (show.venue ?? 'this venue') : null}
+          initialRings={rings}
+          initialVenueRings={venueRings}
         />
 
         <div className="space-y-3">

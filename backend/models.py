@@ -565,9 +565,26 @@ class Ring(Base):
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
     sort_order = Column(Integer, nullable=True)
+    # Migration 204. The venue ring this show ring is; NULL is a ring this show
+    # alone runs. See `venue_rings.py`.
+    venue_ring_id = Column(
+        UUID(as_uuid=True), ForeignKey("venue_rings.id", ondelete="SET NULL"), nullable=True
+    )
 
     show = relationship("Show", back_populates="rings")
     classes = relationship("Class", back_populates="ring")
+
+
+class VenueRing(Base):
+    """A ring or arena at a venue (migration 204), offered to every show held
+    there. A show copies it into its own `rings`; classes never point here."""
+    __tablename__ = "venue_rings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
 discipline_divisions = Table(

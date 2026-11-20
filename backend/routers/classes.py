@@ -41,6 +41,7 @@ from card_types import (
 )
 from schemas import (
     ClassCreate, ClassUpdate, ClassOut, ClassReorder, ClassBulkDelete, ClassScoringApply,
+    ClassBulkRing,
     ClassAssociationCreate, ClassAssociationOut,
     ClassSanctioningReplace, ClassSanctioningOut,
     BulkClassCreate,
@@ -48,6 +49,7 @@ from schemas import (
 )
 from routers.shows import _assert_show_access
 import standard_classes
+from venue_rings import adopt_venue_rings
 
 router = APIRouter(prefix="/shows/{show_id}/classes", tags=["Classes"])
 
@@ -66,8 +68,9 @@ DEFAULT_RING_NAME = "Ring 1"
 
 async def _get_or_create_default_ring(show_id: UUID, db: AsyncSession) -> UUID:
     """Every class needs a ring. When the caller doesn't pick one, fall back
-    to the show's first ring, creating a default "Ring 1" for shows that have
-    no rings set up yet. Caller is responsible for db.commit()."""
+    to the show's first ring. A show with none yet takes its venue's rings
+    (migration 204, `venue_rings.py`), and one at a venue with none gets a
+    default "Ring 1". Caller is responsible for db.commit()."""
     result = await db.execute(
         select(Ring)
         .where(Ring.show_id == show_id)
@@ -75,6 +78,11 @@ async def _get_or_create_default_ring(show_id: UUID, db: AsyncSession) -> UUID:
     )
     ring = result.scalars().first()
     if ring is None:
+        show = await db.get(Show, show_id)
+        if show is not None and show.venue_id is not None:
+            adopted = await adopt_venue_rings(show_id, show.venue_id, db)
+            if adopted:
+                return adopted[0].id
         ring = Ring(show_id=show_id, name=DEFAULT_RING_NAME, sort_order=1)
         db.add(ring)
         await db.flush()
@@ -684,6 +692,8 @@ async def create_class(
         select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
     )
     next_sort_order = max_order_result.scalar_one() + 1
+    if body.ring_id is not None:
+        await _assert_show_ring(show_id, body.ring_id, db)
     ring_id = body.ring_id or await _get_or_create_default_ring(show_id, db)
     if show.class_numbers_as_printed:
         taken = await db.execute(select(Class.class_number).where(Class.show_id == show_id))
@@ -768,6 +778,8 @@ async def bulk_create_classes_from_library(
         })
     if not items:
         raise HTTPException(422, "At least one pick is required")
+    if body.ring_id is not None:
+        await _assert_show_ring(show_id, body.ring_id, db)
 
     created = await _create_classes_auto_routed(
         show_id=show_id,
@@ -921,6 +933,8 @@ async def update_class(
             "Selected division is not part of the selected discipline. "
             "Add the membership on the Setup page first.",
         )
+    if "ring_id" in update_fields:
+        await _assert_show_ring(show_id, update_fields["ring_id"], db)
     if "class_number" in update_fields:
         # A number typed in only sticks where nothing renumbers: on a show
         # numbered down the running order, the next move would overwrite it.
@@ -970,6 +984,49 @@ async def delete_class(
     await db.delete(class_)
     await db.commit()
     await _renumber_classes(show_id, db)
+
+
+async def _assert_show_ring(show_id: UUID, ring_id: UUID | None, db: AsyncSession) -> Ring:
+    """A class runs in one of its own show's rings, always. The column is
+    nullable only for history (migration 078): a class with no ring falls out
+    of the gate's lanes, and another show's ring would put it on that show's
+    gate board."""
+    if ring_id is None:
+        raise HTTPException(422, "A class runs in a ring. Pick one of the show's rings.")
+    ring = await db.get(Ring, ring_id)
+    if ring is None or ring.show_id != show_id:
+        raise HTTPException(400, "That ring is not one of this show's. Add it on Basics first.")
+    return ring
+
+
+@router.post("/ring", dependencies=[Depends(require_admin_or_show_admin)])
+async def set_classes_ring(
+    show_id: UUID,
+    body: ClassBulkRing,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run every ticked class in one ring (migration 204's Class Builder).
+
+    A ring is where a class is called, not part of what it is: no number, fee,
+    entry or placing changes, so a class anybody has entered moves like any
+    other. All or nothing, so a stale tick on a class since deleted refuses the
+    lot rather than moving most of them.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    ring = await _assert_show_ring(show_id, body.ring_id, db)
+    ids = list(dict.fromkeys(body.class_ids))
+    rows = (
+        await db.execute(select(Class).where(Class.show_id == show_id, Class.id.in_(ids)))
+    ).scalars().all()
+    if len(rows) != len(ids):
+        raise HTTPException(404, "One or more of those classes are not in this show")
+    for cls in rows:
+        cls.ring_id = ring.id
+    await db.commit()
+    return {"ring_id": str(ring.id), "class_ids": [str(c.id) for c in rows]}
 
 
 @router.post("/bulk-delete", dependencies=[Depends(require_admin_or_show_admin)])

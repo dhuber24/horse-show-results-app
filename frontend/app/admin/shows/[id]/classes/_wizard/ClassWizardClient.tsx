@@ -37,6 +37,13 @@ export type DivisionItem = {
   discipline_ids: string[];
 };
 
+/** One of the show's rings (migration 204's Basics section adds them). */
+export type RingItem = {
+  id: string;
+  name: string;
+  sort_order: number | null;
+};
+
 export type ClassItem = {
   id: string;
   show_id: string;
@@ -194,6 +201,7 @@ export default function ClassWizardClient({
   standardDisciplines,
   standardDivisions,
   numbersAsPrinted = false,
+  rings = [],
 }: {
   showId: string;
   showStartDate: string;
@@ -207,6 +215,8 @@ export default function ClassWizardClient({
    *  a move leaves them alone and each one can be typed over. Otherwise they
    *  run 1..N down the schedule, skipping the classes entered by qualifying. */
   numbersAsPrinted?: boolean;
+  /** The show's rings, in order. Set up on Basics; picked per class here. */
+  rings?: RingItem[];
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -243,6 +253,7 @@ export default function ClassWizardClient({
         onDivisionsChanged={setDivisions}
         onClassesChanged={setClasses}
         numbersAsPrinted={numbersAsPrinted}
+        rings={rings}
       />
     </div>
   );
@@ -360,6 +371,7 @@ function ClassBuilder({
   onDivisionsChanged,
   onClassesChanged,
   numbersAsPrinted,
+  rings,
 }: {
   showId: string;
   showStartDate: string;
@@ -376,8 +388,12 @@ function ClassBuilder({
   onDivisionsChanged: (rows: DivisionItem[]) => void;
   onClassesChanged: (rows: ClassItem[]) => void;
   numbersAsPrinted: boolean;
+  rings: RingItem[];
 }) {
   const onChanged = onClassesChanged;
+  const ringName = useMemo(() => new Map(rings.map((r) => [r.id, r.name])), [rings]);
+  // One ring is nothing to choose between: the picker shows from the second.
+  const manyRings = rings.length > 1;
   const [classDate, setClassDate] = useState(showStartDate);
   // Which of the two is open depends on whether the show has a schedule yet.
   //
@@ -419,6 +435,8 @@ function ClassBuilder({
   const [pendingQualify, setPendingQualify] = useState<Set<string>>(new Set());
   // Classes whose Riders picker is mid-save, for the same reason.
   const [pendingTeam, setPendingTeam] = useState<Set<string>>(new Set());
+  // Classes whose ring is mid-save, per row like the Riders picker.
+  const [pendingRing, setPendingRing] = useState<Set<string>>(new Set());
   // Opening the by-name form with the Grand & Reserve shortcut bumps this, so
   // the form can prefill itself without the step reaching into its state.
   const [namedClassPreset, setNamedClassPreset] = useState<{ kind: 'blank' | 'grand'; nonce: number } | null>(null);
@@ -681,20 +699,22 @@ function ClassBuilder({
   }, [classes]);
 
   const filtering = query.trim().length > 0;
-  // Matched on name, class number and day together, so "halter", "42" and
-  // "06-14" all find something without a field picker in front of the box.
+  // Matched on name, class number, day and ring together, so "halter", "42",
+  // "06-14" and "covered" all find something without a field picker in front
+  // of the box — and "covered" then "Tick all shown" picks a ring's classes.
   const visibleByDate = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return classesByDate;
     const terms = q.split(/\s+/);
     const hit = (c: ClassItem) => {
-      const hay = `${c.class_name} #${c.class_number} ${c.class_date}`.toLowerCase();
+      const ring = c.ring_id ? (ringName.get(c.ring_id) ?? '') : '';
+      const hay = `${c.class_name} #${c.class_number} ${c.class_date} ${ring}`.toLowerCase();
       return terms.every((t) => hay.includes(t));
     };
     return classesByDate
       .map(([date, rows]) => [date, rows.filter(hit)] as [string, ClassItem[]])
       .filter(([, rows]) => rows.length > 0);
-  }, [classesByDate, query]);
+  }, [classesByDate, query, ringName]);
 
   const visibleClasses = useMemo(
     () => visibleByDate.flatMap(([, rows]) => rows),
@@ -1086,6 +1106,69 @@ function ClassBuilder({
    * Saved optimistically, because a box that waits on a round trip before it
    * shows its own tick reads as a box that did not take the click.
    */
+  /**
+   * Which ring a class runs in. Saved optimistically like the Riders picker,
+   * and put back on a refusal. Nothing else about the class changes — its
+   * number, entries and placings stay — so a class with entries moves too.
+   */
+  async function setRing(cls: ClassItem, ringId: string) {
+    const before = cls.ring_id;
+    if (ringId === before) return;
+    setError(null);
+    setPendingRing((prev) => new Set(prev).add(cls.id));
+    onChanged(classes.map((c) => (c.id === cls.id ? { ...c, ring_id: ringId } : c)));
+    try {
+      const res = await fetch(`/api/shows/${showId}/classes/${cls.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ring_id: ringId }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setError(errorMessage(j, `Could not move "${cls.class_name}" to another ring.`));
+        onChanged(classes.map((c) => (c.id === cls.id ? { ...c, ring_id: before } : c)));
+        await refreshClasses();
+      }
+    } catch {
+      setError(`Could not move "${cls.class_name}" to another ring.`);
+      await refreshClasses();
+    } finally {
+      setPendingRing((prev) => {
+        const nextSet = new Set(prev);
+        nextSet.delete(cls.id);
+        return nextSet;
+      });
+    }
+  }
+
+  /** Every ticked class into one ring, in one request. The ticks stay, so the
+   *  same set can go somewhere else or be deleted next. */
+  async function moveSelectedToRing(ringId: string) {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !ringId) return;
+    setError(null);
+    setAdded(null);
+    setBulkBusy(true);
+    try {
+      const res = await fetch(`/api/shows/${showId}/classes/ring`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ class_ids: ids, ring_id: ringId }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setError(errorMessage(j, 'Could not move the selected classes.'));
+        return;
+      }
+      const moved = new Set(ids);
+      onChanged(classes.map((c) => (moved.has(c.id) ? { ...c, ring_id: ringId } : c)));
+    } catch {
+      setError('Could not move the selected classes.');
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   /**
    * How many riders a class is ridden by (migration 192). Seeded from the name
    * when the class was made, and corrected here — "Tandem Bareback" is two,
@@ -1831,6 +1914,26 @@ function ClassBuilder({
                     </>
                   ) : (
                     <>
+                      {manyRings && (
+                        <label className="flex items-center gap-1.5 text-xs">
+                          Move to ring
+                          <select
+                            value=""
+                            disabled={bulkBusy}
+                            onChange={(e) => void moveSelectedToRing(e.target.value)}
+                            aria-label={`Move the ${selected.size} selected class${selected.size === 1 ? '' : 'es'} to a ring`}
+                            className="rounded border px-1 py-1 text-xs disabled:opacity-50"
+                            style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg, color: COLORS.text }}
+                          >
+                            <option value="">{bulkBusy ? 'Moving…' : 'Pick a ring…'}</option>
+                            {rings.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
                       <button
                         type="button"
                         onClick={() => setConfirmBulk(true)}
@@ -1857,6 +1960,26 @@ function ClassBuilder({
                 qualify for; i.e. Grand &amp; Reserve classes.
                 <br />
                 A class cannot be deleted if there are current entries in it.
+                <br />
+                {manyRings ? (
+                  <>
+                    Pick each class&apos;s <strong>Ring</strong> on its row, or tick several and
+                    move them together. Rings and arenas are set up on{' '}
+                    <a href={`/admin/shows/${showId}/edit`} className="underline">
+                      Basics
+                    </a>
+                    .
+                  </>
+                ) : (
+                  <>
+                    Every class runs in {rings[0] ? <strong>{rings[0].name}</strong> : 'one ring'}. Add
+                    rings and arenas on{' '}
+                    <a href={`/admin/shows/${showId}/edit`} className="underline">
+                      Basics
+                    </a>{' '}
+                    to run classes in more than one.
+                  </>
+                )}
               </p>
 
               {filtering && (
@@ -1892,6 +2015,9 @@ function ClassBuilder({
                             onToggleQualify={() => toggleQualification(c)}
                             teamPending={pendingTeam.has(c.id)}
                             onSetTeamSize={(size) => setTeamSize(c, size)}
+                            rings={manyRings ? rings : null}
+                            ringPending={pendingRing.has(c.id)}
+                            onSetRing={(ringId) => setRing(c, ringId)}
                             numbersAsPrinted={numbersAsPrinted}
                             onSetNumber={(typed) => setClassNumber(c, typed)}
                             onDelete={() => removeClass(c.id)}
@@ -1914,6 +2040,9 @@ function ClassBuilder({
                         >
                           {date} — {dayClasses.length} class
                           {dayClasses.length === 1 ? '' : 'es'}
+                          {manyRings && (
+                            <span>· {ringSplit(dayClasses, rings)}</span>
+                          )}
                           {dayClasses.length > 1 && (
                             <span style={{ color: COLORS.border }}>· drag to reorder</span>
                           )}
@@ -1939,6 +2068,9 @@ function ClassBuilder({
                                       onToggleQualify={() => toggleQualification(c)}
                                       teamPending={pendingTeam.has(c.id)}
                                       onSetTeamSize={(size) => setTeamSize(c, size)}
+                                      rings={manyRings ? rings : null}
+                                      ringPending={pendingRing.has(c.id)}
+                                      onSetRing={(ringId) => setRing(c, ringId)}
                                       numbersAsPrinted={numbersAsPrinted}
                                       onSetNumber={(typed) => setClassNumber(c, typed)}
                                       onDelete={() => removeClass(c.id)}
@@ -2038,6 +2170,17 @@ function AxisRemove({
  */
 /** The sizes the Riders picker offers, plus a stored one outside the usual
  *  list so a class set to 7 elsewhere still reads 7 here. */
+/** "Main Arena 12, Covered Arena 8": how a day's classes split across the
+ *  show's rings, in ring order, leaving out a ring with none that day. */
+function ringSplit(dayClasses: ClassItem[], rings: RingItem[]): string {
+  const counts = new Map<string, number>();
+  for (const c of dayClasses) if (c.ring_id) counts.set(c.ring_id, (counts.get(c.ring_id) ?? 0) + 1);
+  return rings
+    .filter((r) => counts.has(r.id))
+    .map((r) => `${r.name} ${counts.get(r.id)}`)
+    .join(', ');
+}
+
 function teamSizeChoices(current: number | null | undefined): number[] {
   const sizes: number[] = [...TEAM_SIZE_CHOICES];
   if (current && current >= 2 && !sizes.includes(current)) sizes.push(current);
@@ -2052,6 +2195,9 @@ function ClassRow({
   onToggleQualify,
   teamPending,
   onSetTeamSize,
+  rings,
+  ringPending,
+  onSetRing,
   numbersAsPrinted,
   onSetNumber,
   onDelete,
@@ -2067,6 +2213,10 @@ function ClassRow({
   teamPending: boolean;
   /** Null for a class one rider rides. */
   onSetTeamSize: (size: number | null) => void;
+  /** The show's rings, or null when it runs one and there is nothing to pick. */
+  rings: RingItem[] | null;
+  ringPending: boolean;
+  onSetRing: (ringId: string) => void;
   /** The number is the bill's, so it is a box to type over, not a label. */
   numbersAsPrinted: boolean;
   onSetNumber: (typed: string) => void;
@@ -2209,6 +2359,30 @@ function ClassRow({
         </span>
       ) : (
         <span className="flex items-center gap-4 shrink-0">
+          {rings && (
+            <label
+              className="flex items-center gap-1.5 text-xs select-none"
+              style={{ color: COLORS.text }}
+              title="The ring or arena this class is called in. The gate board and the gate steward's screen follow it."
+            >
+              Ring
+              <select
+                value={cls.ring_id ?? ''}
+                disabled={ringPending}
+                onChange={(e) => e.target.value && onSetRing(e.target.value)}
+                aria-label={`Ring — ${hashLabel(cls)}`}
+                className="rounded border px-1 py-0.5 text-xs max-w-[9rem] disabled:opacity-50"
+                style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg, color: COLORS.text }}
+              >
+                {!rings.some((r) => r.id === cls.ring_id) && <option value="">—</option>}
+                {rings.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label
             className="flex items-center gap-1.5 text-xs select-none"
             style={{ color: COLORS.text }}

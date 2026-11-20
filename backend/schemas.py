@@ -592,12 +592,17 @@ class UserInviteAcceptBody(BaseModel):
 # ── Rings ──────────────────────────────────────────────────────────────────────
 
 class RingCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    """A new ring by name, or one of the venue's rings by id (migration 204).
+    `venue_ring_id` wins; one of the two is required."""
+    name: Optional[str] = Field(default=None, max_length=100)
+    venue_ring_id: Optional[UUID] = None
     sort_order: Optional[int] = None
 
 class RingUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     sort_order: Optional[int] = None
+    # Migration 204: put a ring this show alone runs on the venue's list.
+    save_to_venue: bool = False
 
 class RingOut(BaseModel):
     id: UUID
@@ -605,9 +610,19 @@ class RingOut(BaseModel):
     name: str
     sort_order: Optional[int] = None
     class_count: Optional[int] = None
+    venue_ring_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
+
+class VenueRingOut(BaseModel):
+    """A ring at the show's venue (migration 204). `show_count` is how many
+    shows run it, this one included: one nobody runs can come off the list."""
+    id: UUID
+    venue_id: UUID
+    name: str
+    sort_order: Optional[int] = None
+    show_count: int = 0
 
 class RingBulkCreate(BaseModel):
     names: list[str] = Field(min_length=1)
@@ -887,6 +902,14 @@ class ClassBulkDelete(BaseModel):
     """
 
     class_ids: list[UUID] = Field(min_length=1, max_length=1000)
+
+
+class ClassBulkRing(BaseModel):
+    """Classes to run in one ring, set in one go from the Class Builder's
+    ticked list. Capped like `ClassBulkDelete`."""
+
+    class_ids: list[UUID] = Field(min_length=1, max_length=1000)
+    ring_id: UUID
 
 
 class ClassScoringApply(BaseModel):
