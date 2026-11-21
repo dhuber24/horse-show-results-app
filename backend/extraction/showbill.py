@@ -267,9 +267,11 @@ _STALL_PERIOD = _object(
             "A move-out no clock states, in the bill's words: 'one hour after your last class'."
         ),
         "move_in_notes": _text(
-            "What exhibitors with stalls in THIS period must know that the other periods' exhibitors "
-            "don't: when and where they move in, where they get their stall assignment, when they "
-            "must be out. Short lines, plain text. Rules every period shares are stall_notes."
+            "Only what exhibitors with stalls in THIS period must know and the other periods' "
+            "exhibitors don't: their own move-in gate or barn, where they get their stall "
+            "assignment when that differs by period, when they must be out. A rule the bill states "
+            "for every stall (or for stalls in general) is stall_notes, not here -- never in both. "
+            "Empty when the bill sells stalls for one period only. Short lines, plain text."
         ),
         "reserve_by": _text(
             "The last day the lower prices (early_amount_cents) apply, YYYY-MM-DD -- e.g. the entry "
@@ -534,10 +536,14 @@ CLASSES_SCHEMA: dict[str, Any] = _object(
 STALLS_SCHEMA: dict[str, Any] = _object(
     {
         "stall_notes": _text(
-            "The stall rules every stall period shares, in the bill's words: unloading, stall "
-            "assignments, no switching stalls, barn office hours, bedding, cleaning and checking out. "
-            "Not prices, and nothing that only one period's exhibitors need -- that is the period's "
-            "own move_in_notes. Short lines, plain text.",
+            "General stalling notes: the stall rules every exhibitor who stalls must know, whichever "
+            "period they book, in the bill's words -- unloading, how and where stall assignments are "
+            "given, no switching stalls, barn office hours, bedding and shavings rules, cleaning and "
+            "checking out, reservation and refund policy for stalls. Everything about stalls that "
+            "names no one period goes here, and all of it does when the bill sells stalls for one "
+            "period only. Not prices, not move-in days and hours (those are each period's move_in "
+            "and move_out), and nothing that only one period's exhibitors need -- that is the "
+            "period's own move_in_notes. Short lines, plain text.",
         ),
         "stall_periods": {
             "type": "array",
@@ -703,10 +709,14 @@ Notes
 office sets each part up on its own step, and a note in the wrong field is \
 printed twice or in the wrong place:
   - stalls and moving in and out (unloading, barn office, stall assignments, \
-bedding and cleaning rules, departure) -> the rules every period shares in \
-`stall_notes`, and what only one period's exhibitors need (their move-in \
-day and gate, when they must be out) in that period's `move_in_notes`, with \
-its days and hours in its `move_in` and `move_out`;
+bedding and cleaning rules, departure) -> split by who it is for. Ask of each \
+rule: would an exhibitor with a stall in ANY period need it? Then it is a \
+general stalling note, in `stall_notes`, said once -- so is every stall rule \
+when the bill sells stalls for one period only. Does it name or only fit one \
+period ("Games stalls move in through the back gate after 9 PM Friday")? \
+Then it is that period's `move_in_notes`. A rule that fits some periods but \
+not all goes in each of those periods' `move_in_notes`. A period's days and \
+hours are its `move_in` and `move_out`, not a note. Never put one rule in both;
   - which vaccinations are required and how recent -> `show.vaccination_notes`;
   - wording about one fee or booked item (a camping hook-up's amps, a shavings \
 brand, a stall deposit's terms) -> that fee's `notes`;

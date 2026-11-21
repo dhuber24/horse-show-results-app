@@ -83,6 +83,7 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
   // Early Move-In Pass and move-in notes — worded as the show bill words it
   // (`MoveInSummary`). This page has no price list, so the passes are read here.
   const moveIn = {
+    stallingNotes: show.stalling_notes,
     stallsOpenDate: show.stalls_open_date,
     stallsOpenTime: show.stalls_open_time,
     periods: stallPeriods,

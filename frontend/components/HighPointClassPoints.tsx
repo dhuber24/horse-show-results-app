@@ -35,8 +35,11 @@ function detail(cls: HighPointClass): string {
   // Most class names already say their division ("Showmanship Senior 19 &
   // Over"); it is named here only where the name does not.
   if (cls.team) {
-    // A team class earns Team High Point, by rider, not its division's.
-    parts.push('Team High Point');
+    // A team class earns Team High Point, by rider -- and its division's too
+    // where the show counts team classes there (migration 208).
+    parts.push(
+      cls.team_in_division && cls.division_name ? `Team High Point and ${cls.division_name}` : 'Team High Point',
+    );
   } else if (cls.division_name && !cls.class_name.toLowerCase().includes(cls.division_name.toLowerCase())) {
     parts.push(cls.division_name);
   }

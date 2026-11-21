@@ -658,6 +658,9 @@ async def get_signup(
             # Every horse entered needs its own stall (migration 194), said
             # above the stall lines. Flagged, never refused.
             "stall_per_horse_required": show.stall_per_horse_required,
+            # The stall rules every period shares (migration 207), above the
+            # stall lines; each period's own notes sit under its heading.
+            "stalling_notes": show.stalling_notes,
         },
         "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
         "fee_options": _fee_options_out(fees, show_entry),

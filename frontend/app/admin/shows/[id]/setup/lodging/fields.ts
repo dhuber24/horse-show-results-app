@@ -22,6 +22,10 @@ export const NOTES_MAX = 500;
  *  migration 199), enforced at the box. */
 export const MOVE_IN_NOTES_MAX = 2000;
 
+/** The show's General stalling notes' own limit (`ShowUpdate.stalling_notes`,
+ *  migration 207), enforced at the box. */
+export const STALLING_NOTES_MAX = 4000;
+
 /** The price column's two tracks: the amount, then whatever sits beside it.
  *  The standard and early amounts share the first, so the two prices line up. */
 export const PRICE_COLS = 'grid grid-cols-[8rem_minmax(0,1fr)] gap-x-3';

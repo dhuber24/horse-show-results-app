@@ -113,6 +113,13 @@ class HighPointClassesIn(BaseModel):
     eligible: bool
 
 
+class TeamPointsIn(BaseModel):
+    """Whether the show's team classes also count toward the division
+    (individual) high point standings (migration 208)."""
+
+    in_divisions: bool
+
+
 class CircuitIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     season: Optional[str] = Field(default=None, max_length=50)
@@ -590,9 +597,15 @@ async def _high_point_classes(show_id: UUID, db: AsyncSession) -> dict:
     choice = await db.get(ShowPointSystem, show_id)
     system = await _get_system_or_404(choice.point_system_id, db) if choice else None
     chart = build_chart(system.awards) if system else None
+    team_in_divisions = (
+        await db.execute(select(Show.team_points_in_divisions).where(Show.id == show_id))
+    ).scalar_one_or_none()
     return {
         "point_system": _system_payload(system) if system else None,
         "classes": await load_class_summaries(db, show_id, chart, posted_only=False),
+        # Whether team classes also count toward the division standings
+        # (migration 208).
+        "team_points_in_divisions": bool(team_in_divisions),
     }
 
 
@@ -643,6 +656,31 @@ async def set_high_point_classes(
         raise HTTPException(422, "One or more of those classes are not on this show.")
     for cls in found:
         cls.high_point_eligible = body.eligible
+    await db.commit()
+    return await _high_point_classes(show_id, db)
+
+
+@router.put("/shows/{show_id}/high-point/team-points", dependencies=[Depends(require_admin_or_show_admin)])
+async def set_team_points(
+    show_id: UUID,
+    body: TeamPointsIn,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Count the show's team classes toward the division (individual) high
+    point as well as Team High Point, or toward Team High Point only
+    (migration 208).
+
+    The show's call, not a fixed rule: WSCA leaves high-point rules to each show
+    committee. Like leaving a class out, it moves the standings the moment it
+    changes -- they are derived on every read. Answers with the class list, so
+    each team class's line says where its points now go.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_or_404(show_id, db)
+    show.team_points_in_divisions = body.in_divisions
     await db.commit()
     return await _high_point_classes(show_id, db)
 

@@ -53,11 +53,12 @@ import {
  * show selling every stall for the whole show has one period, *Full show*.
  *
  * Each priced type is one `per_stall` line (`stall_kind`, migration 198), named
- * for its type and period. The types are fixed — nothing is named, added or
- * removed but the periods — and a line goes when its period does. Anything
- * else already priced per stall (a second line of one type in a period, an
- * add-on such as a cleaning deposit, a line booked for the whole show) is
- * shown as it is under *Other charges per stall*, to reprice or stop.
+ * for its type and period. The three types are fixed in each period, and a
+ * line goes when its period does. Anything else priced per stall (an add-on
+ * such as a cleaning deposit, a second line of one type in a period, a line
+ * booked for the whole show) is a *stall fee*: listed under *Other stall fees*
+ * to reprice or stop, and added there with *+ Add a stall fee*, named by the
+ * office and sold for one period or the whole show.
  *
  * There is no separate *Stalls open* day to keep in step with the periods —
  * the backend makes it the first period's move-in when they are saved, and
@@ -68,7 +69,8 @@ import {
  * show bill import makes both) — opens on a *Full show* period made from it,
  * so nothing exhibitors are told goes unseen here. The only lines and pass
  * left outside a period are ones exhibitors booked for the whole show before
- * it had periods: they keep what was bought, under *Other charges per stall*.
+ * it had periods, which keep what was bought, and add-ons the office sells for
+ * the whole show — both under *Other stall fees*.
  *
  * A pass is priced per stall or once per exhibitor (`one_per_exhibitor`,
  * migration 196). Its move-in day is filled in as the day before its period's
@@ -407,7 +409,10 @@ export function useStallsEditor({
   const [opening] = useState<{ periods: PeriodDraft[]; lines: LineDraft[] }>(() => {
     let start: PeriodDraft[] = periods.map(periodFromRow);
     if (!start.length) {
-      const movable = (fee: StallFeeRow) => !fee.stall_period_id && !fee.reserved_count;
+      // An add-on sold for the whole show (a cleaning deposit) is the whole
+      // show's on purpose, and makes no period.
+      const movable = (fee: StallFeeRow) =>
+        !fee.stall_period_id && !fee.reserved_count && fee.stall_kind !== 'add_on';
       const carries = Boolean(stallsOpenDateOnFile) || stallFees.some(movable) || passFees.some(movable);
       if (carries) start = [{ ...firstPeriod(CARRIED), carried: stallsOpenDateOnFile ? 'stalls-open' : 'stalls' }];
     }
@@ -417,7 +422,8 @@ export function useStallsEditor({
       const line = lineFromFee(fee, keys);
       // Every stall belongs to a period. One sold for the whole show that
       // nobody has booked joins the first; a booked one keeps what was bought.
-      if (first && !line.periodKey && !line.reservedCount) line.periodKey = first.key;
+      // An add-on stays where the office put it.
+      if (first && !line.periodKey && !line.reservedCount && isStallType(line.kind)) line.periodKey = first.key;
       return line;
     });
     for (const period of start) {
@@ -695,7 +701,8 @@ export function useStallsEditor({
     const draft = first ? firstPeriod(key) : emptyPeriod(key, showStartDate, showEndDate);
     // The first period takes every stall and the pass sold for the whole show,
     // each unless it has been booked as it is.
-    const joining = first ? lines.filter((line) => !line.periodKey && !line.reservedCount) : [];
+    const joins = (line: LineDraft) => !line.periodKey && !line.reservedCount && isStallType(line.kind);
+    const joining = first ? lines.filter(joins) : [];
     // A show bill states one reserve-by day for every stall ("prices double
     // after the class entry deadline"), so a period starts with the one its
     // stalls carry, or the period above's.
@@ -707,7 +714,7 @@ export function useStallsEditor({
     // Then a price for each stall type it does not already have.
     setLines((prev) => {
       const next = first
-        ? prev.map((line) => (line.periodKey || line.reservedCount ? line : { ...line, periodKey: key }))
+        ? prev.map((line) => (joins(line) ? { ...line, periodKey: key } : line))
         : [...prev];
       for (const kind of STALL_TYPES) {
         if (!cellIn(next, key, kind)) next.push(blankLine(`${key}-${kind}`, kind, key, draft.name));
@@ -723,6 +730,33 @@ export function useStallsEditor({
         return next;
       });
     }
+  }
+
+  /** A new stall fee under *Other stall fees*: an add-on charged per stall
+   *  (a cleaning deposit, a stall mat), named by the office. Sold for the
+   *  whole show until the office picks a period; saved once it has a price. */
+  function addFee() {
+    const key = newKey();
+    setLines((prev) => [
+      ...prev,
+      {
+        key,
+        feeId: null,
+        code: null,
+        label: '',
+        nameAuto: false,
+        kind: 'add_on',
+        periodKey: WHOLE_SHOW,
+        dollars: '',
+        earlyDollars: '',
+        earlyDeadline: '',
+        earlyDeadlineTime: '',
+        notes: '',
+        horsesPerTack: '',
+        reservedCount: 0,
+        offered: true,
+      },
+    ]);
   }
 
   function removePeriod(key: string) {
@@ -1021,6 +1055,7 @@ export function useStallsEditor({
     otherLines,
     setPeriod,
     addPeriod,
+    addFee,
     removePeriod,
     bookedIn,
     passOf,
@@ -1404,19 +1439,24 @@ function StallPrices({ editor, period }: { editor: StallsEditor; period: PeriodD
  * is on file: its name and kind, its price and early rate, a tack stall's horse
  * minimum, and its notes, to reprice or stop.
  */
-function StallTypeFields({ editor, line, where }: { editor: StallsEditor; line: LineDraft; where: string }) {
+function StallTypeFields({ editor, line }: { editor: StallsEditor; line: LineDraft }) {
   const booked = line.reservedCount;
   const notesLeft = NOTES_MAX - line.notes.length;
+  // The whole show is offered for an add-on, and for a line already sold for
+  // it; a stall type sold for the whole show joins the first period on the
+  // next visit, so it is not offered one.
+  const wholeShowOffered = line.kind === 'add_on' || !line.periodKey || editor.periods.length === 0;
   return (
     <div
       className="rounded border p-3 space-y-3"
       style={{ borderColor: 'var(--border-subtle)' }}
     >
-      <p className="text-xs" style={{ color: COLORS.muted }}>
-        {where}
-        {booked > 0 && ` · ${booked} booked`}
-      </p>
-      <div className="grid gap-3 items-end sm:grid-cols-[minmax(0,1fr)_11rem_auto]">
+      {booked > 0 && (
+        <p className="text-xs" style={{ color: COLORS.muted }}>
+          {booked} booked
+        </p>
+      )}
+      <div className="grid gap-3 items-end sm:grid-cols-[minmax(0,1fr)_11rem_11rem_auto]">
         <label className="block">
           <span className={LABEL} style={{ color: COLORS.muted }}>Name</span>
           <input
@@ -1426,7 +1466,8 @@ function StallTypeFields({ editor, line, where }: { editor: StallsEditor; line: 
             onChange={(e) => editor.setLine(line.key, { label: e.target.value })}
             className={INPUT}
             style={{ borderColor: COLORS.border }}
-            placeholder="e.g. Box stall"
+            placeholder="e.g. Stall cleaning deposit"
+            aria-label="Stall fee — name"
           />
         </label>
         <label className="block">
@@ -1441,6 +1482,26 @@ function StallTypeFields({ editor, line, where }: { editor: StallsEditor; line: 
             {STALL_KIND_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className={LABEL} style={{ color: COLORS.muted }}>Sold for</span>
+          {/* A booked line's period cannot change (409), so it is shown, not offered. */}
+          <select
+            value={line.periodKey}
+            disabled={booked > 0}
+            title={booked > 0 ? 'Exhibitors have booked it for this period, so it stays here.' : undefined}
+            onChange={(e) => editor.setLine(line.key, { periodKey: e.target.value })}
+            className={`${INPUT} disabled:opacity-60`}
+            style={{ borderColor: COLORS.border }}
+            aria-label={`${line.label || 'Stall fee'} — sold for`}
+          >
+            {wholeShowOffered && <option value={WHOLE_SHOW}>Whole show</option>}
+            {editor.periods.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.name.trim() || 'Unnamed period'}
               </option>
             ))}
           </select>
@@ -1881,43 +1942,43 @@ export function StallsCard({ editor }: { editor: StallsEditor }) {
           );
         })}
 
-        <button
-          type="button"
-          onClick={editor.addPeriod}
-          className="text-sm underline"
-          style={{ color: COLORS.text }}
-        >
-          + Add a stall period
-        </button>
+        <div className="flex flex-col items-start gap-2">
+          <button
+            type="button"
+            onClick={editor.addPeriod}
+            className="text-sm underline"
+            style={{ color: COLORS.text }}
+          >
+            + Add a stall period
+          </button>
+          <button
+            type="button"
+            onClick={editor.addFee}
+            className="text-sm underline"
+            style={{ color: COLORS.text }}
+          >
+            + Add a stall fee
+          </button>
+        </div>
 
-        {/* What priced per stall is none of a period's box, tie or tack
-            prices — a second price for one type, a charge per stall that is
-            not a stall, or one booked for the whole show before the show had
-            periods. Shown as it is, to reprice or stop, never added to. */}
+        {/* Stall fees: whatever is priced per stall and is none of a period's
+            box, tie or tack prices — an add-on such as a cleaning deposit
+            (added with the button above), a second price for one type, or one
+            booked for the whole show before the show had periods. */}
         {(otherLines.length > 0 || wholeShowPass) && (
           <div className="rounded border p-3 space-y-3" style={{ borderColor: 'var(--border-subtle)' }}>
             <div>
               <h4 className="text-sm font-semibold" style={{ color: COLORS.text }}>
-                Other charges per stall
+                Other stall fees
               </h4>
               <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
-                Already on this show, and not one of a period&apos;s box, tie or tack stall prices:
-                a second price for the same type of stall, a charge per stall that isn&apos;t a
-                stall, or one booked for the whole show before it had stall periods. Reprice or
-                stop selling them here.
+                Charged for each stall an exhibitor books, beside a period&apos;s box, tie and tack
+                prices — a cleaning deposit, a stall mat, a second price for one type of stall. Sell
+                each for one stall period or the whole show. Clear a price to stop selling it.
               </p>
             </div>
             {otherLines.map((line) => (
-              <StallTypeFields
-                key={line.key}
-                editor={editor}
-                line={line}
-                where={
-                  line.periodKey
-                    ? `Sold for ${periods.find((p) => p.key === line.periodKey)?.name.trim() || 'a stall period'}`
-                    : 'Sold for the whole show'
-                }
-              />
+              <StallTypeFields key={line.key} editor={editor} line={line} />
             ))}
             {wholeShowPass && (
               <PassFields

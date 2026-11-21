@@ -40,7 +40,7 @@ export function isHorseStallKind(kind: string | null | undefined): boolean {
 }
 
 /** What the office picks a line's kind from, for a line that is not one of a
- *  period's three stall prices (the Lodging step's *Other charges per stall*). */
+ *  period's three stall prices (the Lodging step's *Other stall fees*). */
 export const STALL_KIND_OPTIONS: { value: StallKind; label: string; hint: string }[] = [
   { value: 'box', label: 'Box stall', hint: 'A box stall a horse stands in.' },
   { value: 'tie', label: 'Tie stall', hint: 'A tie stall a horse stands in.' },

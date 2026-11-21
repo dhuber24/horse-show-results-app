@@ -195,6 +195,9 @@ class ShowUpdate(BaseModel):
     # pair as it will be stored, since either half may arrive alone.
     stalls_open_date: Optional[date] = None
     stalls_open_time: Optional[time] = None
+    # General stalling notes (migration 207), for everybody who stalls. Line
+    # breaks kept; blank is stored as NULL.
+    stalling_notes: Optional[str] = Field(default=None, max_length=4000)
     # General show notes (migration 184). `public_notes` is printed for
     # exhibitors; `office_notes` is the office's own and is never on ShowOut --
     # it is read through GET /shows/{id}/office-notes. Blank is stored as NULL.
@@ -216,7 +219,7 @@ class ShowUpdate(BaseModel):
     requires_horse_age_check: Optional[bool] = None
     requires_registration_papers_check: Optional[bool] = None
 
-    @field_validator("public_notes", "office_notes")
+    @field_validator("public_notes", "office_notes", "stalling_notes")
     @classmethod
     def blank_notes_are_none(cls, value: Optional[str]) -> Optional[str]:
         # A box cleared down to whitespace is no note, and an empty heading on
@@ -333,6 +336,9 @@ class ShowOut(BaseModel):
     # Migration 181. Serialized in `_serialize` too -- see `showbill_source`.
     stalls_open_date: Optional[date] = None
     stalls_open_time: Optional[time] = None
+    # Migration 207: the stall rules every period shares. Serialized in
+    # `_serialize` too -- see `showbill_source`.
+    stalling_notes: Optional[str] = None
     # Migration 184, for exhibitors. Serialized in `_serialize` too. The
     # office's own notes are deliberately not here: this payload is public.
     public_notes: Optional[str] = None
@@ -1614,6 +1620,9 @@ class ShowBillImportShow(BaseModel):
     requires_vaccination: bool = False
     # Which vaccinations, as the bill words it -- the Paperwork step's notes.
     vaccination_notes: Optional[str] = Field(default=None, max_length=2000)
+    # The stall rules every period shares, as the bill words them -- the
+    # Lodging step's General stalling notes (migration 207).
+    stalling_notes: Optional[str] = Field(default=None, max_length=4000)
     public_notes: Optional[str] = Field(default=None, max_length=5000)
     office_notes: Optional[str] = Field(default=None, max_length=20000)
     # The company that runs it, when the confirm page asked (as `ShowCreate`).

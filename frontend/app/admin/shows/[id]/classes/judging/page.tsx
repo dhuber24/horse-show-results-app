@@ -7,6 +7,7 @@ import { fetchStepCounts } from '../../setup/_lib/fetchStepCounts';
 import { DeclineFeature } from '../../setup/_lib/SkipStep';
 import { buildSteps, featureDeclined } from '../../../_wizard/steps';
 import HighPointClasses from '../../high-point/HighPointClasses';
+import TeamPointsSetting from '../../high-point/TeamPointsSetting';
 import ShowPointChart, { type AssociationOption } from '../../high-point/ShowPointChart';
 import ClassScoringClient, { type ScoringClass, type SheetOption } from './ClassScoringClient';
 
@@ -66,7 +67,7 @@ export default async function ScoringStepPage({
   const session = await auth();
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'ADMIN';
   const headers = (await getAuthHeaders()) || {};
-  const [show, classes, stepsInput, templates, current, associations, pointClasses] = await Promise.all([
+  const [show, classes, stepsInput, templates, current, associations, highPoint] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchStepCounts(id),
@@ -75,6 +76,7 @@ export default async function ScoringStepPage({
     fetchAssociations(headers).catch(() => [] as AssociationOption[]),
     fetchHighPointClasses(id, headers),
   ]);
+  const pointClasses = highPoint.classes;
   const sheets = await fetchJudgingSystems(show.show_type_code ?? null, headers);
 
   const counts = { ...stepsInput, highPointChosen: current != null };
@@ -138,9 +140,20 @@ export default async function ScoringStepPage({
                   {pointClasses.filter((c) => c.eligible).length} of {pointClasses.length}
                 </summary>
                 <div className="px-3 pb-3">
-                  <HighPointClasses showId={id} initialClasses={pointClasses} />
+                  {/* Keyed on the team setting so a change to it, which
+                      refreshes the page, redraws each team class's line. */}
+                  <HighPointClasses
+                    key={String(highPoint.teamPointsInDivisions)}
+                    showId={id}
+                    initialClasses={pointClasses}
+                  />
                 </div>
               </details>
+              {/* Out of the fold: whether team classes count toward individual
+                  high point is a decision the office makes, not a class row. */}
+              {(highPoint.teamPointsInDivisions || pointClasses.some((c) => c.team)) && (
+                <TeamPointsSetting showId={id} initial={highPoint.teamPointsInDivisions} />
+              )}
             </div>
           )}
         </section>

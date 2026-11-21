@@ -496,8 +496,11 @@ def test_a_bill_selling_stalls_by_window_makes_a_stall_period_for_each():
     assert (full["move_in_date"], full["move_in_time"]) == (date(2027, 8, 20), time(16, 0))
     assert (games["move_in_date"], games["move_in_time"]) == (date(2027, 8, 21), time(21, 0))
     assert pleasure["move_out_note"] == "One hour after your last class"
-    # The rules every period shares are said once, on the first period.
-    assert full["move_in_notes"] == "No switching stalls."
+    # The rules every period shares are said once, as the show's General
+    # stalling notes (migration 207) -- never on the first period.
+    assert draft.show["stalling_notes"] == "No switching stalls."
+    assert payload(draft).show.stalling_notes == "No switching stalls."
+    assert full["move_in_notes"] is None
     assert pleasure["move_in_notes"] is None
     assert games["move_in_notes"] == "See a traffic attendant for your stall."
 
@@ -573,7 +576,8 @@ def test_a_period_move_in_the_bill_doesnt_print_is_the_lodging_steps_default():
     [p] = draft.stall_periods
     assert (p["move_in_date"], p["move_in_time"]) == (date(2027, 8, 20), time(12, 0))
     assert (p["move_out_date"], p["move_out_time"]) == (date(2027, 8, 22), None)
-    assert p["move_in_notes"] == "No unloading in the parking lot."
+    assert p["move_in_notes"] is None
+    assert draft.show["stalling_notes"] == "No unloading in the parking lot."
 
 
 def test_a_period_move_in_far_from_the_show_is_a_misread():
@@ -589,10 +593,10 @@ def test_the_stall_periods_move_with_the_schedule():
     assert draft.stall_periods[0]["move_in_date"] == date(2027, 8, 26)
 
 
-def test_stall_rules_with_no_period_read_make_a_full_show_period():
+def test_stall_rules_with_no_period_read_are_general_stalling_notes_not_a_period():
     draft, _x = build(_show(stall_notes="Unload between the barns."))
-    [p] = draft.stall_periods
-    assert p["name"] == "Full show" and p["move_in_notes"] == "Unload between the barns."
+    assert draft.stall_periods == []
+    assert draft.show["stalling_notes"] == "Unload between the barns."
 
 
 def test_a_read_from_before_stall_periods_still_makes_its_one_period():
@@ -603,7 +607,7 @@ def test_a_read_from_before_stall_periods_still_makes_its_one_period():
 
     [p] = _stall_periods(extracted, date(2027, 8, 21), date(2027, 8, 22), __import__("datetime").timedelta(0))
     assert (p["name"], p["move_in_date"], p["move_in_time"]) == ("Full show", date(2027, 8, 20), time(16, 0))
-    assert p["move_in_notes"] == "Unload between the barns." and p["stalls"] == []
+    assert p["move_in_notes"] is None and p["stalls"] == []
 
 
 def test_a_bill_saying_nothing_about_stalls_makes_no_period():

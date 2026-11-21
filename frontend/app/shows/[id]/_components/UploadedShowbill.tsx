@@ -16,10 +16,12 @@
  *     always prints beneath it: that is the schedule and fee list the app
  *     actually charges from. A show gets to choose what this button shows; it
  *     does not get to make the live data unreachable.
- *   * It **offers the file for download**, because a browser that will not draw
- *     a PDF inline is common on a phone at a horse show, and an empty grey box
- *     with no way out is worse than no viewer at all.
+ *   * It **offers the file for download**, because the bill is drawn here as a
+ *     picture of its pages (`PdfPages`) with no viewer controls, and if it
+ *     cannot be drawn at all there still has to be a way to the file.
  */
+
+import PdfPages from './PdfPages';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -100,12 +102,7 @@ export default function UploadedShowbill({
             className="w-full h-auto block"
           />
         ) : (
-          <iframe
-            src={fileHref}
-            title={`Show bill for ${showName}`}
-            className="w-full block"
-            style={{ height: '80vh', border: 'none' }}
-          />
+          <PdfPages src={fileHref} title={`Show bill for ${showName}`} />
         )}
       </div>
     </div>

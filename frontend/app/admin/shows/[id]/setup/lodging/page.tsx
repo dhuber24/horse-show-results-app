@@ -42,7 +42,7 @@ export default async function SetupLodgingPage({
       current="lodging"
       width="form"
       title="Lodging & Boarding"
-      subtitle="Stalls and move-in — when exhibitors move in, any early move-in, and the stalls you sell — then the stall and RV maps, shavings and camping. Each card is optional."
+      subtitle="General stalling notes for everybody who stalls, then stalls and move-in — when exhibitors move in, any early move-in, and the stalls you sell — then the stall and RV maps, shavings and camping. Each card is optional."
       stepsInput={{ ...stepsInput, lodgingFeeCount: lodgingFees.length }}
       skip={
         lodgingFees.length === 0
@@ -60,6 +60,7 @@ export default async function SetupLodgingPage({
         initialStallPerHorse={show.stall_per_horse_required ?? false}
         allFeeCodes={allFees.map((f) => f.code)}
         initialShavingsBanOutside={show.shavings_ban_outside ?? false}
+        initialStallingNotes={show.stalling_notes ?? ''}
         initialStallsOpenDate={show.stalls_open_date ?? ''}
         initialStallsOpenTime={(show.stalls_open_time ?? '').slice(0, 5)}
         showStartDate={show.start_date}

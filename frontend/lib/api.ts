@@ -503,17 +503,24 @@ export async function fetchPointSystems(headers: HeadersInit | null): Promise<Po
 }
 
 /** Every class of a show with its entries, whether it counts toward high point,
- *  and what it puts up for grabs (migration 167). Show office only; empty on a
- *  failure, so the chart beside it still loads. */
-export async function fetchHighPointClasses(showId: string, headers: HeadersInit | null): Promise<HighPointClass[]> {
-  if (!headers) return [];
+ *  and what it puts up for grabs (migration 167), with whether the show's team
+ *  classes also count toward the division standings (migration 208). Show
+ *  office only; empty on a failure, so the chart beside it still loads. */
+export async function fetchHighPointClasses(
+  showId: string,
+  headers: HeadersInit | null,
+): Promise<{ classes: HighPointClass[]; teamPointsInDivisions: boolean }> {
+  const none = { classes: [], teamPointsInDivisions: false };
+  if (!headers) return none;
   try {
     const res = await fetch(`${API_URL}/shows/${showId}/high-point/classes`, { headers, cache: 'no-store' });
-    if (!res.ok) return [];
-    const body = (await res.json().catch(() => null)) as { classes?: HighPointClass[] } | null;
-    return body?.classes ?? [];
+    if (!res.ok) return none;
+    const body = (await res.json().catch(() => null)) as
+      | { classes?: HighPointClass[]; team_points_in_divisions?: boolean }
+      | null;
+    return { classes: body?.classes ?? [], teamPointsInDivisions: Boolean(body?.team_points_in_divisions) };
   } catch {
-    return [];
+    return none;
   }
 }
 

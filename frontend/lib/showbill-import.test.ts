@@ -256,6 +256,7 @@ describe('what Create will make', () => {
       futurities: 1,
       sidePots: 1,
       stallPeriods: [],
+      stallingNotes: false,
       vaccinationNotes: false,
     });
   });
@@ -263,7 +264,9 @@ describe('what Create will make', () => {
   it('says where the bill\'s stall and vaccination notes will go', () => {
     const imp = anImport();
     imp.extracted!.show = { ...imp.extracted!.show, stall_notes: 'Unload between the barns.', vaccination_notes: 'EHV' };
-    expect(readSummary(imp)).toMatchObject({ stallPeriods: ['Full show'], vaccinationNotes: true });
+    // The stall rules every period shares are the show's General stalling
+    // notes (migration 207): they make no stall period on their own.
+    expect(readSummary(imp)).toMatchObject({ stallPeriods: [], stallingNotes: true, vaccinationNotes: true });
   });
 
   it('names each stall period the bill sells stalls for', () => {

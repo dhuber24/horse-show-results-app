@@ -832,6 +832,7 @@ async def apply_import(
         health_certificate_valid_days=s.health_certificate_valid_days,
         requires_vaccination=s.requires_vaccination,
         vaccination_notes=(s.vaccination_notes or "").strip() or None,
+        stalling_notes=(s.stalling_notes or "").strip() or None,
         public_notes=s.public_notes,
         office_notes=s.office_notes,
         created_by_user_id=user_id,

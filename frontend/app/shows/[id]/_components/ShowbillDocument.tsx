@@ -385,6 +385,7 @@ export default function ShowbillDocument({
   const sellsBedding = fees.some((fee) => fee.unit === 'per_bag');
   // When and how exhibitors move in, worded as Show Details words it.
   const moveIn = {
+    stallingNotes: show.stalling_notes,
     stallsOpenDate: show.stalls_open_date,
     stallsOpenTime: show.stalls_open_time,
     periods: stallPeriods,

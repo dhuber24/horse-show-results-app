@@ -78,3 +78,19 @@ def test_period_move_in_notes_cleared_to_whitespace_are_stored_as_none():
 
 def test_period_move_in_notes_keep_their_line_breaks_but_lose_their_edges():
     assert _period(move_in_notes="  Line one\nLine two  ").move_in_notes == "Line one\nLine two"
+
+
+# -- General stalling notes (migration 207: the show's, above the periods) ----
+
+def test_the_general_stalling_notes_are_on_the_show_payload():
+    payload = _serialize(a_show(stalling_notes="No switching stalls.\nStrip stalls before you leave."))
+    assert payload["stalling_notes"] == "No switching stalls.\nStrip stalls before you leave."
+    assert "stalling_notes" in ShowOut.model_fields
+
+
+def test_general_stalling_notes_cleared_to_whitespace_are_stored_as_none():
+    assert ShowUpdate(stalling_notes="  \n ").model_dump(exclude_unset=True) == {"stalling_notes": None}
+
+
+def test_general_stalling_notes_keep_their_line_breaks_but_lose_their_edges():
+    assert ShowUpdate(stalling_notes="  Line one\nLine two  ").stalling_notes == "Line one\nLine two"

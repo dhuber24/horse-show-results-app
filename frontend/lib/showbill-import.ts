@@ -442,6 +442,9 @@ export type ReadSummary = {
   sidePots: number;
   /** The stall periods made on Lodging, by name. */
   stallPeriods: string[];
+  /** The stall rules every period shares: the Lodging step's General
+   *  stalling notes (migration 207). */
+  stallingNotes: boolean;
   /** Which vaccinations, on the Paperwork step. */
   vaccinationNotes: boolean;
 };
@@ -462,9 +465,10 @@ export function readSummary(imp: ShowBillImport): ReadSummary | null {
     sidePots: x.side_pots?.length ?? 0,
     stallPeriods: x.stall_periods
       ? x.stall_periods.map((p) => p.name)
-      : x.show.stall_notes || x.show.stalls_move_in_date
+      : x.show.stalls_move_in_date
         ? ['Full show']
         : [],
+    stallingNotes: Boolean(x.show.stall_notes),
     vaccinationNotes: Boolean(x.show.vaccination_notes),
   };
 }

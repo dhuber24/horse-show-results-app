@@ -30,15 +30,20 @@ The decisions, settled once so the two cannot disagree:
   migration 167). Its placings stand and are posted like any other; they are
   simply not added in -- at the show, and in every circuit it counts toward.
 * **Team classes have a standing of their own** (migration 192, `tally_team`).
-  A team's riders span divisions and ride different horses -- or one horse
-  between two -- so a team class adds nothing to the division standings.
-  Instead every rider on a placed team earns that placing's points in one Team
-  High Point standing, ranked by rider: the way WSCA's own Championship results
+  Every rider on a placed team earns that placing's points in one Team High
+  Point standing, ranked by rider: the way WSCA's own Championship results
   list every rider against one placing's points, and the way gymkhana scoring
   (Gymkhana America) credits each team member. Same chart, read for the number
   of teams in the class. A rider on two teams in one class (a timed class
   allows it) keeps the better placing on each judge's card -- one class, one
   placing.
+* **Whether a team class also counts toward the division standings is the
+  show's call** (`shows.team_points_in_divisions`, migration 208). Off -- the
+  default -- it adds nothing there. On, every rider on a placed team also earns
+  the placing's full points in the team class's division, with the horse they
+  rode (the team's own horse where they brought none), as though they had
+  placed there alone; the better-placing rule holds there too. Each card
+  carries its own show's answer, so a circuit adds each show up its own way.
 * **What a class is worth is the same chart, read for that class**
   (`class_points`): the band for its size, one card per judge on the panel.
   The leaderboard and the High Point page print it beside each class, so the
@@ -55,7 +60,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Class, Discipline, Division, Entry, Exhibitor, Horse, Result, ShowJudge
+from models import Class, Discipline, Division, Entry, Exhibitor, Horse, Result, Show, ShowJudge
 from placings import is_placed
 from teams import TEAM_SIZE_MIN, load_teammates
 
@@ -220,6 +225,12 @@ class Card:
     # The entry the card is for -- a team seat may ride for a club of its own
     # (`club_points.ClubContext.seat`).
     entry_id: Optional[UUID] = None
+    # The horse each teammate rode, as `(horse_id, horse_name)` in `teammates`'
+    # order -- `(None, None)` for the team's own horse, the card's.
+    teammate_horses: tuple = ()
+    # Whether this team class's show also counts it toward the division
+    # standings (`shows.team_points_in_divisions`, migration 208).
+    team_in_divisions: bool = False
 
 
 @dataclass
@@ -246,30 +257,67 @@ def rank(points: list[Decimal]) -> list[int]:
     return ranks
 
 
+def _team_riders(card: Card) -> list[tuple]:
+    """Everybody on a team card, as `(exhibitor_id, name, horse_id, horse_name)`:
+    the entrant on the entry's horse, then each teammate on the horse they
+    brought, or the team's own where they brought none."""
+    riders = [(card.exhibitor_id, card.exhibitor_name, card.horse_id, card.horse_name)]
+    horses = card.teammate_horses or ((None, None),) * len(card.teammates)
+    for (rider_id, rider_name), (horse_id, horse_name) in zip(card.teammates, horses):
+        if horse_id is None:
+            horse_id, horse_name = card.horse_id, card.horse_name
+        riders.append((rider_id, rider_name, horse_id, horse_name))
+    return riders
+
+
 def tally(cards: Iterable[Card], chart: Chart) -> list[dict]:
     """Standings per division, each ranked by points, highest first, in the
     show's own division order. A division's classes count together whatever
-    discipline they run in."""
+    discipline they run in.
+
+    A team class counts here only where its show says so
+    (`Card.team_in_divisions`, migration 208): then every rider on the team
+    earns the placing, with the horse they rode, keeping the better placing
+    where they rode on two teams in one class -- one class, one placing per
+    card, as in `tally_team`.
+    """
     divisions: dict[str, dict] = {}
-    for card in cards:
-        # Team classes earn Team High Point instead (`tally_team`).
-        if card.team_class or not is_placed(card):
-            continue
-        earned = points_for(chart, card.place, card.class_size)
-        if earned <= 0:
-            continue
+    # (rider, class, judge) -> (points, card, horse_id, horse_name, name)
+    team_best: dict[tuple, tuple] = {}
+
+    def add(card: Card, earned: Decimal, rider_id, rider_name, horse_id, horse_name) -> None:
         division = divisions.setdefault(
             _division_key(card.division_name),
             {"name": card.division_name, "sort": card.division_sort, "pairs": {}},
         )
         division["sort"] = min(division["sort"], card.division_sort)
         pair = division["pairs"].setdefault(
-            (card.exhibitor_id, card.horse_id),
-            _Pair(card.exhibitor_id, card.exhibitor_name, card.horse_id, card.horse_name),
+            (rider_id, horse_id),
+            _Pair(rider_id, rider_name, horse_id, horse_name),
         )
         pair.points += earned
         pair.class_ids.add(card.class_id)
         pair.show_ids.add(card.show_id)
+
+    for card in cards:
+        # Team classes earn Team High Point (`tally_team`), and count here too
+        # only where the show says so.
+        if (card.team_class and not card.team_in_divisions) or not is_placed(card):
+            continue
+        earned = points_for(chart, card.place, card.class_size)
+        if earned <= 0:
+            continue
+        if not card.team_class:
+            add(card, earned, card.exhibitor_id, card.exhibitor_name, card.horse_id, card.horse_name)
+            continue
+        for rider_id, rider_name, horse_id, horse_name in _team_riders(card):
+            key = (rider_id, card.class_id, card.judge_id)
+            held = team_best.get(key)
+            if held is None or earned > held[0]:
+                team_best[key] = (earned, card, horse_id, horse_name, rider_name)
+
+    for (rider_id, _class_id, _judge_id), (earned, card, horse_id, horse_name, rider_name) in team_best.items():
+        add(card, earned, rider_id, rider_name, horse_id, horse_name)
 
     return [
         {"name": division["name"], "standings": _ranked(division["pairs"].values())}
@@ -387,7 +435,9 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
             Result.judge_id,
             Entry.id,
             Class.team_size,
+            Show.team_points_in_divisions,
         )
+        .join(Show, Show.id == Class.show_id)
         .join(Result, Result.class_id == Class.id)
         .join(Entry, Entry.id == Result.entry_id)
         .join(Exhibitor, Exhibitor.id == Entry.exhibitor_id)
@@ -419,11 +469,13 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
             team_class=(team_size or 0) >= TEAM_SIZE_MIN,
             teammates=tuple((t.exhibitor_id, t.name) for t in teams.get(entry_id, [])),
             entry_id=entry_id,
+            teammate_horses=tuple((t.horse_id, t.horse_name) for t in teams.get(entry_id, [])),
+            team_in_divisions=bool(team_in_divisions),
         )
         for (
             show_id, class_id, division_name, division_sort, exhibitor_id,
             exhibitor_name, horse_id, horse_name, place, outcome, judge_id,
-            entry_id, team_size,
+            entry_id, team_size, team_in_divisions,
         ) in rows
     ]
     return cards, len(sizes)
@@ -505,6 +557,14 @@ async def load_class_summaries(
     for class_id, _judge_id in pairs.all():
         filed[class_id] = filed.get(class_id, 0) + 1
 
+    # Whether this show's team classes also count toward their division
+    # (migration 208), so each team class row can say where its points go.
+    team_in_divisions = bool(
+        (
+            await db.execute(select(Show.team_points_in_divisions).where(Show.id == show_id))
+        ).scalar_one_or_none()
+    )
+
     out = []
     for (
         class_id, class_number, class_name, class_date, status,
@@ -521,9 +581,11 @@ async def load_class_summaries(
             "discipline_name": discipline_name,
             "posted": published_at is not None and status != "DRAFT",
             "eligible": bool(eligible),
-            # A team class earns Team High Point, not its division's (migration
-            # 192); its entries are teams.
+            # A team class earns Team High Point (migration 192); its entries
+            # are teams. It counts toward its division too only where the show
+            # says so (migration 208).
             "team": (team_size or 0) >= TEAM_SIZE_MIN,
+            "team_in_division": team_in_divisions and (team_size or 0) >= TEAM_SIZE_MIN,
             "entries": class_size or 0,
             "cards": cards,
         }

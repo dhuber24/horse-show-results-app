@@ -263,8 +263,8 @@ bill at the plain input rate.
 rates, fees, and the two notes (`notes_for_exhibitors`, `notes_for_office`);
 the class pass reads the classes, each naming the futurity and side pots it
 belongs to, and the futurities and side pots themselves; the stall pass reads
-the stall periods and `stall_notes`, which the read keeps on its `show` as
-before.
+the stall periods and `stall_notes` (the general stalling notes), which the
+read keeps on its `show` as before.
 
 **A read holds only what the app has a place for** (2026-11-15). Show officials,
 a judge's home town and the old `not_imported` list came out of the schema; the
@@ -377,7 +377,7 @@ both on Show Details — is a rule that will one day say two different things.
 
 | What the bill says | Where it goes | Step |
 | --- | --- | --- |
-| Stalls and moving in and out: unloading, the barn office, stall assignments, bedding and cleaning, departure | the rules every period shares in `stall_notes` → the move-in notes of the **first** stall period; what only one period's exhibitors need → that period's own `move_in_notes` (see *Stall periods* below) | Lodging |
+| Stalls and moving in and out: unloading, the barn office, stall assignments, bedding and cleaning, departure | split by who needs it. A rule an exhibitor with a stall in **any** period needs — and every stall rule when the bill sells one period only — is `stall_notes` → `shows.stalling_notes`, the *General stalling notes* card at the top of Lodging (migration 207). A rule that names or fits only one period → that period's own `move_in_notes`; one that fits some periods but not all → each of those periods' notes. Never both (see *Stall periods* below) | Lodging |
 | Which vaccinations, how recent | `vaccination_notes` → `shows.vaccination_notes` | Paperwork |
 | Wording about one fee or booked item | that fee's `notes` | Lodging / Fees |
 | A futurity's or side pot's wording | the futurity's five texts, the side pot's description | Futurities & Side Pots |
@@ -405,9 +405,18 @@ rest `stall_<kind>_<period id>`; the pass an `add_on` coded
   stall*, and the office had to rebuild all three periods by hand. The show is
   a DRAFT, so a misread price reaches nobody before the office has looked; one
   item on Lodging lists every period and its prices to check.
-- **Shared rules are said once.** Show Details prints every period's notes
-  together, so the rules every period shares (`show.stall_notes`) open the
-  first period's notes rather than being copied into each.
+- **Shared rules are said once, as the show's General stalling notes**
+  (`shows.stalling_notes`, migration 207). The rules every period shares
+  (`show.stall_notes`) used to open the first period's move-in notes, which on
+  the Lodging step read as that period's own rules and went with it when the
+  office deleted it. A read with stall rules but no period makes no period now:
+  the notes have a home without one.
+- **How the reader splits them** is one question asked of each rule: would an
+  exhibitor with a stall in any period need it? Then it is general. Does it
+  name or fit one period ("Games stalls move in through the back gate after
+  9 PM Friday")? Then it is that period's. The schema descriptions of
+  `stall_notes` and `move_in_notes` and the prompt's *Notes* section say the
+  same, so a rule is never in both.
 - **Prices that rise after a date** ("stalling prices DOUBLE after the class
   entry deadline") are the raised price with the printed one as the early
   price until the reserve-by day, as the Lodging step sets a period's early

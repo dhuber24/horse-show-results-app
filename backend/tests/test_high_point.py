@@ -373,7 +373,8 @@ TANDEM, RESCUE = uuid4(), uuid4()
 JUDGE_ONE, JUDGE_TWO = uuid4(), uuid4()
 
 
-def team_card(entrant, place, teammates, *, class_id=TANDEM, judge=JUDGE_ONE, size=5, horse=HORSE_A):
+def team_card(entrant, place, teammates, *, class_id=TANDEM, judge=JUDGE_ONE, size=5, horse=HORSE_A,
+              horses=(), in_divisions=False):
     return Card(
         show_id=SHOW,
         class_id=class_id,
@@ -389,6 +390,8 @@ def team_card(entrant, place, teammates, *, class_id=TANDEM, judge=JUDGE_ONE, si
         judge_id=judge,
         team_class=True,
         teammates=tuple((t, {ALICE: "Alice", BOB: "Bob", CARA: "Cara"}[t]) for t in teammates),
+        teammate_horses=tuple((h, "Own horse" if h else None) for h in horses),
+        team_in_divisions=in_divisions,
     )
 
 
@@ -431,3 +434,63 @@ def test_each_judges_card_counts_for_a_team_too():
 def test_no_team_points_means_no_team_table():
     assert tally_team([], FLAT) is None
     assert tally_team([team_card(ALICE, None, [BOB])], FLAT) is None
+
+
+# ── Team classes in the division standings: the show's call (migration 208) ──
+
+
+def division_points(tables):
+    return {
+        (row["exhibitor_name"], row["horse_id"]): row["points"]
+        for table in tables
+        for row in table["standings"]
+    }
+
+
+def test_a_show_may_count_team_classes_toward_the_division_standings():
+    tables = tally([team_card(ALICE, 1, [BOB], horses=[HORSE_B], in_divisions=True)], FLAT)
+    assert [t["name"] for t in tables] == ["Open"]
+    # Each rider earns the placing's full points, with the horse they rode.
+    assert division_points(tables) == {("Alice", str(HORSE_A)): 6, ("Bob", str(HORSE_B)): 6}
+
+
+def test_a_teammate_on_the_teams_own_horse_earns_with_that_horse():
+    tables = tally([team_card(ALICE, 2, [BOB], horses=[None], in_divisions=True)], FLAT)
+    assert division_points(tables) == {("Alice", str(HORSE_A)): 5, ("Bob", str(HORSE_A)): 5}
+
+
+def test_team_points_add_to_what_the_rider_earned_alone_on_that_horse():
+    tables = tally(
+        [
+            card(ALICE, HORSE_A, 1, division="Open"),
+            team_card(ALICE, 2, [BOB], in_divisions=True),
+        ],
+        FLAT,
+    )
+    row = next(r for r in tables[0]["standings"] if r["exhibitor_name"] == "Alice")
+    assert row["points"] == 11
+    assert row["class_count"] == 2
+
+
+def test_in_the_divisions_a_rider_on_two_teams_keeps_the_better_placing():
+    tables = tally(
+        [
+            team_card(ALICE, 1, [BOB], horses=[HORSE_B], in_divisions=True),
+            team_card(CARA, 3, [BOB], horse=HORSE_C, horses=[HORSE_B], in_divisions=True),
+        ],
+        FLAT,
+    )
+    assert division_points(tables)[("Bob", str(HORSE_B))] == 6
+
+
+def test_counting_in_the_divisions_keeps_team_high_point():
+    cards = [team_card(ALICE, 1, [BOB], in_divisions=True)]
+    assert team_points(tally_team(cards, FLAT)) == {"Alice": 6, "Bob": 6}
+
+
+def test_each_shows_own_answer_holds_in_a_circuit():
+    other_show = uuid4()
+    counted = team_card(ALICE, 1, [BOB], in_divisions=True)
+    not_counted = Card(**{**team_card(ALICE, 1, [BOB], class_id=RESCUE).__dict__, "show_id": other_show})
+    tables = tally([counted, not_counted], FLAT)
+    assert division_points(tables)[("Alice", str(HORSE_A))] == 6

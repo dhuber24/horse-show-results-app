@@ -11,6 +11,7 @@ import {
   COLORS,
   NOTES_MAX,
   PRICE_COLS,
+  STALLING_NOTES_MAX,
   centsToDollars,
   dollarsToCents,
   earlyFields,
@@ -206,6 +207,7 @@ export default function LodgingClient({
   showId,
   initialFees,
   initialShavingsBanOutside,
+  initialStallingNotes,
   initialStallsOpenDate,
   initialStallsOpenTime,
   showStartDate,
@@ -224,6 +226,9 @@ export default function LodgingClient({
   /** Every fee code on the show, so a new stall line's code is unique. */
   allFeeCodes: string[];
   initialShavingsBanOutside: boolean;
+  /** `shows.stalling_notes` as saved (migration 207), or '': the stall rules
+   *  every exhibitor who stalls must know, whatever period they book. */
+  initialStallingNotes: string;
   /** `shows.stalls_open_*` as saved (migration 181): yyyy-mm-dd and HH:MM, or
    *  ''. Set from the stall periods, never typed here; a show still carrying
    *  one from before periods opens on a period made from it (`StallsCard`). */
@@ -274,6 +279,7 @@ export default function LodgingClient({
   });
 
   const [banOutsideShavings, setBanOutsideShavings] = useState(initialShavingsBanOutside);
+  const [stallingNotes, setStallingNotes] = useState(initialStallingNotes);
   // The *Stalls & move-in* card (`StallsCard`): the stall periods — the only
   // place move-in is set — each with its own Early Move-In Pass, every line
   // priced per stall, and the stall-per-horse tick (migrations 194-196). Its
@@ -319,6 +325,7 @@ export default function LodgingClient({
     );
   }) ||
     banOutsideShavings !== initialShavingsBanOutside ||
+    stallingNotes.trim() !== initialStallingNotes.trim() ||
     stalls.dirty ||
     camping.dirty ||
     permits.dirty;
@@ -331,13 +338,18 @@ export default function LodgingClient({
     setSuccessMsg(null);
     setBusy(true);
     try {
-      // 1) Patch the show's own columns: the shavings policy and the stall-per-
-      //    horse tick. Only what changed is sent. When stalls open is not one
+      // 1) Patch the show's own columns: the general stalling notes, the
+      //    shavings policy and the stall-per-horse tick. Only what changed is
+      //    sent. When stalls open is not one
       //    of them — the backend sets it from the stall periods, which also
       //    carry the move-in notes (step 2).
       const showPatch: Record<string, unknown> = {};
       if (banOutsideShavings !== initialShavingsBanOutside) {
         showPatch.shavings_ban_outside = banOutsideShavings;
+      }
+      if (stallingNotes.trim() !== initialStallingNotes.trim()) {
+        // Blank is stored as NULL (`ShowUpdate.blank_notes_are_none`).
+        showPatch.stalling_notes = stallingNotes.trim() || null;
       }
       if (stalls.perHorse !== initialStallPerHorse) {
         showPatch.stall_per_horse_required = stalls.perHorse;
@@ -350,7 +362,7 @@ export default function LodgingClient({
         });
         if (!showRes.ok) {
           const j = await showRes.json().catch(() => null);
-          setError(errorMessage(j, 'Failed to update the stall and shavings settings.'));
+          setError(errorMessage(j, 'Failed to update the stalling notes and stall and shavings settings.'));
           return false;
         }
       }
@@ -494,6 +506,48 @@ export default function LodgingClient({
       {/* Stalls and move-in first: when the barn opens is the one thing on this
           step every exhibitor hauling in needs, and each stall period is its
           own move-in, so the two are one card. */}
+      {/* General stalling notes first (migration 207): the rules every
+          exhibitor who stalls must know, whichever period they book, said once
+          above the periods. What only one period's exhibitors need stays in
+          that period's move-in notes, inside the Stalls card. */}
+      <section
+        className="p-4 rounded-lg border space-y-3"
+        style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
+        aria-labelledby="stalling-notes-heading"
+      >
+        <div>
+          <h2 id="stalling-notes-heading" className="text-base font-semibold" style={{ color: COLORS.text }}>
+            General stalling notes
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
+            For everybody who stalls, whichever stall period they book — unloading, stall assignments,
+            barn office hours, bedding, cleaning and checking out. Shown to exhibitors above the stall
+            periods. Instructions for one period only go in that period&apos;s move-in notes below.
+          </p>
+        </div>
+        <label className="flex flex-col">
+          <span className="flex justify-between gap-2 text-xs mb-1" style={{ color: COLORS.muted }}>
+            <span>Notes for every exhibitor with a stall (optional)</span>
+            {STALLING_NOTES_MAX - stallingNotes.length <= 200 && (
+              <span>{STALLING_NOTES_MAX - stallingNotes.length} characters left</span>
+            )}
+          </span>
+          <textarea
+            rows={4}
+            maxLength={STALLING_NOTES_MAX}
+            value={stallingNotes}
+            onChange={(e) => setStallingNotes(e.target.value)}
+            className="w-full min-h-[7rem] border rounded px-3 py-2 resize-y"
+            style={{ borderColor: COLORS.border, fieldSizing: 'content' }}
+            placeholder={
+              'e.g. No switching stalls. Stall assignments are posted at the barn office.\n' +
+              'Strip your stalls before you leave and check out at the show office.'
+            }
+            aria-label="General stalling notes"
+          />
+        </label>
+      </section>
+
       <StallsCard editor={stalls} />
 
       {maps}

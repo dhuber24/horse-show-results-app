@@ -191,6 +191,8 @@ def _serialize(show: Show) -> dict:
         # When exhibitors may move into their stalls (migration 181).
         "stalls_open_date": show.stalls_open_date,
         "stalls_open_time": show.stalls_open_time,
+        # Migration 207: the stall rules every period shares.
+        "stalling_notes": show.stalling_notes,
         # General notes for exhibitors (migration 184). `office_notes` is
         # never named here: this payload answers anybody, signed in or not.
         # The office reads its own through GET /shows/{id}/office-notes.

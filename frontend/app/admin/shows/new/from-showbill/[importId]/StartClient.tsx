@@ -313,6 +313,9 @@ export default function StartClient({
                 on Lodging, with their stall prices, move-in days and notes
               </li>
             )}
+            {summary.stallingNotes && (
+              <li>The stall rules every exhibitor who stalls must know, as General stalling notes on Lodging</li>
+            )}
             {summary.vaccinationNotes && <li>The vaccinations the bill requires, on Paperwork</li>}
             <li>The judges and venue you settle below, and the two notes at the bottom</li>
           </ul>

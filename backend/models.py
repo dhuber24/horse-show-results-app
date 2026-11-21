@@ -214,6 +214,16 @@ class Show(Base):
     # on each day it shows, because who pays for whose stall is often somebody
     # else and only the office can sort that out.
     stall_per_horse_required = Column(Boolean, nullable=False, server_default="false")
+    # General stalling notes (migration 207): the stall rules every exhibitor
+    # who stalls must know, whatever period they book -- unloading, stall
+    # assignments, barn office hours, bedding, checking out. Typed at the top of
+    # the Lodging step and printed above the stall periods, each of which keeps
+    # its own `move_in_notes`. Line breaks kept; blank is NULL.
+    stalling_notes = Column(Text, nullable=True)
+    # Whether team-class placings also count toward the division (individual)
+    # high point, each rider with the horse they rode (migration 208). Off, a
+    # team class earns Team High Point only. Read by `high_point.load_cards`.
+    team_points_in_divisions = Column(Boolean, nullable=False, server_default="false")
     # General show notes (migration 184), both written on Step 1. `public_notes`
     # is for exhibitors and rides the public show payload onto the show page and
     # the generated bill. `office_notes` is the office's own and must never reach

@@ -74,9 +74,12 @@ export type HighPointClass = {
   posted: boolean;
   /** Whether its placings earn high-point points; the office may leave a class out. */
   eligible: boolean;
-  /** A team class (migration 192): it earns Team High Point, by rider, not its
-   *  division's standings, and its entries are teams. */
+  /** A team class (migration 192): it earns Team High Point, by rider, and its
+   *  entries are teams. */
   team?: boolean;
+  /** A team class whose show also counts it toward its division's standings
+   *  (migration 208); optional for an older backend. */
+  team_in_division?: boolean;
   /** The horses shown: scratches and no-shows at the gate left out. */
   entries: number;
   /** Judges' cards — each earns its own points. */

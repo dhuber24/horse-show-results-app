@@ -13,6 +13,9 @@ import {
  * cannot drift apart (the sign-up form says the same things beside the stalls
  * being booked, from the same `lib/stalls-open.ts` and `lib/stall-periods.ts`).
  *
+ * The show's General stalling notes (migration 207) come first: the rules
+ * every exhibitor who stalls must know, whichever period they book, said once.
+ *
  * Move-in is set by stall period, so this lists each period's move-in and
  * move-out, its own Early Move-In Pass, and its own move-in notes as typed
  * (migration 199: each period can have different instructions); "stalls open"
@@ -39,6 +42,8 @@ export type MoveInFee = {
 };
 
 type Props = {
+  /** `shows.stalling_notes` (migration 207), line breaks kept. */
+  stallingNotes?: string | null;
   stallsOpenDate?: string | null;
   stallsOpenTime?: string | null;
   periods: StallPeriod[];
@@ -60,15 +65,16 @@ export function passSummary(pass: MoveInFee): string {
 }
 
 /** Whether there is anything to say at all, so a page can leave the row out. */
-export function hasMoveInSummary({ stallsOpenDate, periods, fees }: Props): boolean {
-  return Boolean(stallsOpenDate || periods.length > 0 || earlyMoveInPass(fees));
+export function hasMoveInSummary({ stallingNotes, stallsOpenDate, periods, fees }: Props): boolean {
+  return Boolean(stallingNotes?.trim() || stallsOpenDate || periods.length > 0 || earlyMoveInPass(fees));
 }
 
-export default function MoveInSummary({ stallsOpenDate, stallsOpenTime, periods, fees }: Props) {
+export default function MoveInSummary({ stallingNotes, stallsOpenDate, stallsOpenTime, periods, fees }: Props) {
   const wholeShowPass = earlyMoveInPass(fees);
   const stallsOpen = formatStallsOpen(stallsOpenDate, stallsOpenTime);
   return (
     <div className="space-y-1">
+      {stallingNotes?.trim() && <div className="whitespace-pre-wrap">{stallingNotes.trim()}</div>}
       {periods.length > 0 ? (
         periods.map((period) => {
           const pass = periodPass(fees, period.id);

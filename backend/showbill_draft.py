@@ -133,16 +133,17 @@ def _stall_periods(
     *Stalls & move-in* card sets, so the step opens on them rather than on one
     period with the rest under *Other charges per stall*.
 
-    The rules every period shares (`show.stall_notes`) open the first period's
-    move-in notes: Show Details prints every period's notes together, so one
-    copy is read by everybody, where a copy on each would print three times.
-    Moves with the schedule when the first day is moved."""
+    The rules every period shares (`show.stall_notes`) are not a period's: they
+    are the show's General stalling notes (`shows.stalling_notes`, migration
+    207, set in `_show`), printed once above every period. Each period's
+    `move_in_notes` holds only what its own exhibitors need. Moves with the
+    schedule when the first day is moved."""
     show_x = extracted.get("show") or {}
     read = extracted.get("stall_periods")
     if read is None:
         # A read made before 2026-11-18, which gave one move-in for the show.
         read = []
-        if show_x.get("stall_notes") or show_x.get("stalls_move_in_date"):
+        if show_x.get("stalls_move_in_date"):
             read = [
                 {
                     "name": "Full show",
@@ -153,12 +154,8 @@ def _stall_periods(
                     "stalls": [],
                 }
             ]
-    shared = show_x.get("stall_notes")
-    if not read and shared:
-        read = [{"name": "Full show", "stalls": []}]
-
     periods: list[dict[str, Any]] = []
-    for index, p in enumerate(read):
+    for p in read:
         name = p["name"]
         move_in, in_time, move_out, out_time = _fit_period(
             _shifted(p.get("move_in_date"), shift),
@@ -168,7 +165,6 @@ def _stall_periods(
             start_date,
             end_date,
         )
-        notes = "\n\n".join(n for n in ((shared if index == 0 else None), p.get("move_in_notes")) if n) or None
 
         reserve_by = _as_date(p.get("reserve_by"))
         stalls = [
@@ -218,7 +214,7 @@ def _stall_periods(
                 "move_out_date": move_out,
                 "move_out_time": out_time,
                 "move_out_note": _cut(p.get("move_out_note"), 200),
-                "move_in_notes": _cut(notes, 2000),
+                "move_in_notes": _cut(p.get("move_in_notes"), 2000),
                 "stalls": stalls,
                 "early_move_in_pass": early_pass,
             }
@@ -317,6 +313,9 @@ def draft_from_read(
         "health_certificate_valid_days": cvi_days if 1 <= cvi_days <= 365 else 30,
         "requires_vaccination": bool(show_x.get("requires_vaccination")),
         "vaccination_notes": _cut(show_x.get("vaccination_notes"), 2000),
+        # The stall rules every period shares: the Lodging step's General
+        # stalling notes (migration 207), never the first period's.
+        "stalling_notes": _cut(show_x.get("stall_notes"), 4000),
     }
 
     # --- Venue: as the confirm page settled it ---

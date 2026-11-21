@@ -100,6 +100,8 @@ export type SignupData = {
     stalls_open_time?: string | null;
     /** Every horse entered needs its own stall (migration 194). */
     stall_per_horse_required?: boolean;
+    /** The stall rules every period shares (migration 207), above the stalls. */
+    stalling_notes?: string | null;
   };
   exhibitor: { id: string; full_name: string };
   fee_options: FeeOption[];
@@ -869,6 +871,16 @@ export default function ReservationFields({
                   </span>
                 )}
               </p>
+              {/* The show's General stalling notes (migration 207): for every
+                  exhibitor with a stall, whichever period, so above them all. */}
+              {group.key === 'stalls' && show.stalling_notes?.trim() && (
+                <p
+                  className="text-xs mb-3 rounded border px-3 py-2 whitespace-pre-wrap"
+                  style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)', color: 'var(--foreground)' }}
+                >
+                  {show.stalling_notes.trim()}
+                </p>
+              )}
               {/* Stall lines under the period each is sold for (migration
                   194), with its move-in and move-out, where the show sells
                   stalls for part of the show. Otherwise one list. */}
