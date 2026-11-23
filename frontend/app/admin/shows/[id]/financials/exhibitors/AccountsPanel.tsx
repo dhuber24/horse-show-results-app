@@ -17,6 +17,7 @@ import { errorMessage } from '@/lib/api-error';
 import AutoRefresh from '../AutoRefresh';
 import OfficeBillBreakdown from '@/components/OfficeBillBreakdown';
 import { backNumbersLabel } from '@/lib/back-numbers';
+import DotLeader from '@/components/DotLeader';
 
 type Filter = 'owing' | 'settled' | 'all';
 
@@ -281,10 +282,18 @@ function AccountRow({
           >
             ← {account.exhibitor_name}&rsquo;s registration
           </Link>
+          {/* First, because taking the money is what the office opened the
+              row for; the bill underneath is what they check it against. */}
+          <RecordPaymentForm
+            showId={showId}
+            account={account}
+            onRecorded={onChanged}
+          />
           <OfficeBillBreakdown bill={account.bill} />
           {/* What the office changes about what they owe (migration 197):
               their bookings, to match the stall chart the office keeps, and
-              credits or charges with a reason. Payments and refunds below. */}
+              credits or charges with a reason. Payments and refunds are taken
+              in the form above and listed below. */}
           {bookable.length > 0 && (
             <BookingsEditor
               showId={showId}
@@ -295,11 +304,6 @@ function AccountRow({
           )}
           <AdjustmentsEditor showId={showId} account={account} onChanged={onChanged} />
           <PaymentHistory showId={showId} account={account} onChanged={onChanged} />
-          <RecordPaymentForm
-            showId={showId}
-            account={account}
-            onRecorded={onChanged}
-          />
         </div>
       )}
     </li>
@@ -331,9 +335,23 @@ function BookingsEditor({
   const [quantities, setQuantities] = useState<Record<string, number>>(() =>
     Object.fromEntries(bookable.map((fee) => [fee.id, booked[fee.id] ?? 0])),
   );
+  // Lines picked from "Add" since the last save. Only what they have booked is
+  // listed — a dozen lines at 0 buries the two they bought — so a line they
+  // have not booked shows once the office adds it, and stays while it is being
+  // typed into even at 0.
+  const [added, setAdded] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dirty = bookable.some((fee) => (quantities[fee.id] ?? 0) !== (booked[fee.id] ?? 0));
+  const shown = bookable.filter(
+    (fee) => (booked[fee.id] ?? 0) > 0 || (quantities[fee.id] ?? 0) > 0 || added.includes(fee.id),
+  );
+  const addable = bookable.filter((fee) => !shown.includes(fee));
+
+  function addLine(feeId: string) {
+    setAdded((prev) => [...prev, feeId]);
+    setQuantities((prev) => ({ ...prev, [feeId]: Math.max(prev[feeId] ?? 0, 1) }));
+  }
 
   async function save() {
     setBusy(true);
@@ -353,6 +371,8 @@ function BookingsEditor({
         setError(errorMessage(json, 'Could not save their bookings.'));
         return;
       }
+      // A line saved at 0 goes back under "Add" once the refreshed bill lands.
+      setAdded([]);
       onSaved();
     } finally {
       setBusy(false);
@@ -367,47 +387,67 @@ function BookingsEditor({
       <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
         What they have booked. Change it to match your stall chart — their bill follows.
       </p>
-      <ul className="space-y-1.5">
-        {bookable.map((fee) => {
-          const qty = quantities[fee.id] ?? 0;
-          const basis = fee.one_per_exhibitor ? 'per exhibitor' : unitLabel(fee.unit);
-          return (
-            <li key={fee.id} className="flex items-center justify-between gap-3 text-sm">
-              <span style={{ color: 'var(--text-deep)' }}>
-                {fee.label}
-                <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                  {' '}
-                  {formatMoney(fee.amount_cents)} {basis}
+      {shown.length === 0 ? (
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
+          Nothing booked.
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {shown.map((fee) => {
+            const qty = quantities[fee.id] ?? 0;
+            const basis = fee.one_per_exhibitor ? 'per exhibitor' : unitLabel(fee.unit);
+            // A quantity like every other line, so the bill reads as one column
+            // of numbers. One a head is the most anyone can have — the server
+            // refuses more — so the box stops at 1.
+            const max = fee.one_per_exhibitor ? 1 : 999;
+            return (
+              <li key={fee.id} className="flex items-baseline gap-2 text-sm">
+                <span className="min-w-0" style={{ color: 'var(--text-deep)' }}>
+                  {fee.label}
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                    {' '}
+                    {formatMoney(fee.amount_cents)} {basis}
+                  </span>
                 </span>
-              </span>
-              {fee.one_per_exhibitor ? (
-                <input
-                  type="checkbox"
-                  checked={qty > 0}
-                  onChange={(e) => setQuantities((prev) => ({ ...prev, [fee.id]: e.target.checked ? 1 : 0 }))}
-                  aria-label={`${fee.label} — booked`}
-                />
-              ) : (
+                <DotLeader />
                 <input
                   type="number"
                   min={0}
-                  max={999}
+                  max={max}
                   value={qty}
                   onChange={(e) =>
                     setQuantities((prev) => ({
                       ...prev,
-                      [fee.id]: Math.max(0, Math.min(999, Number(e.target.value) || 0)),
+                      [fee.id]: Math.max(0, Math.min(max, Number(e.target.value) || 0)),
                     }))
                   }
-                  className="w-20 border rounded px-2 py-1 text-sm text-right tabular-nums"
+                  className="w-20 shrink-0 border rounded px-2 py-1 text-sm text-right tabular-nums"
                   style={{ borderColor: 'var(--border)' }}
                   aria-label={`${fee.label} — quantity`}
+                  title={fee.one_per_exhibitor ? 'One per exhibitor — 0 or 1' : undefined}
                 />
-              )}
-            </li>
-          );
-        })}
-      </ul>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {addable.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => e.target.value && addLine(e.target.value)}
+          className="mt-2 border rounded px-2 py-1 text-sm"
+          style={{ borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' }}
+          aria-label="Add a line they have not booked"
+        >
+          <option value="">+ Add a line…</option>
+          {addable.map((fee) => (
+            <option key={fee.id} value={fee.id}>
+              {fee.label} — {formatMoney(fee.amount_cents)}{' '}
+              {fee.one_per_exhibitor ? 'per exhibitor' : unitLabel(fee.unit)}
+            </option>
+          ))}
+        </select>
+      )}
       {error && (
         <p className="text-xs mt-2" style={{ color: 'var(--error-strong)' }} role="alert">
           {error}
@@ -432,7 +472,7 @@ function BookingsEditor({
  * reason the bill prints. A credit lowers what they owe — a tie stall given in
  * place of a box stall, a comped stall — and a charge raises it, such as the
  * cleaning fee for a stall nobody checked out. Not a payment: to give money
- * back too, record a refund below.
+ * back too, record a refund in the payment form.
  */
 function AdjustmentsEditor({
   showId,
@@ -511,7 +551,7 @@ function AdjustmentsEditor({
       </h3>
       <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
         A credit or a charge, with the reason printed on their bill. To give money back as well,
-        record a refund below.
+        record a refund at the top.
       </p>
       {lines.length > 0 && (
         <ul className="space-y-1 mb-2">

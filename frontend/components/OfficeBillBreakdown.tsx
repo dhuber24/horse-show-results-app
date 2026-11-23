@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { formatMoney } from '@/lib/financials';
 import { unitLabel } from '@/lib/fee-units';
 import type { Bill, BillAdjustmentLine } from '@/lib/my-shows';
+import DotLeader from './DotLeader';
 
 /**
  * An exhibitor's bill line by line, as the show office reads it — on
@@ -120,8 +121,8 @@ export default function OfficeBillBreakdown({
       </h3>
       <dl className="text-sm space-y-1">
         {rows.map((row) => (
-          <div key={row.key} className="flex justify-between gap-4">
-            <dt style={{ color: 'var(--text-deep)' }}>
+          <div key={row.key} className="flex items-baseline gap-2">
+            <dt className="min-w-0" style={{ color: 'var(--text-deep)' }}>
               {row.label}
               {row.adjustment?.recorded_by_name && (
                 <span className="text-xs" style={{ color: 'var(--muted)' }}>
@@ -130,6 +131,7 @@ export default function OfficeBillBreakdown({
                 </span>
               )}
             </dt>
+            <DotLeader />
             <dd className="flex items-baseline gap-3 shrink-0">
               <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
                 {formatMoney(row.cents)}
