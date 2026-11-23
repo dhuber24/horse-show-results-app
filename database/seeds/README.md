@@ -78,6 +78,19 @@ Notes:
 - Sanctioning options are shuffled and dealt one per show rather than drawn independently, so a single run can't hand all three shows the same club pair.
 - Re-running skips shows by name and venues by (name, city).
 
+## WSCA Championship (open for registration, half full)
+
+`scripts/seed_wsca_champ_show.py` takes the WSCA Championship Horse Show that was read off its uploaded 2026 show bill and opens it for sign-up. It moves the show forward by whole weeks to a Thursday at least three weeks out (or `--start YYYY-MM-DD`, a Thursday), then signs up six families (twelve `@example.com` riders, password `12345678`) with stalls, an Early Move-In Pass, electrical, a parking permit and entries by age band. Eight more exhibitors are left free so class registration can be walked by hand. It reuses the people and horses from `seed_mnsphc_live_show.py`, which must have run first. Re-runnable: each run rebuilds only those twelve riders' sign-ups at the show.
+
+**Dev only.** It writes to the `.env` `DATABASE_URL`, the dev branch, and is never run against production:
+
+```bash
+DBURL=$(grep '^DATABASE_URL=' .env | cut -d= -f2-)
+docker run --rm -v "$PWD/backend:/app" -v "$PWD/scripts:/scripts" \
+  -w /app -e PYTHONPATH=/app -e DATABASE_URL="$DBURL" \
+  horse-show-results-app-backend python /scripts/seed_wsca_champ_show.py
+```
+
 Note that `shows.sql` in this directory is stale: it inserts a `venue` text column that no longer exists on `shows` (venue is `venue_id` only). Use the script above instead.
 
 ## AQHA Standard Classes
