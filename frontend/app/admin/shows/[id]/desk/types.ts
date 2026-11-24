@@ -316,6 +316,10 @@ export interface Desk {
   requires_membership_card_check?: boolean;
   requires_horse_age_check?: boolean;
   requires_registration_papers_check?: boolean;
+  /** The show inspects stalls before checkout, and what the checkout box
+   *  charges for it — null for no fee (migration 209). */
+  stall_inspection_required?: boolean;
+  stall_inspection_fee_cents?: number | null;
   classes: DeskClass[];
   side_pots: DeskSidePot[];
   futurities: DeskFuturity[];

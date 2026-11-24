@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Fragment, useCallback, useEffect, useId, useState } from 'react';
 import AddEntryForm from './AddEntryForm';
+import BookingsSection from './BookingsSection';
 import CheckoutSection from './CheckoutSection';
 import CheckRow, { type VerificationKind } from './CheckRow';
 import ContactForm, { type ContactValues } from './ContactForm';
@@ -66,75 +67,6 @@ const EMERGENCY_CONTACT_ID = 'desk-check-emergency-contact';
 
 function waiverAnchor(waiverId: string): string {
   return `desk-check-waiver-${waiverId}`;
-}
-
-/**
- * The first red row in the Paperwork section, in the order the panel renders
- * them — so the jump at the top of the panel lands on the first thing to do
- * rather than wherever a different ordering put it.
- *
- * The same set `paperworkToDo` counts: memberships, each horse's health
- * documents, foaling date and registration papers, the emergency contact, and
- * the required releases.
- */
-function firstOutstandingPaperwork(
-  exhibitor: DeskExhibitor,
-  physicalCheck: boolean,
-): { anchor: string; label: string } | null {
-  for (const check of exhibitor.memberships) {
-    if (check.status !== 'verified') {
-      return {
-        anchor: anchorFor({
-          kind: 'exhibitor_membership',
-          exhibitor_id: exhibitor.exhibitor_id,
-          association_id: check.association_id,
-        }),
-        label: `${check.association_code ?? 'Membership'} membership`,
-      };
-    }
-  }
-  for (const horse of exhibitor.horses) {
-    for (const check of horse.health ?? []) {
-      const owed = physicalCheck && (check.inspection?.status ?? 'unverified') !== 'verified';
-      if (check.status !== 'valid' || owed) {
-        return {
-          anchor: anchorFor({
-            kind: 'horse_health_document',
-            horse_id: horse.horse_id,
-            document_type: check.code,
-          }),
-          label: `${horse.horse_name} — ${check.label}`,
-        };
-      }
-    }
-    if (horse.age_check && horse.age_check.status !== 'verified') {
-      return {
-        anchor: anchorFor({ kind: 'horse_age', horse_id: horse.horse_id }),
-        label: `${horse.horse_name} — foaling date`,
-      };
-    }
-    for (const check of horse.registrations) {
-      if (check.status !== 'verified') {
-        return {
-          anchor: anchorFor({
-            kind: 'horse_registration',
-            horse_id: horse.horse_id,
-            association_id: check.association_id,
-          }),
-          label: `${horse.horse_name} — ${check.association_code ?? 'registration'} papers`,
-        };
-      }
-    }
-  }
-  if (exhibitor.emergency_contact?.status !== 'on_file') {
-    return { anchor: EMERGENCY_CONTACT_ID, label: 'Emergency contact' };
-  }
-  for (const waiver of exhibitor.waivers ?? []) {
-    if (waiver.is_required && waiver.status !== 'signed') {
-      return { anchor: waiverAnchor(waiver.waiver_id), label: waiver.title };
-    }
-  }
-  return null;
 }
 
 /** Which uploaded document backs each kind of check, so "View" on a row opens
@@ -530,6 +462,12 @@ export default function ExhibitorPanel({
   // An exhibitor with no horse entered stays open, because "+ Add a horse" lives
   // in it and that is what the class picker sends staff looking for.
   const toDo = paperworkToDo(exhibitor, desk.requires_physical_document_check);
+  // Classes starts folded for every exhibitor, at the show office's request,
+  // and is not remembered across them: the panel is rebuilt for each person
+  // (keyed in DeskClient), and a desk reload after a save does not fold it
+  // again under somebody mid-entry. Adding a horse opens it — the horse is
+  // added to be entered.
+  const [classesOpen, setClassesOpen] = useState(false);
   const paperworkDone = toDo === 0 && exhibitor.horses.length > 0;
   const [paperworkFolded, setPaperworkFolded] = useState<boolean | null>(null);
   useEffect(() => {
@@ -814,13 +752,6 @@ export default function ExhibitorPanel({
   };
 
   const alerts = healthAlerts(exhibitor);
-  // Where the outstanding-paperwork warning sends staff. Computed here so the
-  // tooltip can name it, and recomputed on every reload — the answer moves as
-  // checks are signed off.
-  const nextPaperwork = firstOutstandingPaperwork(
-    exhibitor,
-    desk.requires_physical_document_check,
-  );
   const potCount = exhibitor.side_pot_ids.length;
 
   /** What scratching this entry would also give back, as a sentence — empty
@@ -1049,27 +980,11 @@ export default function ExhibitorPanel({
               {potCount} side pot{potCount === 1 ? '' : 's'}
             </span>
           )}
-          {/* A count is a fact; the desk needs the next thing to do. Pressing
-              this opens the Paperwork section and scrolls to the first check
-              still owed, naming it in the tooltip so staff know where they are
-              being sent before they press. */}
-          {toDo > 0 ? (
-            <button
-              type="button"
-              onClick={() =>
-                jumpTo('paperwork', nextPaperwork?.anchor ?? PAPERWORK_SECTION_ID)
-              }
-              className="font-medium underline decoration-dotted hover:decoration-solid text-left"
-              style={{ color: 'var(--error)' }}
-              title={
-                nextPaperwork
-                  ? `Go to the first one still to do: ${nextPaperwork.label}`
-                  : 'Go to the paperwork section'
-              }
-            >
-              {toDo} paperwork item{toDo === 1 ? '' : 's'} to sort out →
-            </button>
-          ) : (
+          {/* Only the all-clear. What is still owed is already spelled out —
+              the health warnings below, each a jump to its row, and the
+              Paperwork section's own "N to sort out" badge — so a count here
+              was the same news a third time. */}
+          {toDo === 0 && (
             <span style={{ color: 'var(--success)' }}>✓ Paperwork in good standing</span>
           )}
           {/* The panel's only money figures. Paid is here because billed and
@@ -1089,9 +1004,9 @@ export default function ExhibitorPanel({
             href={`/admin/shows/${showId}/financials/exhibitors?exhibitor=${exhibitor.exhibitor_id}`}
             className="hover:underline"
             style={{ color: COLORS.accent }}
-            title={`Open ${exhibitor.exhibitor_name}’s account on Financials and record what they have paid`}
+            title={`Open ${exhibitor.exhibitor_name}’s bill on Financials — every line, and what they have paid`}
           >
-            Record a payment →
+            View exhibitor’s bill →
           </Link>
           {/* A panel for somebody in sixty-eight classes runs to several
               screens, so the contact block at the foot of it is only reachable
@@ -1220,8 +1135,8 @@ export default function ExhibitorPanel({
 
       <Section
         title="Classes"
-        collapsed={collapsed.has('classes')}
-        onToggle={() => toggle('classes')}
+        collapsed={!classesOpen}
+        onToggle={() => setClassesOpen((open) => !open)}
         badge={
           <span
             className="text-xs text-right"
@@ -1234,6 +1149,19 @@ export default function ExhibitorPanel({
           </span>
         }
       >
+        {/* Entering comes first and what they are already in follows it: the
+            desk is usually here to add a class, and with the form at the foot
+            of a long entry list it was a scroll away every time. */}
+        <div className="mb-4">
+          <AddEntryForm
+            showId={showId}
+            desk={desk}
+            exhibitor={exhibitor}
+            onAdded={onChanged}
+            key={`${exhibitor.exhibitor_id}-${horseListVersion}`}
+          />
+        </div>
+
         {exhibitor.entries.length === 0 ? (
           <p className="text-sm mb-3" style={{ color: COLORS.muted }}>
             {(exhibitor.team_rides ?? []).length > 0
@@ -1549,13 +1477,6 @@ export default function ExhibitorPanel({
           </div>
         )}
 
-        <AddEntryForm
-          showId={showId}
-          desk={desk}
-          exhibitor={exhibitor}
-          onAdded={onChanged}
-          key={`${exhibitor.exhibitor_id}-${horseListVersion}`}
-        />
       </Section>
 
       <Section
@@ -1652,8 +1573,10 @@ export default function ExhibitorPanel({
               patterns={patterns}
               onCreated={async () => {
                 setAddingHorse(false);
-                // Straight into the class picker above: the reason someone adds
-                // a horse at the desk is that they are about to enter it.
+                setClassesOpen(true);
+                // Straight into the class picker at the top of Classes: the
+                // reason someone adds a horse at the desk is that they are
+                // about to enter it.
                 setHorseListVersion((v) => v + 1);
                 await onChanged();
               }}
@@ -1687,7 +1610,7 @@ export default function ExhibitorPanel({
               <div
                 key={horse.horse_id}
                 className="rounded border p-3"
-                style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
+                style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
               >
                 <p className="text-sm font-medium mb-1" style={{ color: COLORS.text }}>
                   {horse.horse_name}
@@ -1974,11 +1897,35 @@ export default function ExhibitorPanel({
         )}
       </Section>
 
-      {/* Their whole bill, with a line item the office can add to it, and
-          checking them out (migration 200). The badge says they are out while
+      {/* What they booked (migration 197), as the office sets it to match its
+          stall chart. No section at all at a show that sells none of it.
+          Keyed on the saved booking so its boxes start again from what was
+          saved after every change. Not their bill: the desk registers people,
+          and the itemised bill is on Financials. */}
+      <BookingsSection
+        key={`${exhibitor.exhibitor_id}:${(exhibitor.bill?.reservation_lines ?? [])
+          .map((line) => `${line.show_fee_id}=${line.quantity}`)
+          .join(',')}`}
+        showId={showId}
+        exhibitorId={exhibitor.exhibitor_id}
+        bill={exhibitor.bill}
+        busy={busy}
+        run={run}
+        frame={(body) => (
+          <Section
+            title="Stalls, shavings & camping"
+            collapsed={collapsed.has('bookings')}
+            onToggle={() => toggle('bookings')}
+          >
+            {body}
+          </Section>
+        )}
+      />
+
+      {/* Checking them out (migration 200). The badge says they are out while
           the section is folded. */}
       <Section
-        title="Bill & checkout"
+        title="Checkout"
         collapsed={collapsed.has('checkout')}
         onToggle={() => toggle('checkout')}
         badge={

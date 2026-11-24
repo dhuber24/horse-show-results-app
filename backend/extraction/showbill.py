@@ -399,7 +399,11 @@ _FEE = _object(
 
 _FUTURITY = _object(
     {
-        "name": {"type": "string", "description": "The futurity's name as printed."},
+        "name": {
+            "type": "string",
+            "description": "The futurity's name as printed. One programme per entry: a Maturity or "
+            "Derby printed beside a Futurity is its own futurity, even under one heading or price.",
+        },
         "description": _text("One or two sentences on what the futurity is, in the bill's words."),
         "entry_deadline": _text("The futurity's own nomination or entry deadline, YYYY-MM-DD."),
         "late_fee_cents": _nullable("integer", "A late fee per class after that deadline, in cents, if printed."),
@@ -411,8 +415,9 @@ _FUTURITY = _object(
         ),
         "fee_tiers": {
             "type": "array",
-            "description": "The futurity's per-class prices by category or tier (e.g. 'Open $50', "
-            "'Non-Pro $35'). Empty if the bill prints none.",
+            "description": "The futurity's per-class prices by the category an entrant picks "
+            "(e.g. 'Open $50', 'Non-Pro $35'). Never a list of programmes: 'Futurity classes $85, "
+            "Maturity classes $85' is two futurities at $85 each. Empty if the bill prints none.",
             "items": _object(
                 {
                     "name": {"type": "string", "description": "The tier as printed."},
@@ -691,6 +696,15 @@ Futurities and side pots
 - A futurity is a programme a horse is nominated to, with its own deadline, \
 fees and categories. List each in `futurities` with whatever the bill prints \
 about it, in the bill's words; leave the rest empty.
+- Each programme is its own futurity, even when the bill prints them under one \
+heading or one price ("Futurity & Maturity classes are $85", \
+"Futurity/Maturity Pleasure", "Futurity and Derby"). A horse is entered in one \
+of them by its age, and each runs its own classes -- so list a Futurity for the \
+classes the bill names Futurity and a Maturity (or Derby) for the classes it \
+names Maturity (or Derby), each named as the bill names it, each carrying the \
+price, deadline and wording printed for both. Set each class's `futurity` to \
+the one its own name says. `fee_tiers` are the categories an entrant picks \
+within one programme (Open, Non-Pro, Category #1) -- never the programmes.
 - A side pot or jackpot is money exhibitors pay into on top of their class \
 entries, paid back to the winners of one or more classes. List each in \
 `side_pots`, and name it on each class it covers.

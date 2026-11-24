@@ -82,6 +82,35 @@ export function isEarlyMoveInPass(fee: { code: string }): boolean {
   return EARLY_MOVE_IN_CODES.includes(fee.code) || fee.code.startsWith(EARLY_MOVE_IN_PREFIX);
 }
 
+/**
+ * How many of an Early Move-In Pass a booking allows, and how many stalls back
+ * it: one pass per stall booked in the pass's own period (any period, for the
+ * whole show's pass) — box, tie or tack, since a tack stall moves in too — or,
+ * for a pass sold per exhibitor, one once there is any such stall. Never below
+ * `saved`, what is already on file: only adding a pass is refused. Null for a
+ * line that is not a pass. Mirrors `stabling.pass_refusal`, which enforces it
+ * on the exhibitor's sign-up and the desk's bookings alike.
+ */
+export function passAllowance(
+  pass: { code: string; stall_period_id?: string | null; one_per_exhibitor?: boolean },
+  lines: readonly { id: string; code: string; unit: string; stall_kind?: string | null; stall_period_id?: string | null }[],
+  quantities: Readonly<Record<string, number>>,
+  saved = 0,
+): { cap: number; stalls: number } | null {
+  if (!isEarlyMoveInPass(pass)) return null;
+  const stalls = lines
+    .filter(
+      (line) =>
+        line.unit === 'per_stall' &&
+        !isEarlyMoveInPass(line) &&
+        line.stall_kind !== 'add_on' &&
+        (pass.stall_period_id == null || line.stall_period_id === pass.stall_period_id),
+    )
+    .reduce((n, line) => n + (quantities[line.id] ?? 0), 0);
+  const cap = pass.one_per_exhibitor ? (stalls > 0 ? 1 : 0) : stalls;
+  return { cap: Math.max(cap, saved), stalls };
+}
+
 /** The whole show's Early Move-In Pass, if it offers one: its own code first.
  *  A period's pass is not this one — see `periodPass`. */
 export function earlyMoveInPass<T extends { code: string; stall_period_id?: string | null }>(

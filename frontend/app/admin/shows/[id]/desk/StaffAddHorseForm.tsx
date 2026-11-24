@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
+import { registrableAssociations, registrationsWithoutBreed } from '@/lib/breed-associations';
 
 export interface AssociationOption {
   id: string;
@@ -29,6 +31,11 @@ const SEXES = ['Mare', 'Gelding', 'Stallion'];
  * The fields offered are deliberately the ones the paperwork sweep asks about:
  * registered name, foaling date, and association registration numbers. Anything
  * else the exhibitor can fill in later from their own profile.
+ *
+ * **Breeds are ticked, not picked** — a Paint can be double-registered with
+ * AQHA — and a registration number can be filed only with a registry of a
+ * ticked breed, or a club (`registrableAssociations`). Unticking a breed whose
+ * number was already added holds the save until one or the other is fixed.
  */
 export default function StaffAddHorseForm({
   showId,
@@ -56,19 +63,23 @@ export default function StaffAddHorseForm({
     barn_name: '',
     foaling_date: '',
     sex: '',
-    breed_id: '',
     color_id: '',
     pattern_id: '',
     sire_name: '',
     dam_name: '',
   });
+  const [breedIds, setBreedIds] = useState<string[]>([]);
   const [regs, setRegs] = useState<PendingReg[]>([]);
   const [newReg, setNewReg] = useState<PendingReg>({ association_id: '', registration_number: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const selectedBreeds = breeds.filter((b) => breedIds.includes(b.id));
   const usedAssociationIds = new Set(regs.map((r) => r.association_id));
-  const availableAssociations = associations.filter((a) => !usedAssociationIds.has(a.id));
+  const availableAssociations = registrableAssociations(selectedBreeds, associations).filter(
+    (a) => !usedAssociationIds.has(a.id),
+  );
+  const withoutBreed = registrationsWithoutBreed(regs, selectedBreeds, associations);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -92,6 +103,13 @@ export default function StaffAddHorseForm({
       setError('The registered name is required — it is what the horse is entered under.');
       return;
     }
+    if (withoutBreed.length > 0) {
+      setError(
+        `${withoutBreed.map((r) => associations.find((a) => a.id === r.association_id)?.code).join(', ')} ` +
+          'is not a registry of a breed ticked above. Tick the breed, or remove the number.',
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
 
@@ -102,7 +120,7 @@ export default function StaffAddHorseForm({
     if (form.barn_name.trim()) body.barn_name = form.barn_name.trim();
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     if (form.sex) body.sex = form.sex;
-    if (form.breed_id) body.breed_id = form.breed_id;
+    if (breedIds.length > 0) body.breed_ids = breedIds;
     if (form.color_id) body.color_id = form.color_id;
     if (form.pattern_id) body.pattern_id = form.pattern_id;
     if (form.sire_name.trim()) body.sire_name = form.sire_name.trim();
@@ -178,16 +196,20 @@ export default function StaffAddHorseForm({
             {SEXES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
-        <label className="text-xs" style={{ color: 'var(--muted)' }}>
-          Breed
-          <select
-            name="breed_id" value={form.breed_id} onChange={handleChange}
-            className="w-full border rounded px-2 py-1.5 text-sm mt-0.5" style={inputStyle}
-          >
-            <option value="">— Not specified —</option>
-            {breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-        </label>
+        {/* Ticked, not picked: a horse can be registered with more than one
+            breed registry. Full width, because a checkbox list squeezed into
+            half a narrow card is a column of one-word lines. */}
+        <div className="@sm:col-span-2 text-xs">
+          <BreedCheckboxGroup
+            breeds={breeds}
+            selectedIds={breedIds}
+            onChange={(ids) => {
+              setBreedIds(ids);
+              setNewReg((p) => ({ ...p, association_id: '' }));
+            }}
+            label="Breeds — tick each one it is registered as"
+          />
+        </div>
         <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Color
           <select
@@ -236,15 +258,21 @@ export default function StaffAddHorseForm({
           <ul className="space-y-1 mb-2">
             {regs.map((r) => {
               const assoc = associations.find((a) => a.id === r.association_id);
+              const stranded = withoutBreed.includes(r);
               return (
                 <li
                   key={r.association_id}
                   className="flex items-center justify-between text-sm px-2 py-1 rounded"
-                  style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' }}
+                  style={
+                    stranded
+                      ? { backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }
+                      : { backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' }
+                  }
                 >
                   <span>
                     <span className="font-mono font-semibold">{assoc?.code ?? '—'}</span>
                     <span className="ml-2 font-mono text-xs">{r.registration_number}</span>
+                    {stranded && <span className="ml-2 text-xs">— its breed is not ticked</span>}
                   </span>
                   <button
                     type="button"
@@ -271,7 +299,9 @@ export default function StaffAddHorseForm({
             onChange={(e) => setNewReg((p) => ({ ...p, association_id: e.target.value }))}
             className="border rounded px-2 py-1.5 text-sm min-w-0 flex-1 basis-40" style={inputStyle}
           >
-            <option value="">Association</option>
+            <option value="">
+              {selectedBreeds.length === 0 ? 'Association — tick a breed for its registry' : 'Association'}
+            </option>
             {availableAssociations.map((a) => (
               <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
             ))}

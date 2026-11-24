@@ -304,6 +304,63 @@ def _payments_received(fin: dict) -> dict:
     }
 
 
+def _adjustments_log(fin: dict) -> dict:
+    """Every credit and charge the office put on a bill, and who added it.
+
+    The exhibitor's bill prints only the line itself (its reason and amount);
+    who added it and when is kept here, as `payments-received` keeps who took
+    each payment. Read off the bills, so a line removed from a bill is no
+    longer listed: this logs what stands, not every edit."""
+    rows = []
+    for account in fin["accounts"]:
+        for line in account["bill"].get("adjustment_lines") or []:
+            created = line.get("created_at")
+            amount = line["amount_cents"]
+            rows.append({
+                "added_on": created.date().isoformat() if hasattr(created, "date") else (str(created)[:10] if created else "—"),
+                "back_number": _numbers_cell(account),
+                "exhibitor": _account_label(account),
+                "reason": line["reason"],
+                "kind": "Credit" if amount < 0 else "Charge",
+                "amount_cents": amount,
+                "added_by": line.get("recorded_by_name") or "—",
+                "_sort": str(created or ""),
+            })
+    # Newest first, like the payment log.
+    rows.sort(key=lambda r: (r["_sort"], r["exhibitor"]), reverse=True)
+    for row in rows:
+        del row["_sort"]
+
+    charged = sum(r["amount_cents"] for r in rows if r["amount_cents"] > 0)
+    credited = sum(-r["amount_cents"] for r in rows if r["amount_cents"] < 0)
+    notes = (
+        [
+            f"{_money(charged)} charged and {_money(credited)} credited. Credits appear as "
+            "negative amounts. A credit lowers what is owed; money given back is a refund, "
+            "in Payments Received.",
+        ]
+        if rows
+        else ["The office has not added a credit or a charge to anybody's bill."]
+    )
+    return {
+        "columns": [
+            _col("added_on", "Added"),
+            _col("back_number", "Back #", right=True),
+            _col("exhibitor", "Exhibitor"),
+            _col("reason", "Reason"),
+            _col("kind", "Kind"),
+            _col("amount_cents", "Amount", money=True),
+            _col("added_by", "Added by"),
+        ],
+        "rows": rows,
+        "totals": {
+            "exhibitor": f"{len(rows)} adjustment(s)",
+            "amount_cents": charged - credited,
+        },
+        "notes": notes,
+    }
+
+
 def _fees_sold(fin: dict) -> dict:
     """Stalls, shavings, and camping actually reserved — what to physically plan for."""
     rows = [
@@ -460,6 +517,11 @@ _REPORTS: dict[str, dict] = {
         "title": "Payments Received",
         "description": "The payment log for reconciling the drawer, newest first, refunds included.",
         "build": _payments_received,
+    },
+    "adjustments-log": {
+        "title": "Adjustments Log",
+        "description": "Every credit and charge the office added to a bill, with who added it and when.",
+        "build": _adjustments_log,
     },
     "fees-sold": {
         "title": "Stalls, Shavings & Camping",

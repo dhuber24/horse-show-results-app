@@ -48,6 +48,7 @@ from sqlalchemy.orm import selectinload
 import side_pot_membership
 from backnumbers import back_numbers_for_show
 from billing import build_account, reservable_fees, side_pot_money, summarize_accounts
+from stabling import load_stall_periods, pass_refusal
 from cancellations import is_on_roster
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
@@ -564,7 +565,9 @@ async def set_account_reservations(
     line kept keeps the day it was booked, which is what decides its early rate;
     a line the office adds is booked today. The show's minimums are not
     enforced -- the office is the one deciding -- but a line sold once per
-    exhibitor is still once (migration 196). This is how the bill follows the
+    exhibitor is still once (migration 196), and an Early Move-In Pass is not
+    added without the stall it moves in early (`stabling.pass_refusal`, at the
+    show office's request -- the same rule as the exhibitor's sign-up). This is how the bill follows the
     stall chart the office keeps: a tie stall for a box stall, a walk-up's
     stall. Anything a booking cannot say is an adjustment.
     """
@@ -584,6 +587,14 @@ async def set_account_reservations(
 
     show_entry = await _account_row(show_id, exhibitor_id, db)
     existing = {row.show_fee_id: row for row in (show_entry.reservations or [])}
+    refusal = pass_refusal(
+        fees_by_id.values(),
+        wanted,
+        {fee_id: row.quantity for fee_id, row in existing.items()},
+        {period.id: period for period in await load_stall_periods(db, show_id)},
+    )
+    if refusal is not None:
+        raise HTTPException(422, refusal)
     for fee_id, quantity in wanted.items():
         row = existing.get(fee_id)
         if row is None:

@@ -459,10 +459,25 @@ export default function AddExhibitorForm({
         style={{ borderColor: COLORS.border, color: COLORS.text }}
       />
 
+      {/* First, not after the matches: a list that runs to a dozen names
+          pushed the way to type somebody new off the bottom of the column. */}
+      <button
+        type="button"
+        onClick={startDraft}
+        className="w-full border-2 border-dashed rounded px-3 py-2 text-sm font-medium hover:bg-amber-50 transition-colors"
+        style={{ borderColor: COLORS.border, color: COLORS.accent }}
+      >
+        {!query.trim()
+          ? '+ Create a new exhibitor'
+          : nameTaken
+            ? `+ A different “${query.trim()}” — create a new exhibitor`
+            : `+ Create “${query.trim()}” as a new exhibitor`}
+      </button>
+
       {!reachesEverybody && (
         <p className="text-xs" style={{ color: COLORS.muted }}>
           GaitDesk hasn&apos;t verified this show&apos;s company yet, so this lists people who signed up to one of its
-          shows and people typed in here. Anybody else, type them in below. You can ask to be verified on{' '}
+          shows and people typed in here. Anybody else, create them as a new exhibitor. You can ask to be verified on{' '}
           <Link href="/admin/my-company" className="underline" style={{ color: COLORS.accent }}>
             My Company
           </Link>
@@ -515,19 +530,6 @@ export default function AddExhibitorForm({
           </li>
         ))}
       </ul>
-
-      <button
-        type="button"
-        onClick={startDraft}
-        className="w-full border-2 border-dashed rounded px-3 py-2 text-sm font-medium hover:bg-amber-50 transition-colors"
-        style={{ borderColor: COLORS.border, color: COLORS.accent }}
-      >
-        {!query.trim()
-          ? '+ Create a new exhibitor'
-          : nameTaken
-            ? `+ A different “${query.trim()}” — create a new exhibitor`
-            : `+ Create “${query.trim()}” as a new exhibitor`}
-      </button>
     </div>
   );
 }

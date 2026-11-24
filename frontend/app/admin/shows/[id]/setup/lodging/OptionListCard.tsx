@@ -15,7 +15,11 @@ import { COLORS, NOTES_MAX, centsToDollars, dollarsToCents, earlyFields, onePara
  * how many they need at sign-up.
  *
  * A row's code is given from its name when it is first saved (`config.codeFor`)
- * and kept after, so renaming an option never makes a second one. The state
+ * and kept after, so renaming an option never makes a second one.
+ *
+ * Each option folds to one line — its name, price and early rate — as a stall
+ * period does: one saved opens folded, a new one open, and the step's save
+ * folds them all (`collapseAll`). The state
  * lives in `useOptionListEditor` so `LodgingClient` can fold it into the step's
  * one save and one dirty check, as it does the Stalls card.
  */
@@ -112,6 +116,16 @@ export function useOptionListEditor(
   const [drafts, setDrafts] = useState<OptionDraft[]>(() => onFile.map(fromFee));
   // Options on file that were removed on screen, to delete on save.
   const [removed, setRemoved] = useState<OptionDraft[]>([]);
+  // Options folded to one line, by key: those on file to begin with.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(onFile.map((f) => f.id)));
+  function toggle(key: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   const feeOf = (id: string | null) => (id ? onFile.find((f) => f.id === id) : undefined);
 
@@ -240,13 +254,40 @@ export function useOptionListEditor(
     return true;
   }
 
-  return { config, drafts, removed, add, update, remove, dirty, save };
+  /** Folds every option: the step's save does, once it has written them. */
+  const collapseAll = () => setCollapsed(new Set(drafts.map((d) => d.key)));
+
+  return { config, drafts, removed, add, update, remove, dirty, save, collapsed, toggle, collapseAll };
 }
 
 export type OptionListEditor = ReturnType<typeof useOptionListEditor>;
 
 const INPUT = 'w-full border rounded px-3 py-2';
 const LABEL = 'block text-xs mb-1';
+
+/** A folded option in one line: its price, how it is charged, its early rate. */
+function summaryOf(d: OptionDraft, config: OptionListConfig): string {
+  const unit = config.units.find((u) => u.value === d.unit);
+  const per = unit ? `per ${unit.noun}` : d.unit.replace(/_/g, ' ');
+  const price = d.dollars.trim() ? `$${d.dollars.trim()} ${per}` : 'No price';
+  const early =
+    config.early && d.earlyDollars.trim()
+      ? `Early $${d.earlyDollars.trim()}${d.earlyDeadline ? ` by ${d.earlyDeadline}` : ''}`
+      : '';
+  const booked = d.reservedCount > 0 ? `${d.reservedCount} booked` : '';
+  return [price, early, booked].filter(Boolean).join(' · ');
+}
+
+/** What a folded option would stop the save over, so it is not hidden. */
+function problemOf(d: OptionDraft, config: OptionListConfig): string | null {
+  const price = Number.parseFloat(d.dollars);
+  if (!d.label.trim()) return 'Needs a name.';
+  if (d.dollars.trim() === '' || !Number.isFinite(price) || price < 0) return 'Needs a price.';
+  if (config.early && Boolean(d.earlyDollars.trim()) !== Boolean(d.earlyDeadline)) {
+    return 'An early rate needs both an amount and a reserve-by date.';
+  }
+  return null;
+}
 
 export function OptionListCard({ editor }: { editor: OptionListEditor }) {
   const { config, drafts, removed } = editor;
@@ -272,151 +313,184 @@ export function OptionListCard({ editor }: { editor: OptionListEditor }) {
         const notesLeft = NOTES_MAX - d.notes.length;
         const name = d.label.trim() || config.noun;
         const unit = config.units.find((u) => u.value === d.unit);
+        const isCollapsed = editor.collapsed.has(d.key);
+        const problem = isCollapsed ? problemOf(d, config) : null;
         return (
           <div key={d.key} className="rounded border p-3 space-y-3" style={{ borderColor: COLORS.border }}>
-            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_8rem_14rem_auto] gap-3 items-end">
-              <label className="block">
-                <span className={LABEL} style={{ color: COLORS.muted }}>
-                  Name
+            {/* Folds the option to one line, as a stall period does. */}
+            <button
+              type="button"
+              onClick={() => editor.toggle(d.key)}
+              aria-expanded={!isCollapsed}
+              aria-controls={`${config.id}-option-${d.key}`}
+              className="w-full flex items-start justify-between gap-3 text-left"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold" style={{ color: COLORS.text }}>
+                  {d.label.trim() || `New ${config.noun}`}
                 </span>
-                <input
-                  type="text"
-                  value={d.label}
-                  maxLength={200}
-                  onChange={(e) => editor.update(d.key, { label: e.target.value })}
-                  className={INPUT}
-                  style={{ borderColor: COLORS.border }}
-                  placeholder={config.namePlaceholder}
-                  aria-label={`${config.heading} — name`}
-                />
-              </label>
-              <label className="block">
-                <span className={LABEL} style={{ color: COLORS.muted }}>
-                  {unit ? `$ per ${unit.noun}` : 'Amount ($)'}
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={d.dollars}
-                  onChange={(e) => editor.update(d.key, { dollars: e.target.value })}
-                  className={INPUT}
-                  style={{ borderColor: COLORS.border }}
-                  placeholder={config.pricePlaceholder}
-                  aria-label={`${name} — price`}
-                />
-              </label>
-              {/* The unit says what a booked quantity counts; once exhibitors
-                  have booked, changing it would reprice them, which the
-                  backend refuses, so it is locked here. */}
-              <label
-                className="block"
-                title={
-                  locked
-                    ? `${d.reservedCount} exhibitor${d.reservedCount === 1 ? ' has' : 's have'} booked this. Remove it and add it again to change how it's charged.`
-                    : undefined
-                }
-              >
-                <span className={LABEL} style={{ color: COLORS.muted }}>
-                  Charged
-                </span>
-                <select
-                  value={d.unit}
-                  disabled={locked}
-                  onChange={(e) => editor.update(d.key, { unit: e.target.value })}
-                  className={`${INPUT} disabled:opacity-60`}
-                  style={{ borderColor: COLORS.border }}
-                  aria-label={`${name} — how it's charged`}
-                >
-                  {config.units.map((u) => (
-                    <option key={u.value} value={u.value}>
-                      {u.choice}
-                    </option>
-                  ))}
-                  {!unit && <option value={d.unit}>{d.unit.replace(/_/g, ' ')}</option>}
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={() => editor.remove(d.key)}
-                className="text-sm underline justify-self-start sm:justify-self-end py-2"
-                style={{ color: COLORS.muted }}
-              >
-                Remove
-              </button>
-            </div>
-
-            {config.early && (
-              <div role="group" aria-label={`${name} — early rate`}>
-                <p className="text-xs mb-1.5" style={{ color: COLORS.text }}>
-                  Early rate{' '}
-                  <span style={{ color: 'var(--text-dimmed)' }}>(optional — cheaper if they reserve by the date)</span>
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-[8rem_minmax(0,22rem)] gap-3 items-end">
+                {isCollapsed && (
+                  <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                    {summaryOf(d, config)}
+                  </span>
+                )}
+                {problem && (
+                  <span className="block text-xs mt-0.5" style={{ color: 'var(--error-strong)' }}>
+                    {problem}
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 text-sm underline" style={{ color: COLORS.muted }}>
+                {isCollapsed ? 'Expand' : 'Collapse'}
+              </span>
+            </button>
+            {!isCollapsed && (
+              <div id={`${config.id}-option-${d.key}`} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_8rem_14rem_auto] gap-3 items-end">
                   <label className="block">
                     <span className={LABEL} style={{ color: COLORS.muted }}>
-                      Early amount ($)
+                      Name
+                    </span>
+                    <input
+                      type="text"
+                      value={d.label}
+                      maxLength={200}
+                      onChange={(e) => editor.update(d.key, { label: e.target.value })}
+                      className={INPUT}
+                      style={{ borderColor: COLORS.border }}
+                      placeholder={config.namePlaceholder}
+                      aria-label={`${config.heading} — name`}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={LABEL} style={{ color: COLORS.muted }}>
+                      {unit ? `$ per ${unit.noun}` : 'Amount ($)'}
                     </span>
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={d.earlyDollars}
-                      onChange={(e) => editor.update(d.key, { earlyDollars: e.target.value })}
+                      value={d.dollars}
+                      onChange={(e) => editor.update(d.key, { dollars: e.target.value })}
                       className={INPUT}
                       style={{ borderColor: COLORS.border }}
-                      placeholder="e.g. 50.00"
-                      aria-label={`${name} — early rate amount`}
+                      placeholder={config.pricePlaceholder}
+                      aria-label={`${name} — price`}
                     />
                   </label>
-                  <div>
+                  {/* The unit says what a booked quantity counts; once exhibitors
+                      have booked, changing it would reprice them, which the
+                      backend refuses, so it is locked here. */}
+                  <label
+                    className="block"
+                    title={
+                      locked
+                        ? `${d.reservedCount} exhibitor${d.reservedCount === 1 ? ' has' : 's have'} booked this. Remove it and add it again to change how it's charged.`
+                        : undefined
+                    }
+                  >
                     <span className={LABEL} style={{ color: COLORS.muted }}>
-                      Reserve by
+                      Charged
                     </span>
-                    <div className="flex flex-wrap gap-2">
-                      <input
-                        type="date"
-                        value={d.earlyDeadline}
-                        onChange={(e) =>
-                          editor.update(d.key, {
-                            earlyDeadline: e.target.value,
-                            earlyDeadlineTime: timeForDay(e.target.value, d.earlyDeadlineTime),
-                          })
-                        }
-                        className="min-w-[9.5rem] flex-1 border rounded px-3 py-2"
-                        style={{ borderColor: COLORS.border }}
-                        aria-label={`${name} — early rate deadline`}
-                      />
-                      <input
-                        type="time"
-                        value={d.earlyDeadlineTime}
-                        disabled={!d.earlyDeadline}
-                        title={d.earlyDeadline ? 'Optional' : 'Pick the reserve-by date first.'}
-                        onChange={(e) => editor.update(d.key, { earlyDeadlineTime: e.target.value })}
-                        className="w-32 border rounded px-3 py-2 disabled:opacity-50"
-                        style={{ borderColor: COLORS.border }}
-                        aria-label={`${name} — early rate deadline time`}
-                      />
+                    <select
+                      value={d.unit}
+                      disabled={locked}
+                      onChange={(e) => editor.update(d.key, { unit: e.target.value })}
+                      className={`${INPUT} disabled:opacity-60`}
+                      style={{ borderColor: COLORS.border }}
+                      aria-label={`${name} — how it's charged`}
+                    >
+                      {config.units.map((u) => (
+                        <option key={u.value} value={u.value}>
+                          {u.choice}
+                        </option>
+                      ))}
+                      {!unit && <option value={d.unit}>{d.unit.replace(/_/g, ' ')}</option>}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => editor.remove(d.key)}
+                    className="text-sm underline justify-self-start sm:justify-self-end py-2"
+                    style={{ color: COLORS.muted }}
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                {config.early && (
+                  <div role="group" aria-label={`${name} — early rate`}>
+                    <p className="text-xs mb-1.5" style={{ color: COLORS.text }}>
+                      Early rate{' '}
+                      <span style={{ color: 'var(--text-dimmed)' }}>(optional — cheaper if they reserve by the date)</span>
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-[8rem_minmax(0,22rem)] gap-3 items-end">
+                      <label className="block">
+                        <span className={LABEL} style={{ color: COLORS.muted }}>
+                          Early amount ($)
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={d.earlyDollars}
+                          onChange={(e) => editor.update(d.key, { earlyDollars: e.target.value })}
+                          className={INPUT}
+                          style={{ borderColor: COLORS.border }}
+                          placeholder="e.g. 50.00"
+                          aria-label={`${name} — early rate amount`}
+                        />
+                      </label>
+                      <div>
+                        <span className={LABEL} style={{ color: COLORS.muted }}>
+                          Reserve by
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          <input
+                            type="date"
+                            value={d.earlyDeadline}
+                            onChange={(e) =>
+                              editor.update(d.key, {
+                                earlyDeadline: e.target.value,
+                                earlyDeadlineTime: timeForDay(e.target.value, d.earlyDeadlineTime),
+                              })
+                            }
+                            className="min-w-[9.5rem] flex-1 border rounded px-3 py-2"
+                            style={{ borderColor: COLORS.border }}
+                            aria-label={`${name} — early rate deadline`}
+                          />
+                          <input
+                            type="time"
+                            value={d.earlyDeadlineTime}
+                            disabled={!d.earlyDeadline}
+                            title={d.earlyDeadline ? 'Optional' : 'Pick the reserve-by date first.'}
+                            onChange={(e) => editor.update(d.key, { earlyDeadlineTime: e.target.value })}
+                            className="w-32 border rounded px-3 py-2 disabled:opacity-50"
+                            style={{ borderColor: COLORS.border }}
+                            aria-label={`${name} — early rate deadline time`}
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                <label className="block">
+                  <span className="flex justify-between gap-2 text-xs mb-1" style={{ color: COLORS.muted }}>
+                    <span>Notes (optional)</span>
+                    {notesLeft <= 100 && <span>{notesLeft} characters left</span>}
+                  </span>
+                  <input
+                    type="text"
+                    value={d.notes}
+                    maxLength={NOTES_MAX}
+                    onChange={(e) => editor.update(d.key, { notes: oneParagraph(e.target.value) })}
+                    className={INPUT}
+                    style={{ borderColor: COLORS.border }}
+                    placeholder={config.notesPlaceholder}
+                    aria-label={`${name} — notes`}
+                  />
+                </label>
               </div>
             )}
-
-            <label className="block">
-              <span className="flex justify-between gap-2 text-xs mb-1" style={{ color: COLORS.muted }}>
-                <span>Notes (optional)</span>
-                {notesLeft <= 100 && <span>{notesLeft} characters left</span>}
-              </span>
-              <input
-                type="text"
-                value={d.notes}
-                maxLength={NOTES_MAX}
-                onChange={(e) => editor.update(d.key, { notes: oneParagraph(e.target.value) })}
-                className={INPUT}
-                style={{ borderColor: COLORS.border }}
-                placeholder={config.notesPlaceholder}
-                aria-label={`${name} — notes`}
-              />
-            </label>
           </div>
         );
       })}

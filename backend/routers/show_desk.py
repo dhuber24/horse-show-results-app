@@ -49,6 +49,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -77,6 +78,7 @@ from models import (
     Futurity,
     Horse,
     Show,
+    ShowAccountAdjustment,
     ShowEntry,
     ShowFee,
     SidePot,
@@ -88,9 +90,11 @@ from routers.show_office import build_verification_checklist
 from routers.shows import _assert_show_access
 from exhibitor_merge import (
     merge_candidates,
+    merge_conflicts,
     merge_exhibitors,
     merge_summary,
     records_with_email,
+    unanswered,
 )
 from rules.apha import division_for_class
 from teams import is_team_class, team_out, teammates_of
@@ -104,6 +108,7 @@ from stabling import (
 from club_points import club_names, declared_clubs, held_clubs, load_settings, seat_clubs_for, settings_out
 from schemas import (
     ExhibitorMergeCandidate,
+    ExhibitorMergeConflict,
     ExhibitorMergeRequest,
     ExhibitorMergeResult,
     ShowDeskExhibitorAdd,
@@ -447,6 +452,10 @@ async def get_desk(
         "requires_membership_card_check": checklist["requires_membership_card_check"],
         "requires_horse_age_check": checklist["requires_horse_age_check"],
         "requires_registration_papers_check": checklist["requires_registration_papers_check"],
+        # A stall inspection before checkout, and the fee the checkout box
+        # charges for it (migration 209).
+        "stall_inspection_required": bool(show.stall_inspection_required),
+        "stall_inspection_fee_cents": show.stall_inspection_fee_cents,
         # Quoted from the checklist for the same reason — the day it judged
         # every health row against. The inspection form needs it to tell staff
         # that the date they are typing stops before the show does.
@@ -829,6 +838,76 @@ async def list_merge_candidates_at_desk(
     return candidates
 
 
+async def _merge_pair(
+    show_id: UUID,
+    keep_id: UUID,
+    remove_id: UUID,
+    x_user_id: str,
+    x_user_role: str,
+    db: AsyncSession,
+) -> tuple[Exhibitor, Exhibitor]:
+    """The two records of a desk merge, once the desk may merge them: both
+    exist and differ, both are within reach, at least one is on this show,
+    and they do not both hold a login. Shared by the merge and its preview, so
+    the preview refuses what the merge would."""
+    keep = await db.get(Exhibitor, keep_id)
+    remove = await db.get(Exhibitor, remove_id)
+    if not keep or not remove:
+        raise HTTPException(404, "Exhibitor not found")
+    if keep.id == remove.id:
+        raise HTTPException(422, "Pick two different records to merge.")
+    await assert_may_reach_exhibitors(db, show_id, [keep.id, remove.id], x_user_id, x_user_role)
+
+    on_roster = await db.execute(
+        select(ShowEntry.exhibitor_id).where(
+            ShowEntry.show_id == show_id,
+            ShowEntry.exhibitor_id.in_([keep.id, remove.id]),
+        )
+    )
+    if not on_roster.scalars().all():
+        raise HTTPException(
+            403,
+            "Neither of those records is on this show. The desk merges records it "
+            "is working with; an admin merges any two from the exhibitor registry.",
+        )
+
+    if keep.user_id is not None and remove.user_id is not None:
+        raise HTTPException(
+            409,
+            {
+                "code": "TWO_ACCOUNTS",
+                "message": (
+                    f"{keep.full_name} and {remove.full_name} each have their own login. "
+                    "Merging would leave one of the two accounts with no entries, so an "
+                    "admin does this one — they can close the account that is not wanted."
+                ),
+            },
+        )
+
+    return keep, remove
+
+
+@router.get(
+    "/exhibitors/{exhibitor_id}/merge-conflicts",
+    response_model=list[ExhibitorMergeConflict],
+)
+async def preview_merge_at_desk(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    other: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Where `other` and this record give different answers, before merging
+    `other` into this one -- each for the office to pick the right one. Empty
+    when nothing disagrees. Refuses what the merge itself would refuse."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    keep, remove = await _merge_pair(show_id, exhibitor_id, other, x_user_id, x_user_role, db)
+    return await merge_conflicts(keep, remove, db)
+
+
 @router.post("/exhibitors/{exhibitor_id}/merge", response_model=ExhibitorMergeResult)
 async def merge_exhibitor_at_desk(
     show_id: UUID,
@@ -862,42 +941,23 @@ async def merge_exhibitor_at_desk(
     desk. An admin does that from the exhibitor registry.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    keep, remove = await _merge_pair(show_id, exhibitor_id, body.remove_exhibitor_id, x_user_id, x_user_role, db)
 
-    keep = await db.get(Exhibitor, exhibitor_id)
-    remove = await db.get(Exhibitor, body.remove_exhibitor_id)
-    if not keep or not remove:
-        raise HTTPException(404, "Exhibitor not found")
-    if keep.id == remove.id:
-        raise HTTPException(422, "Pick two different records to merge.")
-    await assert_may_reach_exhibitors(db, show_id, [keep.id, remove.id], x_user_id, x_user_role)
-
-    on_roster = await db.execute(
-        select(ShowEntry.exhibitor_id).where(
-            ShowEntry.show_id == show_id,
-            ShowEntry.exhibitor_id.in_([keep.id, remove.id]),
-        )
-    )
-    if not on_roster.scalars().all():
-        raise HTTPException(
-            403,
-            "Neither of those records is on this show. The desk merges records it "
-            "is working with; an admin merges any two from the exhibitor registry.",
-        )
-
-    if keep.user_id is not None and remove.user_id is not None:
+    # Two different answers to one question are the office's to settle, never
+    # the merge's: refused until each has a choice, and the refusal carries the
+    # list so the screen can ask.
+    conflicts = await merge_conflicts(keep, remove, db)
+    if unanswered(conflicts, body.choices):
         raise HTTPException(
             409,
             {
-                "code": "TWO_ACCOUNTS",
-                "message": (
-                    f"{keep.full_name} and {remove.full_name} each have their own login. "
-                    "Merging would leave one of the two accounts with no entries, so an "
-                    "admin does this one — they can close the account that is not wanted."
-                ),
+                "code": "MERGE_CONFLICTS",
+                "message": "Both records answer some of the same questions differently. Pick the right answer for each.",
+                "conflicts": jsonable_encoder(conflicts),
             },
         )
 
-    result = await merge_exhibitors(keep, remove, db)
+    result = await merge_exhibitors(keep, remove, db, body.choices)
     await db.commit()
     return result
 
@@ -1069,3 +1129,101 @@ async def undo_check_out(
     show_entry.checked_out_by_name = None
     await db.commit()
     logger.info("Checkout undone: show=%s exhibitor=%s", show_id, exhibitor_id)
+
+
+# -- Stall inspection fee (migration 209) ------------------------------------
+
+STALL_INSPECTION = "stall_inspection"
+STALL_INSPECTION_REASON = "Stall inspection fee"
+
+
+async def _stall_inspection_charge(show_entry_id: UUID, db: AsyncSession) -> Optional[ShowAccountAdjustment]:
+    return (
+        await db.execute(
+            select(ShowAccountAdjustment).where(
+                ShowAccountAdjustment.show_entry_id == show_entry_id,
+                ShowAccountAdjustment.kind == STALL_INSPECTION,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+@router.put("/exhibitors/{exhibitor_id}/stall-inspection-fee", status_code=204)
+async def charge_stall_inspection_fee(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The checkout box ticked: put the show's stall inspection fee on their
+    bill, as an office charge tagged `stall_inspection`.
+
+    At the fee as it stands now, and once: ticking it again changes nothing.
+    Refused only when the show has no fee to charge (set on the Lodging step).
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await db.get(Show, show_id)
+    if show is None:
+        raise HTTPException(404, "Show not found")
+    fee = show.stall_inspection_fee_cents
+    if not show.stall_inspection_required or not fee:
+        raise HTTPException(
+            409,
+            "This show has no stall inspection fee. Set one under Stalls & move-in on the Lodging step.",
+        )
+    show_entry = await _account_row(show_id, exhibitor_id, db)
+    if await _stall_inspection_charge(show_entry.id, db) is not None:
+        return
+    actor = await db.get(User, safe_uuid(x_user_id))
+    db.add(
+        ShowAccountAdjustment(
+            show_entry_id=show_entry.id,
+            amount_cents=fee,
+            reason=STALL_INSPECTION_REASON,
+            kind=STALL_INSPECTION,
+            recorded_by=actor.id if actor else None,
+            recorded_by_name=actor.full_name if actor else None,
+        )
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two clicks at once: the first one's charge stands
+        # (`uq_show_account_adjustments_stall_inspection`).
+        await db.rollback()
+        return
+    logger.info(
+        "Stall inspection fee charged: show=%s exhibitor=%s amount_cents=%d",
+        show_id,
+        exhibitor_id,
+        fee,
+    )
+
+
+@router.delete("/exhibitors/{exhibitor_id}/stall-inspection-fee", status_code=204)
+async def remove_stall_inspection_fee(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The checkout box unticked: take the stall inspection fee off their bill.
+    Nothing to take off is not an error."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show_entry = (
+        await db.execute(
+            select(ShowEntry).where(ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor_id)
+        )
+    ).scalar_one_or_none()
+    if show_entry is None:
+        return
+    charge = await _stall_inspection_charge(show_entry.id, db)
+    if charge is None:
+        return
+    await db.delete(charge)
+    await db.commit()
+    logger.info("Stall inspection fee removed: show=%s exhibitor=%s", show_id, exhibitor_id)

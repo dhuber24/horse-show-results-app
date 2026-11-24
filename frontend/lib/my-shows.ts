@@ -79,6 +79,9 @@ export type BillClassLine = {
   /** The office made the class free (migration 166): nothing on the line is
    *  owed. Optional for a payload built before the field existed. */
   is_free?: boolean;
+  /** The class belongs to a futurity, which prices it (`futurity_lines`), so
+   *  its fee here is 0. Optional for a payload built before the field. */
+  is_futurity?: boolean;
 };
 
 /** One per-class charge, as it lands on one class entry. */
@@ -230,6 +233,9 @@ export type BillFuturityLine = {
   is_late: boolean;
   late_fee_cents: number;
   entered_at: string;
+  /** The class entries the per-class money covers (`class_lines[].entry_id`).
+   *  Optional for a payload built before the field. */
+  entry_ids?: string[];
   line_total_cents: number;
 };
 
@@ -274,6 +280,9 @@ export type BillAdjustmentLine = {
   id: string;
   reason: string;
   amount_cents: number;
+  /** `stall_inspection` for the desk's checkout box (migration 209); unset for
+   *  a line the office typed. */
+  kind?: string | null;
   recorded_by_name?: string | null;
   created_at?: string | null;
 };

@@ -914,6 +914,9 @@ def futurity_lines(futurities: Iterable, entries: Iterable) -> tuple[list[dict],
                         futurity.late_fee_cents * len(entered) if is_late else 0
                     ),
                     "entered_at": enrollment.entered_at,
+                    # The class entries the per-class money is for, so a bill
+                    # can list the classes under the futurity that priced them.
+                    "entry_ids": [e.id for e in entered],
                     "line_total_cents": charge,
                 }
             )
@@ -1036,6 +1039,10 @@ def build_bill(
                 # So a bill can say "Free" rather than leave a blank that reads
                 # as a price nobody has set.
                 "is_free": is_free_class(cls),
+                # A futurity prices its classes itself (`futurity_lines`), so
+                # this line's fee is 0 and the class is listed under its
+                # futurity instead of among the class entry fees.
+                "is_futurity": is_futurity_class(cls),
             }
         )
         class_fee_total += fee
@@ -1128,6 +1135,7 @@ def build_bill(
             "id": adjustment.id,
             "reason": adjustment.reason,
             "amount_cents": adjustment.amount_cents,
+            "kind": getattr(adjustment, "kind", None),
             "recorded_by_name": getattr(adjustment, "recorded_by_name", None),
             "created_at": getattr(adjustment, "created_at", None),
         }

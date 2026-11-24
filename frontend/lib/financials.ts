@@ -11,8 +11,16 @@ import type { Bill } from './my-shows';
 export type { Bill };
 export { formatMoney } from './my-shows';
 
+/** Every method a payment can carry — the `show_payments.method` CHECK. */
 export const PAYMENT_METHODS = ['cash', 'check', 'card', 'transfer', 'other'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+/** The methods the office picks from when it records a payment. Not
+ *  `transfer`: a Venmo, Zelle or wire is recorded as Other, with the reference
+ *  saying which. `transfer` stays a valid method because an online bank
+ *  payment through Stripe is saved with it (`payment_events.py`) and older
+ *  payments may carry it, so its label is still needed to list them. */
+export const OFFICE_PAYMENT_METHODS: readonly PaymentMethod[] = ['cash', 'check', 'card', 'other'];
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   cash: 'Cash',

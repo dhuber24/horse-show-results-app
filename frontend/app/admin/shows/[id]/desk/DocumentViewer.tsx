@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import PdfPages from '@/components/PdfPages';
 import { COLORS } from './types';
 
 /**
@@ -18,10 +19,12 @@ import { COLORS } from './types';
  * route serves the same bytes as `download` under the same access rules; only
  * the Content-Disposition differs.
  *
- * PDFs go in an <iframe> and images in an <img> because a browser will render a
- * PDF in a frame and will not render one in an image tag. Anything else gets a
- * download link rather than a broken box — a scan uploaded as a .heic is a real
- * thing that happens.
+ * PDFs are drawn page by page at the panel's full width (`PdfPages`, the same
+ * as the show bill) and images go in an <img>. Not an <iframe>: the browser's
+ * own viewer put the paper in a fixed-height box, shrunk to fit and wrapped in
+ * a toolbar, and a Coggins is read for its fine print — markings, dates, the
+ * vet's signature. Anything else gets a download link rather than a broken
+ * box — a scan uploaded as a .heic is a real thing that happens.
  */
 
 export interface HorseDocumentSummary {
@@ -186,12 +189,17 @@ export default function DocumentViewer({
               />
             )}
             {isPdf && (
-              <iframe
-                src={src ?? ''}
-                title={`${title} for ${horseName}`}
-                className="w-full rounded border"
-                style={{ height: '32rem', borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
-              />
+              <div
+                className="rounded border overflow-hidden"
+                style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
+              >
+                <PdfPages
+                  src={src ?? ''}
+                  title={`${title} for ${horseName}`}
+                  loadingText="Loading the document…"
+                  failedText="This document can’t be drawn here. Use Open full size below."
+                />
+              </div>
             )}
             {!isImage && !isPdf && (
               <p className="text-sm" style={{ color: COLORS.text }}>

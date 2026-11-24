@@ -184,6 +184,18 @@ import's discipline routing does not always get there on its own ("Int.
 Barrels" under a games heading came in as a placing class). A futurity whose bill prints no fee tiers is created without them,
 and the notes say to add them.
 
+**A Futurity and a Maturity (or Derby) are two futurities, even under one
+heading or one price** (2026-11-24). The WSCA Championship Show prints
+"Futurity & Maturity classes are $85" and its rules sheet heads them
+"Futurity/Maturity Pleasure", and the reader made one futurity with tiers
+"Futurity Pleasure Classes" and "Maturity Pleasure Classes" over all nine
+classes -- so an exhibitor registering a 5-year-old picked a "tier" and could be
+entered in the yearling halter. A tier is a category the entrant picks *within*
+one programme (Open, Non-Pro, Category #1); a horse is in a Futurity or a
+Maturity by its age, and each has its own classes. The reader now lists each
+programme on its own, each carrying the price and wording printed for both, and
+names each class's futurity by what the class name says.
+
 ## Flow
 
 1. `/admin/shows/new` links to `/admin/shows/new/from-showbill` when the

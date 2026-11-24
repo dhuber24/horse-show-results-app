@@ -34,7 +34,8 @@ duplicate of something the survivor already had.
 
 from __future__ import annotations
 
-from typing import Optional
+from datetime import date
+from typing import Mapping, Optional
 from uuid import UUID
 
 from sqlalchemy import delete, func, or_, select, update
@@ -48,8 +49,10 @@ from models import (
     ExhibitorDocument,
     ExhibitorHorse,
     ExhibitorRegistration,
+    Association,
     Horse,
     HorseAccessRequest,
+    Show,
     ShowContactMessage,
     ShowEntry,
     ShowEntryReservation,
@@ -357,6 +360,178 @@ async def merge_summary(exhibitor_id: UUID, db: AsyncSession) -> dict:
     }
 
 
+
+# ── Where the two records disagree ────────────────────────────────────────────
+#
+# A merge never overwrites a value the kept record already has, and it fills
+# the kept record's blanks from the other. What it may not do on its own is
+# pick between two *different* values -- two phone numbers, two back numbers at
+# the same show, two APHA numbers. Each of those is listed here and the show
+# office says which is right (`choices`, keyed by `key`); the desk refuses the
+# merge until every one is answered.
+#
+# Not listed, because they are not one value against another: bookings (added
+# together), standing on a roster (a live sign-up wins), the login (moves
+# across), and rows that say the same thing twice -- a waiver signed under both
+# records, a draft, a show's copy of the profile.
+
+KEPT = "kept"
+OTHER = "other"
+
+_PROFILE_LABELS = {
+    "email": "Email",
+    "phone": "Phone",
+    "address": "Address",
+    "city": "City",
+    "state": "State",
+    "zip": "ZIP",
+    "date_of_birth": "Date of birth",
+    "emergency_contact_name": "Emergency contact",
+    "emergency_contact_phone": "Emergency contact phone",
+    "parent_guardian_name": "Parent or guardian",
+    "parent_guardian_phone": "Parent or guardian phone",
+    "apha_member_number": "APHA member number",
+    "apha_member_expiry": "APHA membership expires",
+    "amateur_card_number": "Amateur card number",
+    "amateur_card_expiry": "Amateur card expires",
+    "amateur_novice_codes": "Amateur novice codes",
+}
+_PHONE_FIELDS = frozenset({"phone", "emergency_contact_phone", "parent_guardian_phone"})
+
+# One person's row at one show, where both records have one at the same show.
+_SHOW_ENTRY_LABELS = {
+    "back_number": "Back number",
+    "preferred_back_number": "Requested back number",
+    "arrival_date": "Arriving",
+    "departure_date": "Leaving",
+    "stall_request": "Stabling request",
+    "registration_notes": "Registration notes",
+}
+
+
+def _blank(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _same(field: str, a, b) -> bool:
+    """The same answer written two ways is not a disagreement: case and spacing
+    in text, punctuation in a phone number."""
+    if isinstance(a, str) and isinstance(b, str):
+        if field in _PHONE_FIELDS:
+            return "".join(ch for ch in a if ch.isdigit()) == "".join(ch for ch in b if ch.isdigit())
+        return " ".join(a.split()).casefold() == " ".join(b.split()).casefold()
+    return a == b
+
+
+def _shown(value) -> str:
+    return value.isoformat() if isinstance(value, date) else str(value)
+
+
+def field_conflicts(
+    keep,
+    remove,
+    labels: Mapping[str, str],
+    prefix: str,
+    context: Optional[str] = None,
+) -> list[dict]:
+    """The fields both rows fill in, with different answers."""
+    found: list[dict] = []
+    for field, label in labels.items():
+        a, b = getattr(keep, field, None), getattr(remove, field, None)
+        if _blank(a) or _blank(b) or _same(field, a, b):
+            continue
+        found.append({
+            "key": f"{prefix}{field}",
+            "label": label,
+            "context": context,
+            "kept_value": _shown(a),
+            "other_value": _shown(b),
+        })
+    return found
+
+
+def _membership_text(row) -> str:
+    number = (row.member_number or "").strip() or "no number"
+    return f"{number} · expires {row.expires_at.isoformat()}" if row.expires_at else number
+
+
+def membership_choice(keep_row, remove_row) -> Optional[str]:
+    """For one association both records hold a membership with: `OTHER` where
+    the kept one is blank and the other is not (filling a blank), None where
+    they agree, and `"conflict"` where both say something different."""
+    kept_number, other_number = keep_row.member_number, remove_row.member_number
+    if _blank(other_number) and remove_row.expires_at is None:
+        return None
+    if _blank(kept_number) and not _blank(other_number):
+        return OTHER
+    if not _blank(kept_number) and not _blank(other_number) and not _same("member_number", kept_number, other_number):
+        return "conflict"
+    if keep_row.expires_at is None:
+        return OTHER if remove_row.expires_at is not None else None
+    if remove_row.expires_at is not None and remove_row.expires_at != keep_row.expires_at:
+        return "conflict"
+    return None
+
+
+async def _memberships_by_association(db: AsyncSession, exhibitor_id: UUID) -> dict:
+    rows = await db.execute(
+        select(ExhibitorRegistration).where(ExhibitorRegistration.exhibitor_id == exhibitor_id)
+    )
+    return {row.association_id: row for row in rows.scalars().all()}
+
+
+async def merge_conflicts(keep: Exhibitor, remove: Exhibitor, db: AsyncSession) -> list[dict]:
+    """Every place the two records give different answers, for the office to
+    settle before a merge. Profile first, then each shared show, then each
+    shared membership."""
+    conflicts = field_conflicts(keep, remove, _PROFILE_LABELS, "profile.")
+
+    keep_rows = await db.execute(select(ShowEntry).where(ShowEntry.exhibitor_id == keep.id))
+    keep_by_show = {row.show_id: row for row in keep_rows.scalars().all()}
+    remove_rows = await db.execute(select(ShowEntry).where(ShowEntry.exhibitor_id == remove.id))
+    shared = [row for row in remove_rows.scalars().all() if row.show_id in keep_by_show]
+    if shared:
+        names = dict(
+            (await db.execute(
+                select(Show.id, Show.name).where(Show.id.in_([row.show_id for row in shared]))
+            )).all()
+        )
+        for row in shared:
+            conflicts += field_conflicts(
+                keep_by_show[row.show_id], row, _SHOW_ENTRY_LABELS,
+                f"show.{row.show_id}.", context=names.get(row.show_id),
+            )
+
+    kept_memberships = await _memberships_by_association(db, keep.id)
+    other_memberships = await _memberships_by_association(db, remove.id)
+    clashing = [
+        association_id
+        for association_id, row in other_memberships.items()
+        if association_id in kept_memberships
+        and membership_choice(kept_memberships[association_id], row) == "conflict"
+    ]
+    if clashing:
+        codes = dict(
+            (await db.execute(
+                select(Association.id, Association.code).where(Association.id.in_(clashing))
+            )).all()
+        )
+        for association_id in clashing:
+            conflicts.append({
+                "key": f"membership.{association_id}",
+                "label": f"{codes.get(association_id) or 'Association'} membership",
+                "context": None,
+                "kept_value": _membership_text(kept_memberships[association_id]),
+                "other_value": _membership_text(other_memberships[association_id]),
+            })
+    return conflicts
+
+
+def unanswered(conflicts: list[dict], choices: Mapping[str, str]) -> list[dict]:
+    """The conflicts `choices` does not settle."""
+    return [c for c in conflicts if choices.get(c["key"]) not in (KEPT, OTHER)]
+
+
 # ── Doing it ──────────────────────────────────────────────────────────────────
 
 
@@ -400,7 +575,12 @@ async def _move_unique_children(
     return len(duplicate_ids)
 
 
-async def _fold_show_entry(db: AsyncSession, keep: ShowEntry, remove: ShowEntry) -> None:
+async def _fold_show_entry(
+    db: AsyncSession,
+    keep: ShowEntry,
+    remove: ShowEntry,
+    take: frozenset[str] = frozenset(),
+) -> None:
     """Two roster rows for one person at one show become one.
 
     `show_entries` is unique on `(show_id, exhibitor_id)`, so this is the only
@@ -416,7 +596,12 @@ async def _fold_show_entry(db: AsyncSession, keep: ShowEntry, remove: ShowEntry)
     survivor has none -- the number on the person's back at the show is the one
     the office issued them, and if both rows carry one the office is looking at
     both and picked which record to keep.
+
+    `take` is the fields where the office chose the other row's answer
+    (`merge_conflicts`). They are set last, once the other row is gone, so a
+    back number taken from it never sits on two rows of the show at once.
     """
+    taken = {field: getattr(remove, field) for field in take}
     # Money first: a payment must never be the thing that fails to move.
     await db.execute(
         update(ShowPayment)
@@ -481,6 +666,10 @@ async def _fold_show_entry(db: AsyncSession, keep: ShowEntry, remove: ShowEntry)
     await db.flush()
     await db.delete(remove)
     await db.flush()
+    if taken:
+        for field, value in taken.items():
+            setattr(keep, field, value)
+        await db.flush()
 
 
 async def _fold_reservations(db: AsyncSession, keep: ShowEntry, remove: ShowEntry) -> None:
@@ -601,6 +790,7 @@ async def merge_exhibitors(
     keep: Exhibitor,
     remove: Exhibitor,
     db: AsyncSession,
+    choices: Optional[Mapping[str, str]] = None,
 ) -> dict:
     """Move everything `remove` holds onto `keep`, then delete `remove`.
 
@@ -612,9 +802,15 @@ async def merge_exhibitors(
     alternative is a merge that quietly leaves somebody unable to sign in to
     their own entries.
 
+    `choices` settles the fields both records answer differently
+    (`merge_conflicts`): `OTHER` takes the other record's answer, and anything
+    else -- or no answer -- keeps the survivor's. Never an overwrite the office
+    did not pick. The desk requires an answer for every one; the caller checks.
+
     Everything runs in the caller's transaction and the caller commits, so a
     half-moved person is not a state this can leave behind.
     """
+    choices = choices or {}
     if keep.id == remove.id:
         raise ValueError("An exhibitor cannot be merged into itself.")
 
@@ -632,7 +828,13 @@ async def merge_exhibitors(
             row.exhibitor_id = keep.id
             keep_by_show[row.show_id] = row
             continue
-        await _fold_show_entry(db, held, row)
+        prefix = f"show.{row.show_id}."
+        take = frozenset(
+            key[len(prefix):]
+            for key, choice in choices.items()
+            if choice == OTHER and key.startswith(prefix) and key[len(prefix):] in _SHOW_ENTRY_LABELS
+        )
+        await _fold_show_entry(db, held, row, take)
         shows_folded += 1
 
     # ── Everything keyed on the exhibitor directly ────────────────────────────
@@ -676,6 +878,21 @@ async def merge_exhibitors(
     duplicates += await _fold_pair_numbers(db, keep.id, remove.id)
     duplicates += await _fold_team_seats(db, keep.id, remove.id)
     duplicates += await _move_unique_children(db, ExhibitorHorse, ("horse_id",), keep.id, remove.id)
+    # A membership both records hold for one association: the kept one stands,
+    # unless it is blank where the other is not, or the office picked the other
+    # (`merge_conflicts`). Taking the other is dropping the kept row first, so
+    # the other's moves across in its place.
+    kept_memberships = await _memberships_by_association(db, keep.id)
+    for association_id, row in (await _memberships_by_association(db, remove.id)).items():
+        held = kept_memberships.get(association_id)
+        if held is None:
+            continue
+        verdict = membership_choice(held, row)
+        if verdict == OTHER or (
+            verdict == "conflict" and choices.get(f"membership.{association_id}") == OTHER
+        ):
+            await db.delete(held)
+    await db.flush()
     duplicates += await _move_unique_children(
         db, ExhibitorRegistration, ("association_id",), keep.id, remove.id
     )
@@ -699,12 +916,23 @@ async def merge_exhibitors(
     )
 
     # ── The profile itself ────────────────────────────────────────────────────
+    for key, choice in choices.items():
+        field = key[len("profile."):] if key.startswith("profile.") else None
+        if choice == OTHER and field in _PROFILE_LABELS and not _blank(getattr(remove, field, None)):
+            setattr(keep, field, getattr(remove, field))
     fill_profile_blanks(keep, remove)
 
     account_moved = False
     if keep.user_id is None and remove.user_id is not None:
-        keep.user_id = remove.user_id
+        # Off the other record and flushed *before* it goes on this one:
+        # `exhibitors.user_id` is unique, and setting both in one flush let the
+        # survivor's UPDATE run first while the other row still held the login
+        # (the lookup below autoflushes), so every merge that moved an account
+        # failed with a 500.
+        user_id = remove.user_id
         remove.user_id = None
+        await db.flush()
+        keep.user_id = user_id
         account_moved = True
         # A linked record prints the account's name -- `_sync_linked_exhibitor_name`
         # keeps them in step from then on, and the desk should not have to wait

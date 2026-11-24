@@ -190,6 +190,10 @@ class ShowUpdate(BaseModel):
     # Every horse entered needs its own stall (migration 194). Flagged, never
     # refused -- see `stabling.stall_checks`.
     stall_per_horse_required: Optional[bool] = None
+    # A stall inspection before checkout, and its optional fee (migration
+    # 209). Send `stall_inspection_fee_cents: null` to charge nothing.
+    stall_inspection_required: Optional[bool] = None
+    stall_inspection_fee_cents: Optional[int] = Field(default=None, ge=1, le=10_000_000)
     # When exhibitors may move into their stalls (migration 181): the venue's
     # own wall-clock day and hour. A time needs a day; `update_show` checks the
     # pair as it will be stored, since either half may arrive alone.
@@ -333,6 +337,9 @@ class ShowOut(BaseModel):
     shavings_ban_outside: bool = False
     # Migration 194. Serialized in `_serialize` too -- see `showbill_source`.
     stall_per_horse_required: bool = False
+    # Migration 209. Serialized in `_serialize` too -- see `showbill_source`.
+    stall_inspection_required: bool = False
+    stall_inspection_fee_cents: Optional[int] = None
     # Migration 181. Serialized in `_serialize` too -- see `showbill_source`.
     stalls_open_date: Optional[date] = None
     stalls_open_time: Optional[time] = None
@@ -3124,8 +3131,24 @@ class ExhibitorMergeCandidate(BaseModel):
 
 
 class ExhibitorMergeRequest(BaseModel):
-    """The record to fold in. The one in the path is the one that survives."""
+    """The record to fold in. The one in the path is the one that survives.
+
+    `choices` answers each field the two records fill in differently
+    (`exhibitor_merge.merge_conflicts`, by its `key`): `kept` for this record's
+    answer, `other` for the other's. The desk requires one for every conflict.
+    """
     remove_exhibitor_id: UUID
+    choices: dict[str, Literal["kept", "other"]] = Field(default_factory=dict)
+
+
+class ExhibitorMergeConflict(BaseModel):
+    """One question both records answer, differently. `context` names the show
+    for a field of one show's registration."""
+    key: str
+    label: str
+    context: Optional[str] = None
+    kept_value: str
+    other_value: str
 
 
 class ExhibitorMergeResult(BaseModel):
@@ -5371,6 +5394,9 @@ class BillClassLineOut(BaseModel):
     #: The office made this class free (migration 166): nothing on this line
     #: is owed, and the bill says "Free" rather than a blank.
     is_free: bool = False
+    #: The class belongs to a futurity, which prices it (`futurity_lines`):
+    #: a screen lists it under that futurity, not among the class entry fees.
+    is_futurity: bool = False
 
 
 class BillReservationLineOut(BaseModel):
@@ -5489,6 +5515,8 @@ class BillFuturityLineOut(BaseModel):
     is_late: bool
     late_fee_cents: int
     entered_at: date
+    #: The class entries the per-class money covers (`class_lines[].entry_id`).
+    entry_ids: list[UUID] = Field(default_factory=list)
     line_total_cents: int
 
 
@@ -5519,6 +5547,8 @@ class BillAdjustmentLineOut(BaseModel):
     id: UUID
     reason: str
     amount_cents: int
+    # `stall_inspection` for the checkout box's fee (migration 209), else None.
+    kind: Optional[str] = None
     recorded_by_name: Optional[str] = None
     created_at: Optional[datetime] = None
 
@@ -6011,6 +6041,10 @@ class ShowDeskOut(BaseModel):
     requires_membership_card_check: bool = True
     requires_horse_age_check: bool = True
     requires_registration_papers_check: bool = True
+    # The show inspects stalls before checkout, and what the checkout box
+    # charges for it -- None is no fee (migration 209).
+    stall_inspection_required: bool = False
+    stall_inspection_fee_cents: Optional[int] = None
     # The day health paperwork has to still be good for — the show's last day,
     # since the horse is on the grounds all week. Sent so the inspection form
     # can say "that date does not cover this show" *before* saving a date the

@@ -28,6 +28,7 @@ from stabling import (
     earliest_move_in,
     stalls_open_from,
     is_early_move_in,
+    pass_refusal,
     TACK,
     TACK_STALL_HORSES,
     covers,
@@ -392,6 +393,50 @@ def test_the_whole_show_pass_counts_every_stall():
     box = stall("Box stall - Games", period=GAMES)
     p = a_pass()
     assert checks([box, p], {box.id: 1, p.id: 1}, {}, required=False) == []
+
+
+
+# -- An exhibitor may not add a pass without its stall -----------------------
+
+PERIODS = {p.id: p for p in (FULL, PLEASURE, GAMES)}
+
+
+def test_an_exhibitor_cannot_book_a_period_pass_with_no_stall_in_that_period():
+    games_box = stall("Box stall - Games", period=GAMES)
+    p = a_pass(PLEASURE)
+    refusal = pass_refusal([games_box, p], {games_box.id: 1, p.id: 1}, {}, PERIODS)
+    assert refusal == {
+        "code": PASS_WITHOUT_STALL,
+        "message": "Early Move-In Pass needs a stall in the Pleasure period. Book the stall first.",
+        "show_fee_id": str(p.id),
+    }
+
+
+def test_an_exhibitor_cannot_book_more_passes_than_stalls_in_the_period():
+    box = stall("Box stall - Pleasure", period=PLEASURE)
+    p = a_pass(PLEASURE)
+    refusal = pass_refusal([box, p], {box.id: 1, p.id: 2}, {}, PERIODS)
+    assert refusal["message"] == (
+        "Early Move-In Pass: 2 passes for 1 stall in the Pleasure period. "
+        "One pass moves one stall in early."
+    )
+    assert pass_refusal([box, p], {box.id: 2, p.id: 2}, {}, PERIODS) is None
+
+
+def test_a_per_exhibitor_pass_is_refused_with_no_stall_and_allowed_with_one():
+    box = stall("Box stall - Pleasure", period=PLEASURE)
+    p = a_pass(PLEASURE, one_each=True)
+    assert pass_refusal([box, p], {p.id: 1}, {}, PERIODS) is not None
+    assert pass_refusal([box, p], {box.id: 1, p.id: 1}, {}, PERIODS) is None
+
+
+def test_a_pass_already_on_file_does_not_refuse_saving_the_rest_of_the_booking():
+    """A pass booked before the rule, or since its stall was dropped, does not
+    hold up a save of the other lines; only adding more is refused."""
+    box = stall("Box stall - Pleasure", period=PLEASURE)
+    p = a_pass(PLEASURE)
+    assert pass_refusal([box, p], {p.id: 1}, {p.id: 1}, PERIODS) is None
+    assert pass_refusal([box, p], {p.id: 2}, {p.id: 1}, PERIODS) is not None
 
 
 def test_only_an_add_on_is_priced_per_exhibitor():

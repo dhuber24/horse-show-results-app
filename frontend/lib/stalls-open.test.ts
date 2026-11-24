@@ -1,6 +1,7 @@
 // Globals are imported rather than declared ambiently: see `safe-next.test.ts`.
 import { describe, expect, it } from '@jest/globals';
 import {
+  passAllowance,
   arrivesBeforeStallsOpen,
   defaultMoveIn,
   defaultPassMoveIn,
@@ -181,5 +182,34 @@ describe('a pass per stall period (migration 196)', () => {
   it('says how the pass is priced', () => {
     expect(passBasisLabel({ unit: 'per_stall' })).toBe('per stall');
     expect(passBasisLabel({ unit: 'per_stall', one_per_exhibitor: true })).toBe('per exhibitor');
+  });
+});
+
+describe('passAllowance', () => {
+  const FULL = 'full';
+  const lines = [
+    { id: 'box-full', code: 'stall', unit: 'per_stall', stall_kind: 'box', stall_period_id: FULL },
+    { id: 'tack-full', code: 'stall_tack_x', unit: 'per_stall', stall_kind: 'tack', stall_period_id: FULL },
+    { id: 'box-games', code: 'stall_box_y', unit: 'per_stall', stall_kind: 'box', stall_period_id: 'games' },
+  ];
+  const pass = { code: 'early_move_in_abc', stall_period_id: FULL, one_per_exhibitor: true };
+
+  it('allows no pass with only a stall in another period', () => {
+    expect(passAllowance(pass, lines, { 'box-games': 2 })).toEqual({ cap: 0, stalls: 0 });
+  });
+
+  it('allows one per exhibitor once a box or tack stall in its period is booked', () => {
+    expect(passAllowance(pass, lines, { 'tack-full': 1 })).toEqual({ cap: 1, stalls: 1 });
+    expect(passAllowance(pass, lines, { 'box-full': 3 })).toEqual({ cap: 1, stalls: 3 });
+  });
+
+  it('allows one per stall for a pass sold per stall, and keeps what is on file', () => {
+    const perStall = { ...pass, one_per_exhibitor: false };
+    expect(passAllowance(perStall, lines, { 'box-full': 2 })?.cap).toBe(2);
+    expect(passAllowance(perStall, lines, {}, 1)?.cap).toBe(1);
+  });
+
+  it('is null for a line that is not a pass', () => {
+    expect(passAllowance(lines[0], lines, {})).toBeNull();
   });
 });

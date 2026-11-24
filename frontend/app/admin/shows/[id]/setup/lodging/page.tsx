@@ -58,6 +58,8 @@ export default async function SetupLodgingPage({
         initialFees={lodgingFees}
         initialStallPeriods={stallPeriods}
         initialStallPerHorse={show.stall_per_horse_required ?? false}
+        initialStallInspectionRequired={show.stall_inspection_required ?? false}
+        initialStallInspectionFeeCents={show.stall_inspection_fee_cents ?? null}
         allFeeCodes={allFees.map((f) => f.code)}
         initialShavingsBanOutside={show.shavings_ban_outside ?? false}
         initialStallingNotes={show.stalling_notes ?? ''}

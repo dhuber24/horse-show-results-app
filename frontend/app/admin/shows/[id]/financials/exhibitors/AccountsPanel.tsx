@@ -8,28 +8,17 @@ import {
   formatMoney,
   formatReceivedOn,
   PAYMENT_METHOD_LABELS,
-  PAYMENT_METHODS,
+  OFFICE_PAYMENT_METHODS,
   type FinancialAccount,
   type PaymentMethod,
 } from '@/lib/financials';
-import { unitLabel } from '@/lib/fee-units';
+import type { BillAdjustmentLine } from '@/lib/my-shows';
 import { errorMessage } from '@/lib/api-error';
 import AutoRefresh from '../AutoRefresh';
 import OfficeBillBreakdown from '@/components/OfficeBillBreakdown';
 import { backNumbersLabel } from '@/lib/back-numbers';
-import DotLeader from '@/components/DotLeader';
 
 type Filter = 'owing' | 'settled' | 'all';
-
-/** A line an exhibitor books a quantity of (stalls, passes, shavings,
- *  camping), for the office's booking editor. */
-export type BookableLine = {
-  id: string;
-  label: string;
-  unit: string;
-  amount_cents: number;
-  one_per_exhibitor?: boolean;
-};
 
 /**
  * Per-exhibitor accounts, with the desk's record-a-payment form.
@@ -42,13 +31,10 @@ export type BookableLine = {
 export default function AccountsPanel({
   showId,
   accounts,
-  bookable = [],
   focusExhibitorId = null,
 }: {
   showId: string;
   accounts: FinancialAccount[];
-  /** The show's bookable lines, for setting what an exhibitor has booked. */
-  bookable?: BookableLine[];
   /** From `?exhibitor=` — the desk sent the office here to take money from one
    *  named person. Their row opens on arrival. */
   focusExhibitorId?: string | null;
@@ -62,20 +48,33 @@ export default function AccountsPanel({
   const [openId, setOpenId] = useState<string | null>(focusExhibitorId);
   const [search, setSearch] = useState('');
 
-  // Put the named row on screen. Once, and only if it is really in this show's
-  // accounts — a stale link should leave the list alone rather than scroll to
-  // nothing.
-  const scrolledToFocus = useRef(false);
+  // The open account, if it is really in this show's accounts — a stale
+  // `?exhibitor=` link, or a row deleted since, falls back to the list.
+  const openAccount = openId ? accounts.find((a) => a.exhibitor_id === openId) ?? null : null;
+
+  // Opening an account narrows the list to it (below), so a row opened from
+  // far down the list would otherwise leave the window scrolled past the
+  // shorter page. Bring the top of the panel — the way back to the list —
+  // into view whenever one is opened and it is above the window. Keyed on the
+  // id, not the account: a refresh after a payment hands back a new object for
+  // the same person, and that must not move the page.
+  const openKey = openAccount?.exhibitor_id ?? null;
+  const sectionRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (scrolledToFocus.current || !focusExhibitorId) return;
-    if (!accounts.some((a) => a.exhibitor_id === focusExhibitorId)) return;
-    scrolledToFocus.current = true;
-    document
-      .getElementById(`account-${focusExhibitorId}`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [accounts, focusExhibitorId]);
+    if (!openKey) return;
+    const section = sectionRef.current;
+    if (section && section.getBoundingClientRect().top < 0) {
+      section.scrollIntoView({ block: 'start' });
+    }
+  }, [openKey]);
 
   const visible = useMemo(() => {
+    // One account open is the office working one person's money: only that
+    // account is shown, so finishing with somebody from the bottom of the list
+    // does not mean scrolling back past everybody else. Shown whatever the
+    // filter says, too — a payment that settles an account would otherwise drop
+    // it out of "Owing" while the office is still looking at it.
+    if (openAccount) return [openAccount];
     const term = search.trim().toLowerCase();
     return accounts.filter((a) => {
       if (filter === 'owing' && a.balance_cents <= 0) return false;
@@ -86,7 +85,7 @@ export default function AccountsPanel({
         (backNumbersLabel(a) ?? '').includes(term)
       );
     });
-  }, [accounts, filter, search]);
+  }, [accounts, filter, search, openAccount]);
 
   const owingCount = accounts.filter((a) => a.balance_cents > 0).length;
 
@@ -110,12 +109,12 @@ export default function AccountsPanel({
   }
 
   return (
-    <section className="space-y-3">
+    <section ref={sectionRef} className="space-y-3 scroll-mt-4">
       {/* Paused while a row is expanded. State survives a refresh, but the list
           is sorted by balance — reordering under someone mid-entry would move
           the row they are typing into. Recording a payment refreshes explicitly,
           so nothing is missed by holding off here. */}
-      <AutoRefresh paused={openId !== null} />
+      <AutoRefresh paused={openAccount !== null} />
 
       {/* No heading here — the page title above is the heading. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -127,7 +126,11 @@ export default function AccountsPanel({
           <input
             type="search"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              // Searching is looking for somebody else: back to the list.
+              setOpenId(null);
+            }}
             placeholder="Name or back number"
             className="text-sm px-3 py-1.5 rounded border"
             style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
@@ -135,7 +138,10 @@ export default function AccountsPanel({
           {(['owing', 'settled', 'all'] as Filter[]).map((f) => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
+              onClick={() => {
+                setFilter(f);
+                setOpenId(null);
+              }}
               className="text-sm font-medium px-3 py-1.5 rounded-full border transition"
               style={
                 filter === f
@@ -149,6 +155,18 @@ export default function AccountsPanel({
         </div>
       </div>
 
+      {openAccount && (
+        <button
+          type="button"
+          onClick={() => setOpenId(null)}
+          className="text-sm hover:underline"
+          style={{ color: 'var(--accent)' }}
+          title="Close this account and go back to the list"
+        >
+          ← Back to all accounts
+        </button>
+      )}
+
       {visible.length === 0 ? (
         <p className="text-sm" style={{ color: 'var(--muted)' }}>
           Nothing in this view.
@@ -160,7 +178,6 @@ export default function AccountsPanel({
               key={account.exhibitor_id}
               showId={showId}
               account={account}
-              bookable={bookable}
               isOpen={openId === account.exhibitor_id}
               onToggle={() =>
                 setOpenId(openId === account.exhibitor_id ? null : account.exhibitor_id)
@@ -177,14 +194,12 @@ export default function AccountsPanel({
 function AccountRow({
   showId,
   account,
-  bookable,
   isOpen,
   onToggle,
   onChanged,
 }: {
   showId: string;
   account: FinancialAccount;
-  bookable: BookableLine[];
   isOpen: boolean;
   onToggle: () => void;
   onChanged: () => void;
@@ -289,19 +304,20 @@ function AccountRow({
             account={account}
             onRecorded={onChanged}
           />
-          <OfficeBillBreakdown bill={account.bill} />
-          {/* What the office changes about what they owe (migration 197):
-              their bookings, to match the stall chart the office keeps, and
-              credits or charges with a reason. Payments and refunds are taken
-              in the form above and listed below. */}
-          {bookable.length > 0 && (
-            <BookingsEditor
-              showId={showId}
-              account={account}
-              bookable={bookable}
-              onSaved={onChanged}
-            />
-          )}
+          {/* An adjustment is listed once, as a line on the bill with Remove
+              beside it; who added it is in the Adjustments Log report. */}
+          <OfficeBillBreakdown
+            bill={account.bill}
+            lineAction={(line) => (
+              <RemoveAdjustment key={line.id} showId={showId} line={line} onRemoved={onChanged} />
+            )}
+          />
+          {/* What the office changes about what they owe here: a credit or a
+              charge with its reason (migration 197). Bookings — stalls,
+              shavings, camping — are set at the registration desk, with the
+              rest of what the exhibitor signed up for; the bill above follows
+              them. Payments and refunds are taken in the form above and listed
+              below. */}
           <AdjustmentsEditor showId={showId} account={account} onChanged={onChanged} />
           <PaymentHistory showId={showId} account={account} onChanged={onChanged} />
         </div>
@@ -310,160 +326,75 @@ function AccountRow({
   );
 }
 
-/**
- * What the exhibitor has booked — stalls, passes, shavings, camping — as the
- * office sets it (migration 197). GaitDesk does not run the stall chart; this
- * is how the bill follows the one the office keeps: a tie stall for a box stall
- * when the boxes ran out, a walk-up's stalls. The whole booking is saved at
- * once, a line at nought dropped, as at sign-up. A line kept keeps its early
- * rate; one added now is today's.
- */
-function BookingsEditor({
+/** Remove, then Remove it / Keep, beside an office line on the bill. */
+function RemoveAdjustment({
   showId,
-  account,
-  bookable,
-  onSaved,
+  line,
+  onRemoved,
 }: {
   showId: string;
-  account: FinancialAccount;
-  bookable: BookableLine[];
-  onSaved: () => void;
+  line: BillAdjustmentLine;
+  onRemoved: () => void;
 }) {
-  const booked: Record<string, number> = Object.fromEntries(
-    account.bill.reservation_lines.map((line) => [line.show_fee_id, line.quantity]),
-  );
-  const [quantities, setQuantities] = useState<Record<string, number>>(() =>
-    Object.fromEntries(bookable.map((fee) => [fee.id, booked[fee.id] ?? 0])),
-  );
-  // Lines picked from "Add" since the last save. Only what they have booked is
-  // listed — a dozen lines at 0 buries the two they bought — so a line they
-  // have not booked shows once the office adds it, and stays while it is being
-  // typed into even at 0.
-  const [added, setAdded] = useState<string[]>([]);
+  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dirty = bookable.some((fee) => (quantities[fee.id] ?? 0) !== (booked[fee.id] ?? 0));
-  const shown = bookable.filter(
-    (fee) => (booked[fee.id] ?? 0) > 0 || (quantities[fee.id] ?? 0) > 0 || added.includes(fee.id),
-  );
-  const addable = bookable.filter((fee) => !shown.includes(fee));
 
-  function addLine(feeId: string) {
-    setAdded((prev) => [...prev, feeId]);
-    setQuantities((prev) => ({ ...prev, [feeId]: Math.max(prev[feeId] ?? 0, 1) }));
-  }
-
-  async function save() {
+  async function remove() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/shows/${showId}/accounts/${account.exhibitor_id}/reservations`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reservations: bookable
-            .filter((fee) => (quantities[fee.id] ?? 0) > 0)
-            .map((fee) => ({ show_fee_id: fee.id, quantity: quantities[fee.id] })),
-        }),
-      });
+      const res = await fetch(`/api/shows/${showId}/adjustments/${line.id}`, { method: 'DELETE' });
       if (!res.ok && res.status !== 204) {
         const json = await res.json().catch(() => null);
-        setError(errorMessage(json, 'Could not save their bookings.'));
+        setError(errorMessage(json, 'Could not remove it.'));
         return;
       }
-      // A line saved at 0 goes back under "Add" once the refreshed bill lands.
-      setAdded([]);
-      onSaved();
+      setConfirming(false);
+      onRemoved();
     } finally {
       setBusy(false);
     }
   }
 
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="text-xs underline"
+        style={{ color: 'var(--muted)' }}
+        aria-label={`Remove ${line.reason} from their bill`}
+      >
+        Remove
+      </button>
+    );
+  }
   return (
-    <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide mb-0.5" style={{ color: 'var(--muted)' }}>
-        Stalls, shavings &amp; camping
-      </h3>
-      <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
-        What they have booked. Change it to match your stall chart — their bill follows.
-      </p>
-      {shown.length === 0 ? (
-        <p className="text-sm" style={{ color: 'var(--muted)' }}>
-          Nothing booked.
-        </p>
-      ) : (
-        <ul className="space-y-1.5">
-          {shown.map((fee) => {
-            const qty = quantities[fee.id] ?? 0;
-            const basis = fee.one_per_exhibitor ? 'per exhibitor' : unitLabel(fee.unit);
-            // A quantity like every other line, so the bill reads as one column
-            // of numbers. One a head is the most anyone can have — the server
-            // refuses more — so the box stops at 1.
-            const max = fee.one_per_exhibitor ? 1 : 999;
-            return (
-              <li key={fee.id} className="flex items-baseline gap-2 text-sm">
-                <span className="min-w-0" style={{ color: 'var(--text-deep)' }}>
-                  {fee.label}
-                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                    {' '}
-                    {formatMoney(fee.amount_cents)} {basis}
-                  </span>
-                </span>
-                <DotLeader />
-                <input
-                  type="number"
-                  min={0}
-                  max={max}
-                  value={qty}
-                  onChange={(e) =>
-                    setQuantities((prev) => ({
-                      ...prev,
-                      [fee.id]: Math.max(0, Math.min(max, Number(e.target.value) || 0)),
-                    }))
-                  }
-                  className="w-20 shrink-0 border rounded px-2 py-1 text-sm text-right tabular-nums"
-                  style={{ borderColor: 'var(--border)' }}
-                  aria-label={`${fee.label} — quantity`}
-                  title={fee.one_per_exhibitor ? 'One per exhibitor — 0 or 1' : undefined}
-                />
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {addable.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => e.target.value && addLine(e.target.value)}
-          className="mt-2 border rounded px-2 py-1 text-sm"
-          style={{ borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' }}
-          aria-label="Add a line they have not booked"
-        >
-          <option value="">+ Add a line…</option>
-          {addable.map((fee) => (
-            <option key={fee.id} value={fee.id}>
-              {fee.label} — {formatMoney(fee.amount_cents)}{' '}
-              {fee.one_per_exhibitor ? 'per exhibitor' : unitLabel(fee.unit)}
-            </option>
-          ))}
-        </select>
-      )}
+    <span className="flex items-baseline gap-2">
       {error && (
-        <p className="text-xs mt-2" style={{ color: 'var(--error-strong)' }} role="alert">
+        <span className="text-xs" style={{ color: 'var(--error-strong)' }} role="alert">
           {error}
-        </p>
+        </span>
       )}
       <button
         type="button"
-        onClick={() => void save()}
-        disabled={!dirty || busy}
-        title={!dirty ? 'Nothing has changed.' : undefined}
-        className="mt-2 text-sm rounded px-3 py-1.5 disabled:opacity-50"
-        style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
+        onClick={() => void remove()}
+        disabled={busy}
+        className="text-xs underline disabled:opacity-50"
+        style={{ color: 'var(--error-strong)' }}
       >
-        {busy ? 'Saving…' : 'Save bookings'}
+        Remove it
       </button>
-    </div>
+      <button
+        type="button"
+        onClick={() => setConfirming(false)}
+        className="text-xs underline"
+        style={{ color: 'var(--muted)' }}
+      >
+        Keep
+      </button>
+    </span>
   );
 }
 
@@ -483,13 +414,11 @@ function AdjustmentsEditor({
   account: FinancialAccount;
   onChanged: () => void;
 }) {
-  const lines = account.bill.adjustment_lines ?? [];
   const [kind, setKind] = useState<'credit' | 'charge'>('credit');
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   async function add() {
     setError(null);
@@ -527,89 +456,16 @@ function AdjustmentsEditor({
     }
   }
 
-  async function remove(id: string) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/shows/${showId}/adjustments/${id}`, { method: 'DELETE' });
-      if (!res.ok && res.status !== 204) {
-        const json = await res.json().catch(() => null);
-        setError(errorMessage(json, 'Could not remove the adjustment.'));
-        return;
-      }
-      setConfirmId(null);
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div>
       <h3 className="text-xs font-semibold uppercase tracking-wide mb-0.5" style={{ color: 'var(--muted)' }}>
         Adjustments
       </h3>
       <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
-        A credit or a charge, with the reason printed on their bill. To give money back as well,
-        record a refund at the top.
+        A credit or a charge, added to their bill above as a line of its own with the reason you
+        type. Remove one from beside it on the bill. To give money back as well, record a refund
+        at the top.
       </p>
-      {lines.length > 0 && (
-        <ul className="space-y-1 mb-2">
-          {lines.map((line) => (
-            <li key={line.id} className="flex items-center justify-between gap-3 text-sm">
-              <span style={{ color: 'var(--text-deep)' }}>
-                {line.reason}
-                {line.recorded_by_name && (
-                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                    {' '}
-                    — {line.recorded_by_name}
-                  </span>
-                )}
-              </span>
-              <span className="flex items-center gap-3">
-                <span
-                  className="tabular-nums"
-                  style={{ color: line.amount_cents < 0 ? 'var(--success)' : 'var(--foreground)' }}
-                >
-                  {line.amount_cents < 0
-                    ? `−${formatMoney(-line.amount_cents)}`
-                    : formatMoney(line.amount_cents)}
-                </span>
-                {confirmId === line.id ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void remove(line.id)}
-                      disabled={busy}
-                      className="text-xs underline"
-                      style={{ color: 'var(--error-strong)' }}
-                    >
-                      Remove it
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmId(null)}
-                      className="text-xs underline"
-                      style={{ color: 'var(--muted)' }}
-                    >
-                      Keep
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmId(line.id)}
-                    className="text-xs underline"
-                    style={{ color: 'var(--muted)' }}
-                  >
-                    Remove
-                  </button>
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs" style={{ color: 'var(--muted)' }}>
           <span className="block mb-1">Kind</span>
@@ -712,7 +568,7 @@ function PaymentHistory({
           {error}
         </p>
       )}
-      <ul className="text-sm space-y-1">
+      <ul className="text-sm space-y-1 max-w-xl">
         {account.payments.map((payment) => {
           const isRefund = payment.amount_cents < 0;
           return (
@@ -790,6 +646,10 @@ function RecordPaymentForm({
   onRecorded: () => void;
 }) {
   const owed = Math.max(account.balance_cents, 0);
+  // Paid more than they were billed: the show owes them this back. Never more
+  // than they have paid: a credit larger than that (an office credit on an
+  // unpaid bill) is a discount, with no money of theirs to hand back.
+  const credit = Math.min(Math.max(-account.balance_cents, 0), Math.max(account.net_paid_cents, 0));
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('check');
   const [reference, setReference] = useState('');
@@ -862,6 +722,34 @@ function RecordPaymentForm({
         </button>
       </div>
 
+      {/* The quick refund: an account in credit is owed money back, and this
+          fills in the form for exactly that. Not recorded on the click: the
+          office still says how it went back (cash, a check and its number). */}
+      {credit > 0 && !(isRefund && Math.round(parsed * 100) === credit) && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 mb-2 text-sm"
+          style={{ borderColor: 'var(--warning)', backgroundColor: 'var(--background)', color: 'var(--text-deep)' }}
+        >
+          <span>
+            They have a <strong className="tabular-nums">{formatMoney(credit)}</strong> credit to
+            refund.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setIsRefund(true);
+              setAmount((credit / 100).toFixed(2));
+              setError(null);
+            }}
+            className="px-3 py-1.5 rounded text-sm font-medium"
+            style={{ backgroundColor: 'var(--warning)', color: 'var(--bg-subtle)' }}
+            title="Fill in a refund of their whole credit. Pick how it went back, then Record refund."
+          >
+            Refund {formatMoney(credit)}
+          </button>
+        </div>
+      )}
+
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
         <label className="text-xs" style={{ color: 'var(--text-deep)' }}>
           Amount
@@ -890,7 +778,7 @@ function RecordPaymentForm({
             className="w-full mt-0.5 text-sm px-2 py-1.5 rounded border"
             style={{ borderColor: 'var(--border)', color: 'var(--foreground)', backgroundColor: 'var(--surface)' }}
           >
-            {PAYMENT_METHODS.map((m) => (
+            {OFFICE_PAYMENT_METHODS.map((m) => (
               <option key={m} value={m}>
                 {PAYMENT_METHOD_LABELS[m]}
               </option>
@@ -904,14 +792,14 @@ function RecordPaymentForm({
             type="text"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
-            placeholder="Check #, last 4…"
+            placeholder="Check #, last 4, Venmo…"
             className="w-full mt-0.5 text-sm px-2 py-1.5 rounded border"
             style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
           />
         </label>
 
         <label className="text-xs" style={{ color: 'var(--text-deep)' }}>
-          Received
+          {isRefund ? 'Paid back' : 'Received'}
           <input
             type="date"
             value={receivedOn}

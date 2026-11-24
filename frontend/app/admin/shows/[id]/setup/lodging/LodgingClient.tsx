@@ -215,6 +215,8 @@ export default function LodgingClient({
   maps,
   initialStallPeriods,
   initialStallPerHorse,
+  initialStallInspectionRequired,
+  initialStallInspectionFeeCents,
   allFeeCodes,
 }: {
   showId: string;
@@ -223,6 +225,9 @@ export default function LodgingClient({
   initialStallPeriods: StallPeriod[];
   /** Every horse entered needs its own stall (migration 194). */
   initialStallPerHorse: boolean;
+  /** A stall inspection before checkout, and its optional fee (migration 209). */
+  initialStallInspectionRequired: boolean;
+  initialStallInspectionFeeCents: number | null;
   /** Every fee code on the show, so a new stall line's code is unique. */
   allFeeCodes: string[];
   initialShavingsBanOutside: boolean;
@@ -289,6 +294,8 @@ export default function LodgingClient({
     fees: initialFees,
     periods: initialStallPeriods,
     stallPerHorse: initialStallPerHorse,
+    inspectionRequired: initialStallInspectionRequired,
+    inspectionFeeCents: initialStallInspectionFeeCents,
     takenCodes: allFeeCodes,
     showStartDate,
     showEndDate,
@@ -338,8 +345,13 @@ export default function LodgingClient({
     setSuccessMsg(null);
     setBusy(true);
     try {
+      if (stalls.inspectionFeeInvalid) {
+        setError('Stall inspection fee: enter an amount above $0.00, or leave it blank to charge nothing.');
+        return false;
+      }
       // 1) Patch the show's own columns: the general stalling notes, the
-      //    shavings policy and the stall-per-horse tick. Only what changed is
+      //    shavings policy, the stall-per-horse tick and the stall inspection
+      //    and its fee (migration 209). Only what changed is
       //    sent. When stalls open is not one
       //    of them — the backend sets it from the stall periods, which also
       //    carry the move-in notes (step 2).
@@ -354,6 +366,7 @@ export default function LodgingClient({
       if (stalls.perHorse !== initialStallPerHorse) {
         showPatch.stall_per_horse_required = stalls.perHorse;
       }
+      if (stalls.inspectionPatch) Object.assign(showPatch, stalls.inspectionPatch);
       if (Object.keys(showPatch).length > 0) {
         const showRes = await fetch(`/api/shows/${showId}`, {
           method: 'PATCH',
@@ -362,7 +375,7 @@ export default function LodgingClient({
         });
         if (!showRes.ok) {
           const j = await showRes.json().catch(() => null);
-          setError(errorMessage(j, 'Failed to update the stalling notes and stall and shavings settings.'));
+          setError(errorMessage(j, 'Failed to update the stalling notes and the stall, inspection and shavings settings.'));
           return false;
         }
       }
@@ -456,6 +469,11 @@ export default function LodgingClient({
         if (list.dirty && !(await list.save((message) => setError(message)))) return false;
       }
 
+      // Everything on file now, so every period and option folds to its one
+      // line; the office opens the one it wants to change.
+      stalls.collapseAll();
+      camping.collapseAll();
+      permits.collapseAll();
       setSuccessMsg('Lodging & boarding saved.');
       router.refresh();
       return true;

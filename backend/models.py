@@ -214,6 +214,11 @@ class Show(Base):
     # on each day it shows, because who pays for whose stall is often somebody
     # else and only the office can sort that out.
     stall_per_horse_required = Column(Boolean, nullable=False, server_default="false")
+    # A stall inspection before checkout (migration 209), and what the desk
+    # charges for it when it ticks the box at checkout -- NULL is no fee. The
+    # charge is an office charge tagged `stall_inspection`; never a gate.
+    stall_inspection_required = Column(Boolean, nullable=False, server_default="false")
+    stall_inspection_fee_cents = Column(Integer, nullable=True)
     # General stalling notes (migration 207): the stall rules every exhibitor
     # who stalls must know, whatever period they book -- unloading, stall
     # assignments, barn office hours, bedding, checking out. Typed at the top of
@@ -3119,6 +3124,10 @@ class ShowAccountAdjustment(Base):
     )
     amount_cents = Column(Integer, nullable=False)
     reason = Column(Text, nullable=False)
+    # What made the charge when nobody typed it (migration 209):
+    # `stall_inspection` is the checkout box, at most one per exhibitor. NULL is
+    # a line the office typed.
+    kind = Column(Text, nullable=True)
     recorded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     # Kept beside the id for the reason `ShowPayment.recorded_by_name` is: staff
     # accounts do not outlive the show.

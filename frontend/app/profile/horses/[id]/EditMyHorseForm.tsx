@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
+import { registrableAssociations, registrationsWithoutBreed } from '@/lib/breed-associations';
 import TrainerSelect from '@/components/TrainerSelect';
 import AssociationSelect, { AssociationTypeBadge, AssociationType } from '@/components/AssociationSelect';
 import HorseDocuments, {
@@ -320,7 +321,17 @@ export default function EditMyHorseForm({
   };
 
   const usedAssociationIds = new Set(registrations.map((r) => r.association_id));
-  const availableAssociations = associations.filter((st) => !usedAssociationIds.has(st.id));
+  // A breed registry only for one of the horse's *saved* breeds — a number is
+  // filed the moment it is added, against the breeds on file, not ticks on
+  // the Details tab nobody has saved yet. Clubs always.
+  const savedBreedIds = horse.breed_ids ?? (horse.breed_id ? [horse.breed_id] : []);
+  const savedBreeds = breeds.filter((b) => savedBreedIds.includes(b.id));
+  const availableAssociations = registrableAssociations(savedBreeds, associations).filter(
+    (st) => !usedAssociationIds.has(st.id),
+  );
+  const regsWithoutBreed = registrationsWithoutBreed(registrations, savedBreeds, associations);
+  const breedRegistryMissing =
+    isOwner && !availableAssociations.some((a) => a.association_type === 'breed');
 
   // Parse year directly from the ISO string to avoid timezone shift on Jan 1 dates.
   const birthYear = form.foaling_date ? parseInt(form.foaling_date.split('-')[0], 10) : null;
@@ -600,6 +611,19 @@ export default function EditMyHorseForm({
           </ul>
         ) : (
           <p className="text-sm" style={{ color: 'var(--muted)' }}>No registrations on file.</p>
+        )}
+        {regsWithoutBreed.length > 0 && (
+          <p className="text-xs" style={{ color: 'var(--warning)' }}>
+            {regsWithoutBreed.map((r) => r.association_code).join(', ')} is not a registry of a breed
+            on the Details tab. Tick that breed there, or remove the number.
+          </p>
+        )}
+        {breedRegistryMissing && (
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
+            {savedBreeds.length === 0
+              ? 'To add a breed registry number, tick and save the horse’s breed on the Details tab first.'
+              : 'Breed registries are offered for the breeds saved on the Details tab.'}
+          </p>
         )}
 
         {isOwner && availableAssociations.length > 0 && (

@@ -502,91 +502,27 @@ export default function AddEntryForm({
       )}
 
       {/* The pinned exhibitor's horse, and every class it can still enter. */}
-      {exhibitor && selectedHorse && (
-        offeredClasses.length === 0 ? (
-          <p className="text-sm" style={{ color: COLORS.muted }}>
-            {selectedHorse.name} is entered in every class still open to it.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {offeredClasses.length > 12 && (
-              <input
-                type="search"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Find a class by number or name"
-                aria-label="Find a class"
-                className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: COLORS.border }}
-              />
-            )}
-            {shownByDay.length === 0 && (
-              <p className="text-sm" style={{ color: COLORS.muted }}>No class matches &ldquo;{filter.trim()}&rdquo;.</p>
-            )}
-            <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
-              {shownByDay.map(([day, dayClasses]) => (
-                <fieldset key={day} className="space-y-0.5">
-                  <legend className="text-xs font-semibold uppercase tracking-wide" style={{ color: COLORS.muted }}>
-                    {formatDay(day)}
-                  </legend>
-                  {dayClasses.map((c) => {
-                    const on = ticked.includes(c.id);
-                    // The only rows left that they are already in are pattern
-                    // classes with another horse. Say so, or the entry reads
-                    // as the filter having missed one.
-                    const ridingAlready = (exhibitor.entries ?? []).some((e) => e.class_id === c.id);
-                    const futurity = futurityForClass(desk, c.id);
-                    const division = on ? divisionOf(c) : '';
-                    const meta = [
-                      potsForClass(desk, c.id).length > 0 ? 'side pot' : null,
-                      ridingAlready ? 'another horse' : null,
-                      division ? `Division: ${divisionLabel(division)}` : null,
-                    ].filter(Boolean);
-                    const price = futurity
-                      ? 'priced by the futurity'
-                      : c.is_free
-                        ? 'Free'
-                        : c.entry_fee_cents > 0
-                          ? formatMoney(c.entry_fee_cents)
-                          : null;
-                    return (
-                      <label
-                        key={c.id}
-                        className="flex items-start gap-2 rounded px-2 py-1 text-sm cursor-pointer"
-                        style={{ backgroundColor: on ? 'var(--accent-bg)' : undefined }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          onChange={(e) => {
-                            setError(null);
-                            setNotice(null);
-                            setWarnings([]);
-                            setTicked((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)));
-                          }}
-                          className="mt-0.5 h-4 w-4 shrink-0"
-                        />
-                        <span className="flex-1 min-w-0">
-                          <span style={{ color: COLORS.text }}>
-                            <span className="font-mono" style={{ color: COLORS.accent }}>{c.class_number}</span> {c.class_name}
-                          </span>
-                          {meta.length > 0 && (
-                            <span className="block text-xs" style={{ color: COLORS.muted }}>{meta.join(' · ')}</span>
-                          )}
-                        </span>
-                        {price && (
-                          <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-deep)' }}>{price}</span>
-                        )}
-                      </label>
-                    );
-                  })}
-                </fieldset>
-              ))}
-            </div>
-          </div>
-        )
+      {exhibitor && selectedHorse && offeredClasses.length === 0 && (
+        <p className="text-sm" style={{ color: COLORS.muted }}>
+          {selectedHorse.name} is entered in every class still open to it.
+        </p>
+      )}
+      {exhibitor && selectedHorse && offeredClasses.length > 12 && (
+        <input
+          type="search"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Find a class by number or name"
+          aria-label="Find a class"
+          className="w-full border rounded px-3 py-2 text-sm"
+          style={{ borderColor: COLORS.border }}
+        />
       )}
 
+      {/* What the ticked classes ask for, and the button, sit above the class
+          list rather than under it. The list scrolls and can run to dozens of
+          classes; with these at its foot the futurity enrollment and the
+          button were off screen at the moment they were needed. */}
       {/* Stated, not asked: it goes on the entry and is reported to APHA, so
           the desk should see what is being filed — but it follows from the
           class, and a control with one correct answer is not a question. */}
@@ -747,6 +683,74 @@ export default function AddEntryForm({
         >
           {buttonLabel}
         </button>
+      )}
+
+      {exhibitor && selectedHorse && offeredClasses.length > 0 && (
+        <div className="space-y-2">
+          {shownByDay.length === 0 && (
+            <p className="text-sm" style={{ color: COLORS.muted }}>No class matches &ldquo;{filter.trim()}&rdquo;.</p>
+          )}
+          <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
+            {shownByDay.map(([day, dayClasses]) => (
+              <fieldset key={day} className="space-y-0.5">
+                <legend className="text-xs font-semibold uppercase tracking-wide" style={{ color: COLORS.muted }}>
+                  {formatDay(day)}
+                </legend>
+                {dayClasses.map((c) => {
+                  const on = ticked.includes(c.id);
+                  // The only rows left that they are already in are pattern
+                  // classes with another horse. Say so, or the entry reads
+                  // as the filter having missed one.
+                  const ridingAlready = (exhibitor.entries ?? []).some((e) => e.class_id === c.id);
+                  const futurity = futurityForClass(desk, c.id);
+                  const division = on ? divisionOf(c) : '';
+                  const meta = [
+                    potsForClass(desk, c.id).length > 0 ? 'side pot' : null,
+                    ridingAlready ? 'another horse' : null,
+                    division ? `Division: ${divisionLabel(division)}` : null,
+                  ].filter(Boolean);
+                  const price = futurity
+                    ? 'priced by the futurity'
+                    : c.is_free
+                      ? 'Free'
+                      : c.entry_fee_cents > 0
+                        ? formatMoney(c.entry_fee_cents)
+                        : null;
+                  return (
+                    <label
+                      key={c.id}
+                      className="flex items-start gap-2 rounded px-2 py-1 text-sm cursor-pointer"
+                      style={{ backgroundColor: on ? 'var(--accent-bg)' : undefined }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) => {
+                          setError(null);
+                          setNotice(null);
+                          setWarnings([]);
+                          setTicked((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)));
+                        }}
+                        className="mt-0.5 h-4 w-4 shrink-0"
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span style={{ color: COLORS.text }}>
+                          <span className="font-mono" style={{ color: COLORS.accent }}>{c.class_number}</span> {c.class_name}
+                        </span>
+                        {meta.length > 0 && (
+                          <span className="block text-xs" style={{ color: COLORS.muted }}>{meta.join(' · ')}</span>
+                        )}
+                      </span>
+                      {price && (
+                        <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-deep)' }}>{price}</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </fieldset>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

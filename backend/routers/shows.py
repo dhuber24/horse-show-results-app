@@ -188,6 +188,9 @@ def _serialize(show: Show) -> dict:
         "shavings_ban_outside": show.shavings_ban_outside,
         # Every horse entered needs its own stall (migration 194).
         "stall_per_horse_required": show.stall_per_horse_required,
+        # A stall inspection before checkout, and its fee (migration 209).
+        "stall_inspection_required": show.stall_inspection_required,
+        "stall_inspection_fee_cents": show.stall_inspection_fee_cents,
         # When exhibitors may move into their stalls (migration 181).
         "stalls_open_date": show.stalls_open_date,
         "stalls_open_time": show.stalls_open_time,
@@ -718,6 +721,10 @@ async def update_show(
     )
     if "back_number_per" in updates and updates["back_number_per"] is None:
         del updates["back_number_per"]
+    # A yes/no column: a null sent for it means nothing to change. The fee
+    # beside it takes null, which is no fee (migration 209).
+    if "stall_inspection_required" in updates and updates["stall_inspection_required"] is None:
+        del updates["stall_inspection_required"]
 
     venue_changed = "venue_id" in updates and updates["venue_id"] != show.venue_id
     for k, v in updates.items():

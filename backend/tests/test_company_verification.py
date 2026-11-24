@@ -91,20 +91,37 @@ def test_every_writer_of_a_roster_row_or_an_entry_is_accounted_for():
     assert writers == ASKS | set(NOBODY_NEW)
 
 
+def _calls_through_helpers(path: str, function) -> set[str]:
+    """What a door calls, itself or through a private helper in its own router:
+    both desk merge doors ask the gate inside `_merge_pair`, which they share."""
+    helpers = {f.name: f for name, f in _router_functions() if name == path and f.name.startswith("_")}
+    seen, todo, calls = set(), [function], set()
+    while todo:
+        current = todo.pop()
+        found = _calls(current)
+        calls |= found
+        for helper in found & set(helpers) - seen:
+            seen.add(helper)
+            todo.append(helpers[helper])
+    return calls
+
+
 @pytest.mark.parametrize(
     "door",
     sorted(
         ASKS
         | {
             ("show_desk.py", "merge_exhibitor_at_desk"),
+            ("show_desk.py", "preview_merge_at_desk"),
             ("show_desk.py", "list_merge_candidates_at_desk"),
             ("futurities.py", "add_entry"),
         }
     ),
 )
 def test_each_door_asks(door):
-    function = next(f for name, f in _router_functions() if (name, f.name) == door)
-    assert _calls(function) & GATES
+    path, _ = door
+    function = next(f for file, f in _router_functions() if (file, f.name) == door)
+    assert _calls_through_helpers(path, function) & GATES
 
 
 def test_a_payment_recorded_by_the_office_is_for_somebody_already_on_the_roster():

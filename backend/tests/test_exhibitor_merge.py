@@ -16,6 +16,11 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 from exhibitor_merge import (
+    KEPT,
+    OTHER,
+    field_conflicts,
+    membership_choice,
+    unanswered,
     adopt_standing,
     fill_profile_blanks,
     holds_email,
@@ -277,3 +282,63 @@ def test_a_different_address_does_not_match():
     record = SimpleNamespace(email="kristen@example.com")
     account = SimpleNamespace(email="kristen.huber17@gmail.com")
     assert not holds_email(record, account, "danjhuber@hotmail.com")
+
+
+# ── Two different answers are the office's to settle ─────────────────────────
+
+def test_two_different_phone_numbers_are_a_conflict_to_settle():
+    keep = SimpleNamespace(phone="555-0100", city="Anoka")
+    other = SimpleNamespace(phone="555-0199", city="Anoka")
+    assert field_conflicts(keep, other, {"phone": "Phone", "city": "City"}, "profile.") == [{
+        "key": "profile.phone", "label": "Phone", "context": None,
+        "kept_value": "555-0100", "other_value": "555-0199",
+    }]
+
+
+def test_the_same_answer_written_differently_is_not_a_conflict():
+    keep = SimpleNamespace(phone="(555) 010-0100", city="Anoka ", email="Dan@Example.com")
+    other = SimpleNamespace(phone="555.010.0100", city="anoka", email="dan@example.com")
+    labels = {"phone": "Phone", "city": "City", "email": "Email"}
+    assert field_conflicts(keep, other, labels, "profile.") == []
+
+
+def test_a_blank_on_either_side_is_not_a_conflict():
+    """A blank on the kept record is filled; a blank on the other has nothing
+    to offer. Neither is two answers."""
+    labels = {"phone": "Phone"}
+    assert field_conflicts(SimpleNamespace(phone=""), SimpleNamespace(phone="555"), labels, "p.") == []
+    assert field_conflicts(SimpleNamespace(phone="555"), SimpleNamespace(phone=None), labels, "p.") == []
+
+
+def test_a_back_number_conflict_names_its_show_and_reads_as_text():
+    keep, other = SimpleNamespace(back_number=12), SimpleNamespace(back_number=40)
+    found = field_conflicts(keep, other, {"back_number": "Back number"}, "show.x.", context="WSCA")
+    assert found == [{
+        "key": "show.x.back_number", "label": "Back number", "context": "WSCA",
+        "kept_value": "12", "other_value": "40",
+    }]
+
+
+def membership(number=None, expires=None):
+    return SimpleNamespace(member_number=number, expires_at=expires)
+
+
+def test_two_membership_numbers_for_one_association_are_a_conflict():
+    assert membership_choice(membership("111"), membership("222")) == "conflict"
+    assert membership_choice(
+        membership("111", date(2026, 12, 31)), membership("111", date(2027, 12, 31))
+    ) == "conflict"
+
+
+def test_a_blank_kept_membership_takes_the_other_and_agreement_needs_nothing():
+    assert membership_choice(membership(None), membership("222")) == OTHER
+    assert membership_choice(membership("111"), membership("111", date(2026, 12, 31))) == OTHER
+    assert membership_choice(membership("111"), membership(" 111 ")) is None
+    assert membership_choice(membership("111"), membership(None)) is None
+
+
+def test_every_conflict_needs_an_answer():
+    conflicts = [{"key": "profile.phone"}, {"key": "show.x.back_number"}]
+    assert unanswered(conflicts, {"profile.phone": KEPT}) == [{"key": "show.x.back_number"}]
+    assert unanswered(conflicts, {"profile.phone": KEPT, "show.x.back_number": OTHER}) == []
+    assert unanswered(conflicts, {"profile.phone": "whichever"}) == conflicts[:1] + conflicts[1:]

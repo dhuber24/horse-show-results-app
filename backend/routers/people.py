@@ -2271,7 +2271,7 @@ async def merge_exhibitor(
     if keep.id == remove.id:
         raise HTTPException(422, "Pick two different records to merge.")
 
-    result = await merge_exhibitors(keep, remove, db)
+    result = await merge_exhibitors(keep, remove, db, body.choices)
     await db.commit()
     return result
 

@@ -7,18 +7,24 @@ import ByClassView from './ByClassView';
 import CogginsOverridePanel from './CogginsOverridePanel';
 import ExhibitorPanel from './ExhibitorPanel';
 import type { AssociationOption, LookupOption } from './StaffAddHorseForm';
-import { COLORS, exhibitorNumbers, healthAlerts, needsBackNumber, unsignedWaivers } from './types';
+import {
+  COLORS,
+  exhibitorNumbers,
+  healthAlerts,
+  needsBackNumber,
+  paperworkToDo,
+  unsignedWaivers,
+} from './types';
 import type { Desk, DeskExhibitor } from './types';
 import { formatMoney } from '@/lib/financials';
 
 type View = 'exhibitors' | 'classes';
-type Filter = 'all' | 'no_back_number' | 'paperwork' | 'health' | 'waivers' | 'no_entries';
+type Filter = 'all' | 'no_back_number' | 'paperwork' | 'waivers' | 'no_entries';
 
 const FILTER_LABELS: Record<Filter, string> = {
   all: 'Everyone',
   no_back_number: 'No back number',
   paperwork: 'Paperwork to check',
-  health: 'Health flags',
   waivers: 'Unsigned releases',
   no_entries: 'No classes yet',
 };
@@ -27,10 +33,11 @@ function matchesFilter(desk: Desk, exhibitor: DeskExhibitor, filter: Filter): bo
   switch (filter) {
     case 'no_back_number':
       return needsBackNumber(desk, exhibitor);
+    // The same count as the Paperwork badge on their panel, health problems
+    // included — so there is no separate health filter: a lapsed Coggins is
+    // paperwork to sort out whether or not the show inspects the original.
     case 'paperwork':
-      return exhibitor.paperwork_outstanding > 0;
-    case 'health':
-      return healthAlerts(exhibitor).length > 0;
+      return paperworkToDo(exhibitor, desk.requires_physical_document_check) > 0;
     case 'waivers':
       return unsignedWaivers(exhibitor).length > 0;
     case 'no_entries':
@@ -203,6 +210,14 @@ export default function DeskClient({
   if (!desk) return null;
 
   const t = desk.totals;
+  // People, not checks, and by the filter's own rule: the stat and the
+  // "Paperwork to check" filter beside the roster must read the same number.
+  // `totals.paperwork_outstanding` counts individual sign-offs (24 checks
+  // across 10 people read as "24") and leaves out health problems at a show
+  // that does not inspect originals.
+  const paperworkPeople = people.filter((g) =>
+    g.members.some((e) => matchesFilter(desk, e, 'paperwork')),
+  ).length;
 
   return (
     <div className="space-y-4">
@@ -222,8 +237,8 @@ export default function DeskClient({
         />
         <Stat
           label="Paperwork to check"
-          value={String(t.paperwork_outstanding)}
-          tone={t.paperwork_outstanding > 0 ? 'var(--warning)' : undefined}
+          value={String(paperworkPeople)}
+          tone={paperworkPeople > 0 ? 'var(--warning)' : undefined}
         />
       </div>
 
@@ -354,7 +369,10 @@ export default function DeskClient({
                   const isSelected = selectedGroup?.key === group.key;
                   const classCount = members.reduce((n, e) => n + e.entries.length, 0);
                   const potCount = members.reduce((n, e) => n + e.side_pot_ids.length, 0);
-                  const toCheck = members.reduce((n, e) => n + e.paperwork_outstanding, 0);
+                  const toCheck = members.reduce(
+                    (n, e) => n + paperworkToDo(e, desk.requires_physical_document_check),
+                    0,
+                  );
                   const alerts = members.some((e) => healthAlerts(e).length > 0);
                   const unsigned = members.some((e) => unsignedWaivers(e).length > 0);
                   const owing = members.reduce((n, e) => n + Math.max(e.balance_cents, 0), 0);
@@ -422,18 +440,19 @@ export default function DeskClient({
                     person, join the records: everything moves onto the one you keep.
                   </div>
                 )}
-                {/* Offered whether or not this show has the duplicate. The
-                    office record typed in at the August show is not on this
-                    roster and never will be; the account its owner opened in
-                    November is what has to find it. */}
+                {/* Draws nothing unless it finds a match, which it looks for
+                    beyond this show's roster: the office record typed in at
+                    the August show is not on it and never will be; the
+                    account its owner opened in November is what has to find
+                    it. */}
                 <MergeExhibitors
                   // Keyed so switching to another person on the roster starts
                   // the control closed rather than showing the last person's
                   // candidate list.
                   key={selectedGroup.key}
                   showId={showId}
-                  exhibitorId={selectedGroup.members[0].exhibitor_id}
-                  exhibitorName={selectedGroup.name}
+                  exhibitor={selectedGroup.members[0]}
+                  onRoster={rosterNumbers}
                   onMerged={async (keptId) => {
                     await load();
                     setSelectedId(keptId);

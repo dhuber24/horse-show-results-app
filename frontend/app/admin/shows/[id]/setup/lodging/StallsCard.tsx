@@ -349,6 +349,8 @@ export function useStallsEditor({
   fees,
   periods,
   stallPerHorse,
+  inspectionRequired,
+  inspectionFeeCents,
   takenCodes,
   showStartDate,
   showEndDate,
@@ -360,6 +362,11 @@ export function useStallsEditor({
   fees: StallFeeRow[];
   periods: StallPeriod[];
   stallPerHorse: boolean;
+  /** A stall inspection before checkout, and the fee the desk's checkout box
+   *  charges for it — null for none (migration 209). Saved on the show by
+   *  `LodgingClient`, as the stall-per-horse tick is. */
+  inspectionRequired: boolean;
+  inspectionFeeCents: number | null;
   /** Every fee code on the show, so a new line's code is unique. */
   takenCodes: string[];
   showStartDate: string;
@@ -446,6 +453,25 @@ export function useStallsEditor({
   // Lines that were on file and were removed on screen, to delete on save.
   const [removed, setRemoved] = useState<LineDraft[]>([]);
   const [perHorse, setPerHorse] = useState(stallPerHorse);
+  const [inspection, setInspection] = useState(inspectionRequired);
+  const inspectionFeeOnFile = inspectionFeeCents ? centsToDollars(inspectionFeeCents) : '';
+  const [inspectionFee, setInspectionFee] = useState(inspectionFeeOnFile);
+
+  // Periods folded down to one line, by key. One saved opens folded; a new one
+  // open until the office folds it, and the step's save folds them all
+  // (`collapseAll`). What is in a period stays in the editor, so nothing typed
+  // is lost.
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(periods.map((p) => p.id)),
+  );
+  function toggle(key: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   const [passes, setPasses] = useState<Record<string, PassDraft>>(() => {
     const keys = new Set(opening.periods.map((p) => p.key));
@@ -649,8 +675,27 @@ export function useStallsEditor({
   }
 
   const passKeys = [WHOLE_SHOW, ...periodDrafts.map((p) => p.key)];
+  /** The inspection fee as the show takes it: cents, null for none, or
+   *  undefined when what was typed is no amount. Unticked, there is no fee. */
+  function inspectionFeeOf(): number | null | undefined {
+    if (!inspection || inspectionFee.trim() === '') return null;
+    const n = Number.parseFloat(inspectionFee);
+    if (!Number.isFinite(n) || n <= 0) return undefined;
+    return dollarsToCents(inspectionFee);
+  }
+  /** What the show is sent for the inspection, or null when nothing changed. */
+  const inspectionPatch = (() => {
+    const fee = inspectionFeeOf();
+    const changedTick = inspection !== inspectionRequired;
+    const changedFee = fee === undefined || fee !== (inspectionFeeCents ?? null);
+    return changedTick || changedFee
+      ? { stall_inspection_required: inspection, stall_inspection_fee_cents: fee }
+      : null;
+  })();
+
   const dirty =
     perHorse !== stallPerHorse ||
+    inspectionPatch !== null ||
     periodsDirty ||
     removed.length > 0 ||
     removedPasses.length > 0 ||
@@ -1047,6 +1092,16 @@ export function useStallsEditor({
     removed,
     perHorse,
     setPerHorse,
+    inspection,
+    setInspection,
+    inspectionFee,
+    setInspectionFee,
+    inspectionPatch,
+    inspectionFeeInvalid: inspectionFeeOf() === undefined,
+    collapsed,
+    toggle,
+    /** Folds every period: the step's save does, once it has written them. */
+    collapseAll: () => setCollapsed(new Set(periodDrafts.map((p) => p.key))),
     dirty,
     save,
     setLine,
@@ -1643,17 +1698,7 @@ export function StallsCard({ editor }: { editor: StallsEditor }) {
   // A whole-show pass booked before the show had periods keeps what was bought.
   const wholeShowPass = Boolean(editor.passOf(WHOLE_SHOW).feeId);
 
-  // Periods folded down to one line, by key. Open until the office folds one;
-  // what is in it stays in the editor, so nothing typed is lost.
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  function toggle(key: string) {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
+  const { collapsed, toggle } = editor;
 
   /** A folded period in one line: when it moves in and out, the stall types it
    *  offers at their prices, and its early move-in. */
@@ -1721,6 +1766,49 @@ export function StallsCard({ editor }: { editor: StallsEditor }) {
           </span>
         </span>
       </label>
+
+      {/* Migration 209. A reminder and an optional charge at the desk's
+          checkout, never a gate: checking out still refuses nothing. */}
+      <div className="space-y-2">
+        <label className="flex items-start gap-2 text-sm" style={{ color: COLORS.text }}>
+          <input
+            type="checkbox"
+            checked={editor.inspection}
+            onChange={(e) => editor.setInspection(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <strong>Require stall inspections before checkout.</strong>{' '}
+            <span style={{ color: COLORS.muted }}>
+              The desk is reminded to look each exhibitor&apos;s stalls over when they check out.
+            </span>
+          </span>
+        </label>
+        {editor.inspection && (
+          <div className="ml-6 space-y-1">
+            <label className="block w-40">
+              <span className={LABEL} style={{ color: COLORS.muted }}>
+                Inspection fee ($)
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={editor.inspectionFee}
+                onChange={(e) => editor.setInspectionFee(e.target.value)}
+                className={INPUT}
+                style={{ borderColor: editor.inspectionFeeInvalid ? 'var(--error)' : COLORS.border }}
+                aria-invalid={editor.inspectionFeeInvalid}
+                placeholder="e.g. 25.00"
+                aria-label="Stall inspection fee"
+              />
+            </label>
+            <p className="text-xs" style={{ color: COLORS.muted }}>
+              This fee will only be charged to the exhibitor at the Show&apos;s discretion, in the
+              Exhibitor Registration check-out section
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Everything is set by period: its move-in and move-out, the stall
           types it sells and its early move-in. */}

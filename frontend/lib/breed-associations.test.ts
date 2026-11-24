@@ -1,6 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { associationsForBreeds, nextSuggestedAssociation } from './breed-associations';
+import {
+  associationsForBreeds,
+  nextSuggestedAssociation,
+  registrableAssociations,
+  registrationsWithoutBreed,
+} from './breed-associations';
 
 /** The registry as seeded — three breed bodies whose names begin with a breed
  *  name, one that does not, and two clubs. */
@@ -71,5 +76,36 @@ describe('nextSuggestedAssociation', () => {
     // never asked for into an empty box.
     const breeds = [breed('American Paint Horse')];
     expect(nextSuggestedAssociation(breeds, ASSOCIATIONS, ['apha'])).toBeNull();
+  });
+});
+
+describe('registrableAssociations', () => {
+  const codes = (breeds: ReturnType<typeof breed>[]) =>
+    registrableAssociations(breeds, ASSOCIATIONS).map((a) => a.code);
+
+  it('offers only the registries of the ticked breeds, and every club', () => {
+    expect(codes([breed('American Paint Horse')])).toEqual(['APHA', 'WSCA', 'NSBA']);
+  });
+
+  it('offers each registry of a horse ticked with two breeds', () => {
+    expect(codes([breed('American Paint Horse'), breed('Appaloosa')])).toEqual(['APHA', 'ApHC', 'WSCA', 'NSBA']);
+  });
+
+  it('offers FQHR for a Quarter Horse though its name does not start with the breed', () => {
+    expect(codes([breed('American Quarter Horse')])).toEqual(['AQHA', 'FQHR', 'WSCA', 'NSBA']);
+  });
+
+  it('offers no breed registry until a breed is ticked', () => {
+    expect(codes([])).toEqual(['WSCA', 'NSBA']);
+    expect(codes([breed('Morgan')])).toEqual(['WSCA', 'NSBA']);
+  });
+});
+
+describe('registrationsWithoutBreed', () => {
+  it('finds a number whose breed was unticked, and leaves clubs alone', () => {
+    const regs = [{ association_id: 'apha' }, { association_id: 'aqha' }, { association_id: 'nsba' }];
+    expect(registrationsWithoutBreed(regs, [breed('American Paint Horse')], ASSOCIATIONS)).toEqual([
+      { association_id: 'aqha' },
+    ]);
   });
 });

@@ -63,6 +63,7 @@ export const REPORT_ICONS: Record<string, string> = {
   'outstanding-balances': '🧾',
   registrations: '📋',
   'payments-received': '💵',
+  'adjustments-log': '✏️',
   'fees-sold': '🏕️',
   'side-pot-money': '💰',
   // What the office sends the association

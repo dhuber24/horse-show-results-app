@@ -9,6 +9,7 @@ import {
   formatStallsOpen,
   formatWallClock,
   isEarlyMoveInPass,
+  passAllowance,
 } from '@/lib/stalls-open';
 import { arrivalNote, departureNote, passLineText } from '@/lib/move-in';
 import { isPermit, permitNoun } from '@/lib/permits';
@@ -332,9 +333,12 @@ function EarlyRateNote({ fee, noun }: { fee: FeeOption; noun: string }) {
  * The stall checks, said to the exhibitor (migration 194). A warning, not an
  * error: the save still goes through, because the stall may be on somebody
  * else's booking — a parent's, a trainer's, a group's — and only the office
- * can see that.
+ * can see that. The one exception is an Early Move-In Pass without its stall,
+ * which the save refuses (`stabling.pass_refusal`), so the notice does not
+ * promise that one will save.
  */
 export function StallChecksNotice({ checks }: { checks: StallCheck[] }) {
+  const onlyPasses = checks.every((check) => check.code === 'PASS_WITHOUT_STALL');
   return (
     <div
       className="mt-3 rounded border p-3 text-sm"
@@ -347,8 +351,9 @@ export function StallChecksNotice({ checks }: { checks: StallCheck[] }) {
         ))}
       </ul>
       <p className="text-xs mt-2">
-        You can still save. If somebody else is paying for the stall, say whose it is under
-        Stabling requests.
+        {onlyPasses
+          ? 'Book the stall before the early move-in pass — a pass needs a stall of yours to move in.'
+          : 'You can still save. If somebody else is paying for the stall, say whose it is under Stabling requests.'}
       </p>
     </div>
   );
@@ -602,6 +607,16 @@ export default function ReservationFields({
     setRawQuantities((prev) => ({ ...prev, [feeId]: Math.max(floor, clamped) }));
   };
 
+  /** How many of a pass this booking allows (`passAllowance`): one per
+   *  stall of theirs in its period, never below what is on file. */
+  const passAllowanceOf = (fee: FeeOption) =>
+    passAllowance(
+      fee,
+      fee_options,
+      quantities,
+      signup?.reservations?.find((r) => r.show_fee_id === fee.id)?.quantity ?? 0,
+    );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -624,6 +639,17 @@ export default function ReservationFields({
           (!short.min_quantity && BEDDING_UNITS.includes(short.unit)
             ? ' Outside shavings are not allowed here, so bedding has to be bought from the show.'
             : ''),
+      );
+      return;
+    }
+    const overPass = fee_options.find((f) => {
+      const allowance = passAllowanceOf(f);
+      return allowance !== null && (quantities[f.id] ?? 0) > allowance.cap;
+    });
+    if (overPass) {
+      setError(
+        `${overPass.label} needs a stall of yours to move in early — one pass per stall. ` +
+          'Book the stall first, or take the pass off.',
       );
       return;
     }
@@ -667,6 +693,14 @@ export default function ReservationFields({
     const noun = nounOf(fee);
     const floor = floors[fee.id] ?? 0;
     const atFloor = floor > 0 && qty <= floor;
+    const allowance = passAllowanceOf(fee);
+    const atCap = allowance !== null && qty >= allowance.cap;
+    const capTitle =
+      allowance === null
+        ? undefined
+        : allowance.stalls === 0
+          ? `Book a stall${fee.stall_period_id ? ' in this period' : ''} first — the pass moves it in early`
+          : 'One pass per stall';
     return (
       // Stacked on a phone, side by side from `sm` up. The
       // stepper is a fixed ~200px, so on a 390px screen the label
@@ -701,6 +735,11 @@ export default function ReservationFields({
           {isEarlyMoveInPass(fee) && (
             <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
               {passLineText(fee, stallPeriods, show.stalls_open_date, show.stalls_open_time)}
+            </div>
+          )}
+          {allowance !== null && allowance.stalls === 0 && qty === 0 && (
+            <div className="text-xs mt-0.5 font-medium" style={{ color: 'var(--warning)' }}>
+              Book a stall{fee.stall_period_id ? ' in this period' : ''} first.
             </div>
           )}
           <EarlyRateNote fee={fee} noun={noun} />
@@ -740,6 +779,8 @@ export default function ReservationFields({
             <input
               type="checkbox"
               checked={qty > 0}
+              disabled={qty === 0 && atCap}
+              title={qty === 0 && atCap ? capTitle : undefined}
               onChange={(e) => setQuantity(fee.id, e.target.checked ? 1 : 0, floor)}
               aria-label={`Add ${fee.label}`}
             />
@@ -781,7 +822,9 @@ export default function ReservationFields({
                 [fee.id]: Math.max(0, Math.min(999, Number(e.target.value) || 0)),
               }))
             }
-            onBlur={() => setQuantity(fee.id, qty, floor)}
+            onBlur={() =>
+              setQuantity(fee.id, allowance !== null ? Math.min(qty, allowance.cap) : qty, floor)
+            }
             className="w-16 border rounded px-2 py-1.5 text-sm text-center"
             style={{ borderColor: 'var(--border)' }}
             aria-label={`Number of ${noun}s — ${fee.label}`}
@@ -789,7 +832,9 @@ export default function ReservationFields({
           <button
             type="button"
             onClick={() => setQuantity(fee.id, qty + 1, floor)}
-            className="w-8 h-8 rounded border text-lg leading-none"
+            disabled={atCap}
+            title={atCap ? capTitle : undefined}
+            className="w-8 h-8 rounded border text-lg leading-none disabled:opacity-40"
             style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
             aria-label={`One more ${fee.label}`}
           >

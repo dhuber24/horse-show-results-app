@@ -6,14 +6,16 @@
  *
  * Not an <iframe>, because an iframe hands the file to the browser's own PDF
  * viewer, and that brings its toolbar, thumbnail sidebar, zoom, grey margin and
- * a scroll bar inside the page — none of which the show bill page wants, since
- * it has its own Download button. Many phone browsers will not draw a PDF in
- * an iframe at all. pdf.js renders each page to a canvas instead, so it reads
- * like a picture of the bill.
+ * a fixed-height box with a scroll bar inside the page — the document shrunk
+ * to fit and read through a letterbox. Many phone browsers will not draw a PDF
+ * in an iframe at all. pdf.js renders each page to a canvas instead, so it
+ * reads like a picture of the paper. Every in-page PDF preview uses this — the
+ * show bill, and the horse documents staff inspect at the desk — and each
+ * offers its own way to open or download the file.
  *
  * pdf.js is imported inside the effect: it touches browser-only globals at
- * load, so it must never be evaluated on the server, and only this page pays
- * for it.
+ * load, so it must never be evaluated on the server, and only a page that
+ * shows a PDF pays for it.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -25,7 +27,19 @@ function renderWidth(cssWidth: number): number {
   return Math.min(Math.max(cssWidth, 800) * dpr, 4096);
 }
 
-export default function PdfPages({ src, title }: { src: string; title: string }) {
+export default function PdfPages({
+  src,
+  title,
+  loadingText = 'Loading…',
+  failedText = 'This document can’t be shown here. Open or download it instead.',
+}: {
+  src: string;
+  /** Each page's accessible name, with "page n of N" added past one page. */
+  title: string;
+  loadingText?: string;
+  /** Should name the page's own way to the file. */
+  failedText?: string;
+}) {
   const holder = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
 
@@ -87,12 +101,12 @@ export default function PdfPages({ src, title }: { src: string; title: string })
     <>
       {state === 'loading' && (
         <p className="text-sm p-6 text-center" style={{ color: 'var(--muted)' }}>
-          Loading the show bill…
+          {loadingText}
         </p>
       )}
       {state === 'failed' && (
         <p className="text-sm p-6 text-center" style={{ color: 'var(--muted)' }}>
-          This show bill can&rsquo;t be shown here. Use Download show bill above to open it.
+          {failedText}
         </p>
       )}
       <div ref={holder} />

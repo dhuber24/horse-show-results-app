@@ -4,7 +4,11 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import ApprovalLinkCallout from '@/components/ApprovalLinkCallout';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
-import { nextSuggestedAssociation } from '@/lib/breed-associations';
+import {
+  nextSuggestedAssociation,
+  registrableAssociations,
+  registrationsWithoutBreed,
+} from '@/lib/breed-associations';
 import TrainerSelect from '@/components/TrainerSelect';
 import { DOC_TYPES, HEALTH_DOC_TYPES, MAX_DOC_BYTES } from '@/components/HorseDocuments';
 import {
@@ -392,15 +396,21 @@ export default function AddHorseWizard({
   const isLast = safeIndex === lastIndex;
 
   const usedAssociationIds = new Set(pendingRegs.map((r) => r.association_id));
-  const availableAssociations = associations.filter((a) => !usedAssociationIds.has(a.id));
+  // A breed registry is offered only for a breed ticked on the Horse step
+  // (`registrableAssociations`); clubs always. A number queued for a breed
+  // since unticked is held until it is removed or the breed ticked again.
+  const tickedBreeds = breeds.filter((b) => form.breed_ids.includes(b.id));
+  const availableAssociations = registrableAssociations(tickedBreeds, associations).filter(
+    (a) => !usedAssociationIds.has(a.id),
+  );
+  const regsWithoutBreed = registrationsWithoutBreed(pendingRegs, tickedBreeds, associations);
 
   // The registry the breeds ticked on the Horse step imply and that has no
   // number against it yet. Somebody who has just said "American Paint Horse"
   // should not have to find APHA again, two steps later, in a dropdown of every
   // body the app knows.
-  const selectedBreeds = breeds.filter((b) => form.breed_ids.includes(b.id));
   const suggestedAssociation = nextSuggestedAssociation(
-    selectedBreeds,
+    tickedBreeds,
     associations,
     usedAssociationIds,
   );
@@ -433,6 +443,9 @@ export default function AddHorseWizard({
       }
     }
     if (key === 'horse' && !form.name.trim()) return 'Registered name is required.';
+    if (key === 'registrations' && regsWithoutBreed.length > 0) {
+      return `${regsWithoutBreed.map((r) => r.association_code).join(', ')} is not a registry of a breed ticked on the Horse step. Tick the breed there, or remove the number.`;
+    }
     if (key === 'health') {
       const incomplete = pendingDocs.find((d) => !d.document_type || !d.issue_date || !d.expiry_date);
       if (incomplete) {
@@ -1028,7 +1041,8 @@ export default function AddHorseWizard({
           {(['breed', 'club'] as AssociationType[]).map((kind) => {
             const queued = pendingRegs.filter((r) => r.association_type === kind);
             const options = availableAssociations.filter((a) => a.association_type === kind);
-            if (!queued.length && !options.length) return null;
+            const noBreedRegistry = kind === 'breed' && !options.length && !queued.length;
+            if (!queued.length && !options.length && !noBreedRegistry) return null;
             return (
               <div key={kind} className="space-y-2">
                 <p className="text-xs font-medium pt-2" style={{ color: 'var(--foreground)' }}>
@@ -1039,6 +1053,13 @@ export default function AddHorseWizard({
                     ? 'Registry numbers issued for this horse (AQHA, APHA, ...).'
                     : 'Club membership numbers carried by this horse (NSBA, WSCA, ...).'}
                 </p>
+                {noBreedRegistry && (
+                  <p className="text-xs" style={{ color: 'var(--warning)' }}>
+                    {tickedBreeds.length === 0
+                      ? 'Tick the horse’s breed on the Horse step to add its registry number.'
+                      : 'None of the breeds ticked on the Horse step has a registry here.'}
+                  </p>
+                )}
 
                 {queued.length > 0 && (
                   <ul className="space-y-1">
@@ -1047,6 +1068,11 @@ export default function AddHorseWizard({
                         <span>
                           <span className="font-mono font-semibold mr-2">{r.association_code}</span>
                           {r.registration_number}
+                          {regsWithoutBreed.includes(r) && (
+                            <span className="ml-2 text-xs" style={{ color: 'var(--warning)' }}>
+                              — its breed is not ticked
+                            </span>
+                          )}
                         </span>
                         <button onClick={() => handleRemoveReg(r.association_id)} className="text-xs text-red-600 hover:text-red-800 ml-3">Remove</button>
                       </li>

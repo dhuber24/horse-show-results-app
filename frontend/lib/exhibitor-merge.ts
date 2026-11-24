@@ -54,3 +54,15 @@ export function holdingText(summary: MergeSummary): string {
   if (summary.payments_cents) parts.push(`${formatMoney(summary.payments_cents)} paid`);
   return parts.length ? parts.join(' · ') : 'Nothing entered yet';
 }
+
+/** One question two records answer differently (`merge_conflicts`). The
+ *  office picks `kept` (the record being viewed) or `other` for each before a
+ *  desk merge goes through. */
+export interface MergeConflict {
+  key: string;
+  label: string;
+  /** The show, for a field of one show's registration. */
+  context: string | null;
+  kept_value: string;
+  other_value: string;
+}

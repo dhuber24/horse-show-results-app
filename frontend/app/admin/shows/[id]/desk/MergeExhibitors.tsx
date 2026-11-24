@@ -1,12 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { errorMessage } from '@/lib/api-error';
-import { holdingText, type MergeCandidate } from '@/lib/exhibitor-merge';
-import { COLORS } from './types';
+import { holdingText, type MergeCandidate, type MergeConflict } from '@/lib/exhibitor-merge';
+import { COLORS, exhibitorNumbers } from './types';
+import type { DeskExhibitor } from './types';
+
+type Choice = 'kept' | 'other';
 
 /**
- * Joining two records of one person.
+ * Joining another record of the same person onto the one the panel is open on.
  *
  * The desk has grouped same-name records under one roster entry since it was
  * built, and its note ended "If they are the same person, remove the one that
@@ -14,105 +17,170 @@ import { COLORS } from './types';
  * whatever that record was holding — entries, a back number, paperwork
  * sign-offs, money taken. This is the other answer.
  *
- * Two things this screen will not do. It does not decide that two records are
- * one person: `matched_on` says why each is being *suggested*, and an email the
- * office wrote down matching the one an account was opened with is the best
- * reason this app can offer — still a reason to ask the person standing there.
- * And it does not choose which record survives silently: the direction is on
- * screen with what each one holds, because the wrong way round is recoverable
- * only by hand.
+ * It does not decide that two records are one person: `matched_on` says why
+ * each is being *suggested*. And it never picks between two different answers
+ * on its own — two phone numbers, two back numbers at one show, two membership
+ * numbers. Pressing Merge first asks the backend where the records disagree
+ * (`merge-conflicts`) and the office picks the right answer to each; the merge
+ * is refused until every one is picked. A blank on this record is filled from
+ * the other, and nothing this record already holds is replaced unless the
+ * office chose the other answer.
+ *
+ * Only the matches are listed — never the record being viewed, which the
+ * backend leaves out by id, and this screen again — and each merges into the
+ * record being viewed. Two records of one person usually share a name, so each
+ * row says what tells it apart: an account or not, on this show or not, the
+ * back number, what it holds. The record being viewed is described the same
+ * way at the top, so the two can be compared.
+ *
+ * Merging into the viewed record cannot lose a login: one on the match moves
+ * onto this record (`merge_exhibitors`), and where both records sign in the
+ * backend refuses and says so.
  *
  * Candidates are not scoped to this show, which is the point. The record the
  * office typed in at the August show is not on this roster and never will be;
  * the account its owner opened in November is what has to find it.
+ *
+ * It looks as soon as somebody's panel opens and says nothing unless it finds
+ * a match. One read per panel opened, not per desk load — the roster stays one
+ * read.
  */
 export default function MergeExhibitors({
   showId,
-  exhibitorId,
-  exhibitorName,
+  exhibitor,
+  onRoster,
   onMerged,
 }: {
   showId: string;
-  /** The record the panel is open on. Staff may still choose to keep the other. */
-  exhibitorId: string;
-  exhibitorName: string;
+  /** The record the panel is open on, and the one every merge here keeps. */
+  exhibitor: DeskExhibitor;
+  /** Every record on this show's roster, with its back number. */
+  onRoster: Map<string, number | null>;
   onMerged: (keptExhibitorId: string) => Promise<void>;
 }) {
+  const exhibitorId = exhibitor.exhibitor_id;
+  const exhibitorName = exhibitor.exhibitor_name;
+
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [candidates, setCandidates] = useState<MergeCandidate[] | null>(null);
-  const [chosen, setChosen] = useState<MergeCandidate | null>(null);
-  /** Which record survives. Defaults to whichever holds the login. */
-  const [keepId, setKeepId] = useState<string>(exhibitorId);
+  /** The match whose merge is being confirmed. */
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  /** Where that match and this record disagree; null while being looked up. */
+  const [conflicts, setConflicts] = useState<MergeConflict[] | null>(null);
+  const [choices, setChoices] = useState<Record<string, Choice>>({});
+  /** The comparison was refused — the merge would be too. */
+  const [refused, setRefused] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
-    setOpen(true);
-    setLoading(true);
+  const load = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch(
+        `/api/shows/${showId}/desk/exhibitors/${exhibitorId}/merge-candidates`,
+        { signal },
+      );
+      // A lookup that fails says nothing: the message is a prompt, not a
+      // control the desk relies on.
+      const data = res.ok ? await res.json().catch(() => []) : [];
+      const found: MergeCandidate[] = Array.isArray(data) ? data : [];
+      if (!signal?.aborted) setCandidates(found.filter((c) => c.exhibitor_id !== exhibitorId));
+    } catch {
+      if (!signal?.aborted) setCandidates([]);
+    }
+  }, [showId, exhibitorId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setCandidates(null);
+    setOpen(false);
+    setConfirmingId(null);
+    setError(null);
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  const closeConfirm = () => {
+    setConfirmingId(null);
+    setConflicts(null);
+    setChoices({});
+    setRefused(false);
+    setError(null);
+  };
+
+  const startConfirm = async (candidate: MergeCandidate) => {
+    setConfirmingId(candidate.exhibitor_id);
+    setConflicts(null);
+    setChoices({});
+    setRefused(false);
     setError(null);
     const res = await fetch(
-      `/api/shows/${showId}/desk/exhibitors/${exhibitorId}/merge-candidates`,
+      `/api/shows/${showId}/desk/exhibitors/${exhibitorId}/merge-conflicts?other=${candidate.exhibitor_id}`,
+      { cache: 'no-store' },
     );
-    setLoading(false);
+    const body = await res.json().catch(() => null);
     if (!res.ok) {
-      setError('Could not look for other records.');
-      setCandidates([]);
+      // Refused before anything is picked — two logins, say — rather than
+      // after the office has worked through the list.
+      setError(errorMessage(body, `Could not compare ${candidate.full_name}’s records.`));
+      setConflicts([]);
+      setRefused(true);
       return;
     }
-    const data = await res.json().catch(() => []);
-    setCandidates(Array.isArray(data) ? data : []);
+    setConflicts(Array.isArray(body) ? body : []);
   };
 
-  const choose = (candidate: MergeCandidate) => {
-    setChosen(candidate);
-    setError(null);
-    // The record holding the login survives by default: that is the identity
-    // the person will go on using, and the other is an office record of a
-    // weekend. Only a default — the radios are right there, and where both
-    // hold an account the desk refuses the merge outright and sends it to an
-    // admin, because choosing between somebody's two logins is not a
-    // registration-counter decision.
-    setKeepId(candidate.has_account ? candidate.exhibitor_id : exhibitorId);
-  };
-
-  const merge = async () => {
-    if (!chosen) return;
-    const removeId = keepId === exhibitorId ? chosen.exhibitor_id : exhibitorId;
+  const merge = async (candidate: MergeCandidate) => {
     setSaving(true);
     setError(null);
-    const res = await fetch(`/api/shows/${showId}/desk/exhibitors/${keepId}/merge`, {
+    const res = await fetch(`/api/shows/${showId}/desk/exhibitors/${exhibitorId}/merge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ remove_exhibitor_id: removeId }),
+      body: JSON.stringify({ remove_exhibitor_id: candidate.exhibitor_id, choices }),
     });
     setSaving(false);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(errorMessage(body, 'Could not join those records.'));
+      // Somebody changed one of the records since the list was read: ask
+      // about what disagrees now.
+      const fresh = body?.detail?.code === 'MERGE_CONFLICTS' ? body.detail.conflicts : null;
+      if (Array.isArray(fresh)) setConflicts(fresh);
+      setError(errorMessage(body, `Could not merge ${candidate.full_name} into this record.`));
       return;
     }
-    setOpen(false);
-    setChosen(null);
-    setCandidates(null);
-    await onMerged(keepId);
+    closeConfirm();
+    await onMerged(exhibitorId);
+    // There may be another match still, or none left. Look again either way;
+    // with none, the whole control disappears.
+    await load();
   };
+
+  // Nothing found, or still looking: say nothing.
+  if (!candidates || candidates.length === 0) return null;
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={load}
-        className="text-xs hover:underline"
-        style={{ color: COLORS.accent }}
-      >
-        Same person on file twice? Join their records
-      </button>
+      <p className="text-xs" style={{ color: 'var(--text-deep)' }}>
+        Another exhibitor that matches this one was found.{' '}
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="font-medium underline decoration-dotted hover:decoration-solid"
+          style={{ color: COLORS.accent }}
+        >
+          Review and merge them now?
+        </button>
+      </p>
     );
   }
 
-  const keptName = keepId === exhibitorId ? exhibitorName : chosen?.full_name ?? '';
-  const removedName = keepId === exhibitorId ? chosen?.full_name ?? '' : exhibitorName;
+  const viewingNumbers = exhibitorNumbers(exhibitor);
+  const viewingFacts = [
+    exhibitor.contact?.email_source === 'account' ? 'Has an account' : 'No account',
+    'On this show',
+    viewingNumbers.length > 0 ? `Back #${viewingNumbers.join(', #')}` : 'No back number',
+    `${exhibitor.entries.length} class${exhibitor.entries.length === 1 ? '' : 'es'}`,
+    exhibitor.contact?.email ?? null,
+  ].filter(Boolean);
 
   return (
     <div
@@ -121,13 +189,13 @@ export default function MergeExhibitors({
     >
       <div className="flex items-center justify-between gap-2">
         <h4 className="text-sm font-semibold" style={{ color: COLORS.text }}>
-          Join {exhibitorName}&rsquo;s records
+          Possible matches for {exhibitorName}
         </h4>
         <button
           type="button"
           onClick={() => {
             setOpen(false);
-            setChosen(null);
+            closeConfirm();
           }}
           className="text-xs hover:underline"
           style={{ color: COLORS.muted }}
@@ -136,147 +204,169 @@ export default function MergeExhibitors({
         </button>
       </div>
 
-      {loading && (
-        <p className="text-sm" style={{ color: COLORS.muted }}>
-          Looking for other records…
-        </p>
-      )}
+      <p className="text-xs" style={{ color: COLORS.muted }}>
+        <span className="font-semibold" style={{ color: COLORS.text }}>
+          The record you are viewing:
+        </span>{' '}
+        {viewingFacts.join(' · ')}
+      </p>
 
-      {!loading && candidates?.length === 0 && (
-        <p className="text-sm" style={{ color: COLORS.muted }}>
-          No other record matches this name or email address. Nothing to join.
-        </p>
-      )}
-
-      {!loading && !chosen && (candidates?.length ?? 0) > 0 && (
-        <>
-          <p className="text-xs" style={{ color: COLORS.muted }}>
-            These match on a name or an email address, which is a reason to ask rather than
-            proof. Pick the one that is the same person.
-          </p>
-          <ul className="space-y-1.5">
-            {candidates!.map((candidate) => (
-              <li key={candidate.exhibitor_id}>
-                <button
-                  type="button"
-                  onClick={() => choose(candidate)}
-                  className="w-full text-left px-3 py-2 rounded border text-sm hover:bg-amber-50 transition-colors"
-                  style={{ borderColor: COLORS.borderSoft, color: COLORS.text }}
-                >
-                  <span className="flex items-baseline justify-between gap-2">
+      <ul className="space-y-2">
+        {candidates.map((candidate) => {
+          const confirming = confirmingId === candidate.exhibitor_id;
+          const here = onRoster.has(candidate.exhibitor_id);
+          const number = onRoster.get(candidate.exhibitor_id);
+          const allPicked = (conflicts ?? []).every((c) => choices[c.key]);
+          return (
+            <li
+              key={candidate.exhibitor_id}
+              className="rounded border px-3 py-2 text-sm"
+              style={{ borderColor: COLORS.borderSoft, color: COLORS.text }}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-baseline gap-x-2">
                     <span className="font-medium">{candidate.full_name}</span>
                     <span
-                      className="text-xs shrink-0"
+                      className="text-xs"
                       style={{
-                        color:
-                          candidate.matched_on === 'email' ? 'var(--accent)' : COLORS.muted,
+                        color: candidate.matched_on === 'email' ? 'var(--accent)' : COLORS.muted,
                       }}
                     >
                       {candidate.matched_on === 'email' ? 'same email' : 'same name'}
                     </span>
-                  </span>
-                  <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
                     {candidate.has_account ? 'Has an account' : 'No account'}
                     {candidate.office_record ? ' · added by the office' : ''}
+                    {here
+                      ? ` · On this show${number != null ? ` · Back #${number}` : ''}`
+                      : ' · Not on this show'}
                     {candidate.email ? ` · ${candidate.email}` : ''}
-                  </span>
+                  </p>
                   {candidate.summary && (
-                    <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                    <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
                       {holdingText(candidate.summary)}
-                    </span>
+                    </p>
                   )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+                </div>
+                {!confirming && (
+                  <button
+                    type="button"
+                    onClick={() => void startConfirm(candidate)}
+                    disabled={saving}
+                    className="shrink-0 px-3 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50"
+                    style={{ backgroundColor: COLORS.accent }}
+                  >
+                    Merge into {exhibitorName}
+                  </button>
+                )}
+              </div>
 
-      {chosen && (
-        <div className="space-y-2.5">
-          <fieldset className="space-y-1.5">
-            <legend className="text-xs font-semibold" style={{ color: COLORS.text }}>
-              Which record should everything end up on?
-            </legend>
-            <label className="flex items-start gap-2 text-sm" style={{ color: COLORS.text }}>
-              <input
-                type="radio"
-                checked={keepId === exhibitorId}
-                onChange={() => setKeepId(exhibitorId)}
-                className="mt-1"
-              />
-              <span>
-                {exhibitorName}
-                <span className="block text-xs" style={{ color: COLORS.muted }}>
-                  The record open on this panel
-                </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm" style={{ color: COLORS.text }}>
-              <input
-                type="radio"
-                checked={keepId === chosen.exhibitor_id}
-                onChange={() => setKeepId(chosen.exhibitor_id)}
-                className="mt-1"
-              />
-              <span>
-                {chosen.full_name}
-                <span className="block text-xs" style={{ color: COLORS.muted }}>
-                  {chosen.has_account ? 'Has an account' : 'No account'}
-                  {chosen.summary ? ` · ${holdingText(chosen.summary)}` : ''}
-                </span>
-              </span>
-            </label>
-          </fieldset>
+              {confirming && (
+                <div className="mt-2 space-y-2">
+                  <div
+                    className="rounded border p-2.5 text-xs font-medium"
+                    style={{
+                      borderColor: 'var(--warning-border)',
+                      backgroundColor: 'var(--warning-bg)',
+                      color: 'var(--text-deep)',
+                    }}
+                  >
+                    Merging these records cannot be undone - please verify these records are in
+                    fact the same person before proceeding
+                  </div>
 
-          <div
-            className="rounded border p-2.5 text-xs"
-            style={{
-              borderColor: 'var(--warning-border)',
-              backgroundColor: 'var(--warning-bg)',
-              color: 'var(--text-deep)',
-            }}
-          >
-            Everything on <strong>{removedName}</strong> — classes, back numbers, horses,
-            memberships, signed waivers and payments — moves onto{' '}
-            <strong>{keptName}</strong>, and that record is then removed. Where both hold the
-            same thing, {keptName}&rsquo;s answer is kept. This cannot be undone in one press.
-          </div>
+                  {conflicts === null && (
+                    <p className="text-xs" style={{ color: COLORS.muted }}>
+                      Comparing the two records…
+                    </p>
+                  )}
 
-          {error && (
-            <p className="text-sm" role="alert" style={{ color: 'var(--error-strong)' }}>
-              {error}
-            </p>
-          )}
+                  {conflicts !== null && conflicts.length > 0 && (
+                    <fieldset className="space-y-2">
+                      <legend className="text-xs font-semibold mb-1" style={{ color: COLORS.text }}>
+                        Both records have an answer for these. Pick the right one for each:
+                      </legend>
+                      {conflicts.map((conflict) => (
+                        <div
+                          key={conflict.key}
+                          className="rounded border px-2.5 py-2"
+                          style={{ borderColor: COLORS.borderSoft }}
+                        >
+                          <p className="text-xs font-semibold" style={{ color: COLORS.text }}>
+                            {conflict.label}
+                            {conflict.context && (
+                              <span className="font-normal" style={{ color: COLORS.muted }}>
+                                {' '}— {conflict.context}
+                              </span>
+                            )}
+                          </p>
+                          {(['kept', 'other'] as Choice[]).map((side) => (
+                            <label
+                              key={side}
+                              className="flex items-start gap-2 text-sm mt-1"
+                              style={{ color: COLORS.text }}
+                            >
+                              <input
+                                type="radio"
+                                name={`merge-${candidate.exhibitor_id}-${conflict.key}`}
+                                checked={choices[conflict.key] === side}
+                                onChange={() =>
+                                  setChoices((prev) => ({ ...prev, [conflict.key]: side }))
+                                }
+                                className="mt-1"
+                              />
+                              <span>
+                                {side === 'kept' ? conflict.kept_value : conflict.other_value}
+                                <span className="block text-xs" style={{ color: COLORS.muted }}>
+                                  {side === 'kept' ? 'On the record you are viewing' : 'On the matching record'}
+                                </span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      ))}
+                    </fieldset>
+                  )}
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={merge}
-              disabled={saving}
-              className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50"
-              style={{ backgroundColor: COLORS.accent }}
-            >
-              {saving ? 'Joining…' : `Join into ${keptName}`}
-            </button>
-            <button
-              type="button"
-              onClick={() => setChosen(null)}
-              className="text-xs hover:underline"
-              style={{ color: COLORS.muted }}
-            >
-              Pick a different record
-            </button>
-          </div>
-        </div>
-      )}
+                  {error && (
+                    <p className="text-sm" role="alert" style={{ color: 'var(--error-strong)' }}>
+                      {error}
+                    </p>
+                  )}
 
-      {error && !chosen && (
-        <p className="text-sm" role="alert" style={{ color: 'var(--error-strong)' }}>
-          {error}
-        </p>
-      )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void merge(candidate)}
+                      disabled={saving || refused || conflicts === null || !allPicked}
+                      title={
+                        conflicts !== null && !allPicked
+                          ? 'Pick the right answer for each field above first'
+                          : undefined
+                      }
+                      className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50"
+                      style={{ backgroundColor: COLORS.accent }}
+                    >
+                      {saving ? 'Merging…' : 'Yes, merge them'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeConfirm}
+                      disabled={saving}
+                      className="text-xs hover:underline disabled:opacity-50"
+                      style={{ color: COLORS.muted }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
-

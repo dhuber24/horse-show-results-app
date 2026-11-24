@@ -3,7 +3,7 @@ import { fetchShow } from '@/lib/api';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import { formatMoney } from '@/lib/financials';
 import { getAuthHeaders } from '@/lib/backend-fetch';
-import { FINANCIAL_REPORTS, ONLINE_PAYMENTS, fetchShowPlan, showHasFeature } from '@/lib/show-companies';
+import { FINANCIAL_REPORTS, fetchShowPlan, showHasFeature } from '@/lib/show-companies';
 import { loadFinancials } from './loadFinancials';
 import AutoRefresh from './AutoRefresh';
 
@@ -189,20 +189,6 @@ export default async function ShowFinancialsPage({
             </div>
           </div>
         </Link>
-      </div>
-
-      <div
-        className="rounded border px-4 py-3 text-sm"
-        style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
-      >
-        Amounts billed come from the show&rsquo;s own fee schedule, and payments are what your office
-        records collecting at the desk — cash, checks, and transfers you write down here.{' '}
-        {/* Migration 172: online payments land in the same accounts, marked Paid online. */}
-        <span style={{ color: 'var(--muted)' }}>
-          {showHasFeature(plan, ONLINE_PAYMENTS)
-            ? 'Exhibitors can also pay their balance online once your company connects Stripe on My Company; those payments appear here on their own, marked Paid online.'
-            : 'Taking exhibitors’ payments online is part of GaitDesk Pro.'}
-        </span>
       </div>
 
       <section className="space-y-3">

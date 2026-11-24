@@ -21,7 +21,7 @@
  *     cannot be drawn at all there still has to be a way to the file.
  */
 
-import PdfPages from './PdfPages';
+import PdfPages from '@/components/PdfPages';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -102,7 +102,12 @@ export default function UploadedShowbill({
             className="w-full h-auto block"
           />
         ) : (
-          <PdfPages src={fileHref} title={`Show bill for ${showName}`} />
+          <PdfPages
+            src={fileHref}
+            title={`Show bill for ${showName}`}
+            loadingText="Loading the show bill…"
+            failedText="This show bill can’t be shown here. Use Download show bill above to open it."
+          />
         )}
       </div>
     </div>

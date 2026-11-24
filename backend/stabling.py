@@ -20,6 +20,10 @@ stall" and "four horses per games tack stall" are the show's rules, and the
 answer to a shortfall is often that somebody else is paying -- a parent, a
 trainer, a group leader -- which only the office can see. So `stall_checks`
 reports, and the sign-up form, the class page and the desk show the report.
+
+One exception, at the show office's request: no booking may *add* an Early
+Move-In Pass without the stall it moves in early (`pass_refusal`) -- the
+exhibitor's sign-up and the desk's bookings alike.
 """
 from __future__ import annotations
 
@@ -294,6 +298,42 @@ def pass_shortfalls(fees: Iterable, booked: Mapping[UUID, int], periods_by_id: M
             "one_per_exhibitor": one_each,
         })
     return items
+
+
+
+def pass_refusal(
+    fees: Iterable,
+    requested: Mapping[UUID, int],
+    saved: Mapping[UUID, int],
+    periods_by_id: Mapping,
+) -> Optional[dict]:
+    """The refusal for an exhibitor booking an Early Move-In Pass without the
+    stall it moves in early, or None.
+
+    The one check in this module that refuses, on the exhibitor's sign-up and
+    the desk's bookings alike: the show office asked that a pass never be
+    bought with nothing to move in. The rule is `pass_shortfalls`'s, so the flag the desk shows and
+    this refusal cannot disagree.
+
+    Only a pass this booking *adds* -- more of it than `saved`, what is on file
+    -- so a booking that already holds one can still be saved for its other
+    lines.
+    """
+    for short in pass_shortfalls(fees, requested, periods_by_id):
+        fee_id = short["show_fee_id"]
+        if requested.get(fee_id, 0) <= saved.get(fee_id, 0):
+            continue
+        where = f" in the {short['period']} period" if short["period"] else ""
+        if short["one_per_exhibitor"] or short["stalls"] == 0:
+            message = f"{short['label']} needs a stall{where}. Book the stall first."
+        else:
+            stalls = short["stalls"]
+            message = (
+                f"{short['label']}: {short['passes']} passes for {stalls} "
+                f"stall{'' if stalls == 1 else 's'}{where}. One pass moves one stall in early."
+            )
+        return {"code": PASS_WITHOUT_STALL, "message": message, "show_fee_id": str(fee_id)}
+    return None
 
 
 def stall_checks(

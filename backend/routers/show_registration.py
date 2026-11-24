@@ -97,7 +97,7 @@ from registration_profile import (
     take_memberships,
 )
 from reservations import minimum_shortfall
-from stabling import load_stall_periods, stall_checks_for_exhibitor, stall_kind_of
+from stabling import load_stall_periods, pass_refusal, stall_checks_for_exhibitor, stall_kind_of
 from show_associations import show_associations
 from billing import (
     breed_judge_count,
@@ -835,7 +835,25 @@ async def save_signup(
                 },
             )
 
+    # An Early Move-In Pass moves a stall in early, so an exhibitor books one
+    # only with the stall it is for: a stall in the pass's own period (the
+    # whole show's pass, any stall), one pass per stall, or for a pass sold per
+    # exhibitor, at least one stall. Refused here, where everything else in
+    # `stabling` is a flag, because the show office asked for it: a pass with
+    # nothing to move in is money taken for nothing.
+    #
+    # Only passes this save *adds*: a booking already holding one can still be
+    # saved for its other lines. The desk's bookings refuse the same way.
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
+    refusal = pass_refusal(
+        fees_by_id.values(),
+        requested,
+        {r.show_fee_id: r.quantity for r in (show_entry.reservations if show_entry else [])},
+        {period.id: period for period in await load_stall_periods(db, show_id)},
+    )
+    if refusal is not None:
+        raise HTTPException(422, refusal)
+
     if show_entry is None:
         show_entry = ShowEntry(show_id=show_id, exhibitor_id=exhibitor.id)
         # Initialize the collection before the flush makes the row persistent:
